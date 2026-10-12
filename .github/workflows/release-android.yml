@@ -1,0 +1,63 @@
+name: Release Android APK
+
+# Push a tag like v1.0.1 to build a signed APK and publish it as a GitHub Release.
+# The app checks the latest release and offers it as an in-app update.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.6.0
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.TANDEM_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Missing secret TANDEM_KEYSTORE_B64. Updates only install over the old version when signed with the SAME key every time. See README."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/tandem.jks"
+          echo "TANDEM_KEYSTORE_FILE=$RUNNER_TEMP/tandem.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          TANDEM_KEYSTORE_PASSWORD: ${{ secrets.TANDEM_KEYSTORE_PASSWORD }}
+          TANDEM_KEY_ALIAS: ${{ secrets.TANDEM_KEY_ALIAS }}
+          TANDEM_KEY_PASSWORD: ${{ secrets.TANDEM_KEY_PASSWORD }}
+          TANDEM_API_URL_SECRET: ${{ secrets.TANDEM_API_URL }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="0.0.${GITHUB_RUN_NUMBER}-dev"
+          EXTRA=""
+          if [ -n "$TANDEM_API_URL_SECRET" ]; then EXTRA="-PTANDEM_API_URL=$TANDEM_API_URL_SECRET"; fi
+          gradle -p android assembleRelease -PversionName="$VERSION" -PversionCode="$GITHUB_RUN_NUMBER" $EXTRA
+          cp android/app/build/outputs/apk/release/app-release.apk "Tandem-$VERSION.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tandem-apk
+          path: Tandem-*.apk
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Tandem-*.apk
+          generate_release_notes: true

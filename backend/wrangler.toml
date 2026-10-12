@@ -1,0 +1,10 @@
+name = "tandem-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tandem"
+database_id = "cdd023dc-ccad-4fd4-a77f-b82bb0534c11"
+
+# Set the JWT secret with:  npx wrangler secret put JWT_SECRET

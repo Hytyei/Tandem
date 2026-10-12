@@ -1,0 +1,10 @@
+<resources>
+    <color name="white_dim">#CCFFFFFF</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="window_bg">#FFF1EAFF</color>
+    <color name="widget_bg_top">#FFD6CCFF</color>
+    <color name="widget_bg_bottom">#FFFFE1E6</color>
+    <color name="widget_text">#FF231A55</color>
+    <color name="widget_secondary">#FF6A6392</color>
+    <color name="widget_accent">#FFE5365F</color>
+</resources>
