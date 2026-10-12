@@ -41,6 +41,23 @@ enum class Activity(val key: String, val label: String, @DrawableRes val art: In
     }
 }
 
+/** Kinds of special days (birthdays, Valentine's Day, first date, ...). Keys must match the backend. */
+enum class SpecialCategory(val key: String, val label: String, val emoji: String) {
+    Birthday("birthday", "Birthday", "🎂"),
+    Valentine("valentine", "Valentine's Day", "💘"),
+    Anniversary("anniversary", "Anniversary", "💍"),
+    FirstDate("firstdate", "First date", "🌹"),
+    FirstKiss("firstkiss", "First kiss", "💋"),
+    Proposal("proposal", "Proposal", "💎"),
+    Wedding("wedding", "Wedding", "👰"),
+    Trip("trip", "Trip together", "✈️"),
+    Custom("custom", "Custom", "⭐");
+
+    companion object {
+        fun from(key: String?): SpecialCategory? = entries.firstOrNull { it.key == key }
+    }
+}
+
 /** What to show as the "picture" for a mood update: the activity artwork wins, otherwise the mood face. */
 @DrawableRes
 fun MoodEntry.artRes(): Int =

@@ -3,6 +3,7 @@ package app.tandem.ui.screens
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,6 +92,9 @@ fun TimelineScreen(vm: AppViewModel) {
     }
 }
 
+/** Mood/activity tints are mid-tones: lighten them on dark cards, deepen them on light cards. */
+private fun readable(tint: Color, dark: Boolean): Color = if (dark) lerp(tint, Color.White, .6f) else lerp(tint, Color.Black, .3f)
+
 @Composable
 private fun TimelineRow(e: MoodEntry, mine: Boolean, user: User?) {
     val c = T.colors
@@ -101,8 +106,8 @@ private fun TimelineRow(e: MoodEntry, mine: Boolean, user: User?) {
         }
         // Rail with dot
         Box(Modifier.width(28.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-            Box(Modifier.fillMaxHeight().width(2.dp).background(c.separator))
-            Box(Modifier.padding(top = 26.dp).size(12.dp).clip(CircleShape).background(accent))
+            Box(Modifier.fillMaxHeight().width(2.dp).background(if (c.isDark) Color.White.copy(alpha = .30f) else c.separator))
+            Box(Modifier.padding(top = 24.dp).size(15.dp).clip(CircleShape).background(accent).border(2.5.dp, c.sheet, CircleShape))
         }
         Box(Modifier.weight(1f).padding(vertical = 5.dp), contentAlignment = Alignment.CenterStart) {
             if (!mine) EntryCard(e, time, accent, alignEnd = false)
@@ -113,23 +118,28 @@ private fun TimelineRow(e: MoodEntry, mine: Boolean, user: User?) {
 @Composable
 private fun EntryCard(e: MoodEntry, time: String, accent: Color, alignEnd: Boolean) {
     val c = T.colors
+    // Dark mode: a lighter card with a hairline border, and tints lightened so they stay readable on it.
+    val shape = RoundedCornerShape(22.dp)
     Column(
-        Modifier.fillMaxWidth().staggerIn(0, 0).clip(RoundedCornerShape(22.dp)).background(c.card).padding(12.dp),
+        Modifier.fillMaxWidth().staggerIn(0, 0).clip(shape)
+            .background(if (c.isDark) Color.White.copy(alpha = .14f) else c.card)
+            .border(1.dp, if (c.isDark) Color.White.copy(alpha = .16f) else Color.White.copy(alpha = .7f), shape)
+            .padding(12.dp),
         horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Art(e.artRes(), 46.dp)
             Spacer(Modifier.width(8.dp))
             Column {
-                Text(e.headline(), style = Type.callout.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), color = e.tint(), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(time, style = Type.caption, color = c.tertiary)
+                Text(e.headline(), style = Type.callout.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), color = readable(e.tint(), c.isDark), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(time, style = Type.caption, color = c.secondary)
             }
         }
         if (e.note.isNotBlank()) {
             Spacer(Modifier.height(6.dp))
-            Text(e.note, style = Type.footnote, color = c.secondary)
+            Text(e.note, style = Type.footnote, color = c.label.copy(alpha = .88f))
         }
         Spacer(Modifier.height(6.dp))
-        Box(Modifier.height(3.dp).width(28.dp).clip(RoundedCornerShape(2.dp)).background(accent.copy(alpha = .6f)))
+        Box(Modifier.height(3.dp).width(28.dp).clip(RoundedCornerShape(2.dp)).background(accent))
     }
 }

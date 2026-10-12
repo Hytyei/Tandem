@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.*
 import app.tandem.TandemApp
 import app.tandem.data.AppException
+import app.tandem.update.Updater
 import java.util.concurrent.TimeUnit
 
 /** Periodic background sync: keeps widgets fresh and reschedules reminders. */
@@ -13,9 +14,22 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         if (!repo.loggedIn.value) return Result.success()
         return try {
             repo.refresh()
+            checkForUpdate(repo)
             Result.success()
         } catch (e: AppException) {
             Result.retry()
+        }
+    }
+
+    /** At most every 6 hours: look for a new release and tell the person once per version. */
+    private suspend fun checkForUpdate(repo: app.tandem.data.Repository) {
+        val now = System.currentTimeMillis()
+        if (now - repo.prefs.lastUpdateCheck() < 6 * 3600_000L) return
+        repo.prefs.setLastUpdateCheck(now)
+        val info = runCatching { Updater.check() }.getOrNull() ?: return
+        if (repo.prefs.notifiedUpdate() != info.version) {
+            Notifier.notifyUpdate(applicationContext, info)
+            repo.prefs.setNotifiedUpdate(info.version)
         }
     }
 

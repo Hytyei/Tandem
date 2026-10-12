@@ -54,3 +54,14 @@ fun timeAgo(ms: Long, now: Long = System.currentTimeMillis()): String {
         else -> Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate().toString()
     }
 }
+
+/** The day a diary note is about: its chosen date, or the day it was written. */
+fun DiaryEntry.day(): LocalDate =
+    parseDate(entryDate) ?: Instant.ofEpochMilli(createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
+
+/** The phone's current UTC offset in minutes (so server-side "days" line up with local midnight). */
+fun utcOffsetMinutes(): Int = ZoneId.systemDefault().rules.getOffset(Instant.now()).totalSeconds / 60
+
+/** Special days only, soonest first. */
+fun upcomingSpecial(events: List<CalendarEvent>, today: LocalDate = LocalDate.now()) =
+    upcoming(events.filter { it.isSpecial }, today)

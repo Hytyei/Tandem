@@ -13,6 +13,9 @@ import app.tandem.update.Updater
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
+import app.tandem.work.Notifier
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -29,8 +32,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var updateProgress by mutableStateOf<Float?>(null); private set
     var checkingUpdate by mutableStateOf(false); private set
 
+    /** Tab requested by tapping a notification (AppTab name), consumed by the shell. */
+    var requestedTab by mutableStateOf<String?>(null)
+    var stats by mutableStateOf<StatsDetail?>(null); private set
+    var statsLoading by mutableStateOf(false); private set
+
+    val notifyMoods = repo.prefs.notifyMoods.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val notifyDiary = repo.prefs.notifyDiary.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val notifyEvents = repo.prefs.notifyEvents.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val dismissedUpdate = repo.prefs.dismissedUpdate.stateIn(viewModelScope, SharingStarted.Eagerly, null as String?)
+
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val toasts: SharedFlow<String> = _toasts
+
+    init {
+        // Partner activity noticed while the app is open becomes an in-app banner.
+        viewModelScope.launch { repo.incoming.collect { toast(it) } }
+    }
+
+    // While the app is on screen, sync every 30 s so partner updates show up (and are announced) quickly.
+    private var pollJob: Job? = null
+    fun startPolling() {
+        if (pollJob?.isActive == true) return
+        pollJob = viewModelScope.launch {
+            while (true) {
+                delay(30_000)
+                if (repo.loggedIn.value) try { repo.refresh() } catch (_: AppException) { }
+            }
+        }
+    }
+    fun stopPolling() { pollJob?.cancel(); pollJob = null }
 
     fun toast(msg: String) { _toasts.tryEmit(msg) }
 
@@ -59,7 +90,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun createInvite() = busyRun { repo.createInvite() }
     fun join(code: String) = busyRun { repo.joinWithCode(code) }
     fun shareMood(m: Mood, a: Activity?, note: String, done: () -> Unit) = busyRun(done) { repo.shareMood(m, a, note) }
-    fun addDiary(text: String, mood: Mood?, done: () -> Unit) = busyRun(done) { repo.addDiary(text, mood) }
+    fun addDiary(text: String, mood: Mood?, date: java.time.LocalDate?, images: List<Uri>, done: () -> Unit) = busyRun(done) {
+        val failed = repo.addDiary(text, mood, date?.toString(), images)
+        if (failed > 0) toast(if (failed == 1) "Note pinned, but one picture couldn't be uploaded" else "Note pinned, but $failed pictures couldn't be uploaded")
+    }
+    fun leaveCouple(done: () -> Unit) = busyRun(done) { repo.leaveCouple() }
+    fun deleteAccount(password: String, done: () -> Unit) = busyRun(done) { repo.deleteAccount(password) }
+    fun setNotifyMoods(v: Boolean) { viewModelScope.launch { repo.prefs.setNotifyMoods(v) } }
+    fun setNotifyDiary(v: Boolean) { viewModelScope.launch { repo.prefs.setNotifyDiary(v) } }
+    fun setNotifyEvents(v: Boolean) { viewModelScope.launch { repo.prefs.setNotifyEvents(v) } }
+    fun testNotification() {
+        val ctx = getApplication<Application>()
+        if (!Notifier.enabled(ctx)) toast("Notifications are turned off for Tandem in your phone's settings")
+        else Notifier.test(ctx)
+    }
+
+    fun loadStats() {
+        viewModelScope.launch {
+            statsLoading = true
+            try { stats = repo.statsDetail() } catch (e: AppException) { toast(e.message ?: "Couldn't load stats") } finally { statsLoading = false }
+        }
+    }
     fun deleteDiary(id: String) = busyRun { repo.deleteDiary(id) }
     fun saveEvent(id: String?, e: EventBody, done: () -> Unit) = busyRun(done) { repo.saveEvent(id, e) }
     fun deleteEvent(id: String, done: () -> Unit) = busyRun(done) { repo.deleteEvent(id) }
@@ -67,7 +118,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setAnniversary(date: String) = busyRun { repo.setAnniversary(date) }
     fun uploadAvatar(uri: Uri) = busyRun { repo.uploadAvatar(uri) }
     fun setTheme(mode: ThemeMode) { viewModelScope.launch { repo.prefs.setTheme(mode) } }
-    fun setServer(url: String) { viewModelScope.launch { repo.setBaseUrl(url) } }
+    fun setServer(url: String, done: () -> Unit) = busyRun(done) { repo.setBaseUrl(url) }
 
     /** [manual] shows feedback even if there is nothing new. */
     fun checkForUpdate(manual: Boolean) {
@@ -102,16 +153,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    suspend fun shouldAutoCheck(): Boolean {
-        // Check at most once per app launch; prefs track the last version we already told the person about.
-        return repo.prefs.seenUpdate.first() != "checked-${java.time.LocalDate.now()}"
+    private var lastAutoCheck = 0L
+
+    /** Looks for a new GitHub release when the app opens (and at most every 30 min after). */
+    fun autoCheckForUpdate() {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoCheck < 30 * 60_000L) return
+        lastAutoCheck = now
+        viewModelScope.launch { try { update = Updater.check() } catch (_: Exception) { } }
     }
 
-    fun autoCheckOncePerDay() {
-        viewModelScope.launch {
-            if (!shouldAutoCheck()) return@launch
-            repo.prefs.setSeenUpdate("checked-${java.time.LocalDate.now()}")
-            try { update = Updater.check() } catch (_: Exception) { }
-        }
+    /** "Later" on the update dialog: don't pop it up again for this version (the banner and Profile badge stay). */
+    fun dismissUpdateDialog() {
+        val v = update?.version ?: return
+        viewModelScope.launch { repo.prefs.setDismissedUpdate(v) }
     }
 }

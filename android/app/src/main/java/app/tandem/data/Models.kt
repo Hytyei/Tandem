@@ -37,6 +37,8 @@ data class DiaryEntry(
     val text: String,
     val mood: String? = null,
     val createdAt: Long,
+    val entryDate: String? = null,          // yyyy-MM-dd the note is about (may be a past day)
+    val images: List<String> = emptyList(), // picture ids, fetched from /diary/image/{id}
 )
 
 @Serializable
@@ -49,7 +51,13 @@ data class CalendarEvent(
     val time: String? = null,  // HH:mm
     val repeatYearly: Boolean = false,
     val notes: String = "",
-)
+    val kind: String = "event",      // "event" | "special"
+    val category: String? = null,    // SpecialCategory.key for special days
+    val updatedAt: Long = 0,
+    val updatedBy: String? = null,
+) {
+    val isSpecial: Boolean get() = kind == "special"
+}
 
 @Serializable
 data class Stats(
@@ -83,9 +91,30 @@ data class SyncResponse(
 @Serializable data class JoinBody(val code: String)
 @Serializable data class AnniversaryBody(val anniversary: String)
 @Serializable data class MoodBody(val mood: String, val activity: String?, val note: String)
-@Serializable data class DiaryBody(val text: String, val mood: String?)
+@Serializable data class DiaryBody(val text: String, val mood: String?, val entryDate: String? = null)
 @Serializable
 data class EventBody(
     val title: String, val emoji: String, val date: String,
     val time: String?, val repeatYearly: Boolean, val notes: String,
+    val kind: String = "event", val category: String? = null,
+)
+@Serializable data class OkResponse(val ok: Boolean = true)
+@Serializable data class ImageId(val id: String)
+@Serializable data class DeleteBody(val password: String)
+
+// ---- /stats (the Stats screen)
+@Serializable data class MoodCount(val userId: String, val mood: String, val n: Int)
+@Serializable data class ActivityCount(val userId: String, val activity: String, val n: Int)
+@Serializable data class DailyCount(val day: String, val userId: String, val n: Int)
+@Serializable data class DiaryCount(val userId: String, val n: Int)
+@Serializable
+data class StatsDetail(
+    val moodCounts: List<MoodCount> = emptyList(),
+    val activityCounts: List<ActivityCount> = emptyList(),
+    val daily: List<DailyCount> = emptyList(),
+    val diaryCounts: List<DiaryCount> = emptyList(),
+    val photos: Int = 0,
+    val streak: Int = 0,
+    val bestStreak: Int = 0,
+    val checkInDays: Int = 0,
 )

@@ -22,18 +22,18 @@ const enc = new TextEncoder();
 const now = () => Date.now();
 const uid = () => crypto.randomUUID().replace(/-/g, "");
 
+// The only client is the Android app, so there is deliberately no CORS: browsers can't call this API.
+const SEC: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+};
+
 function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", ...cors(), ...extra },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...SEC, ...extra },
   });
-}
-function cors(): Record<string, string> {
-  return {
-    "access-control-allow-origin": "*",
-    "access-control-allow-headers": "authorization, content-type",
-    "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  };
 }
 
 const b64u = (buf: ArrayBuffer | Uint8Array): string => {
@@ -88,12 +88,33 @@ async function verifyJwt(token: string, secret: string): Promise<string | null> 
   } catch { return null; }
 }
 
+// ------------------------------------------------------------- rate limiting (stored in D1)
+const clientIp = (req: Request) => req.headers.get("cf-connecting-ip") ?? "unknown";
+
+async function attempts(env: Env, key: string): Promise<number> {
+  const r = await env.DB.prepare("SELECT count FROM auth_attempts WHERE key = ? AND reset_at > ?").bind(key, now()).first<{ count: number }>();
+  return r?.count ?? 0;
+}
+async function bump(env: Env, key: string, windowMs: number): Promise<number> {
+  const t = now();
+  const r = await env.DB.prepare(
+    "INSERT INTO auth_attempts (key, count, reset_at) VALUES (?1, 1, ?2) ON CONFLICT(key) DO UPDATE SET " +
+    "count = CASE WHEN reset_at < ?3 THEN 1 ELSE count + 1 END, reset_at = CASE WHEN reset_at < ?3 THEN ?2 ELSE reset_at END RETURNING count"
+  ).bind(key, t + windowMs, t).first<{ count: number }>();
+  if (Math.random() < 0.02) await env.DB.prepare("DELETE FROM auth_attempts WHERE reset_at < ?").bind(t).run();
+  return r?.count ?? 1;
+}
+const tooMany = () => new HttpError(429, "Too many attempts. Please wait a few minutes and try again.");
+const MIN = 60_000;
+
 interface UserRow {
   id: string; username: string; display_name: string; bio: string;
   pass_hash: string; pass_salt: string; avatar_version: number; couple_id: string | null; created_at: number;
 }
 
 async function readJson<T = any>(req: Request): Promise<T> {
+  const len = parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (len > 64 * 1024) throw new HttpError(413, "Request is too large");
   try { return (await req.json()) as T; } catch { throw new HttpError(400, "Invalid JSON body"); }
 }
 
@@ -130,13 +151,31 @@ function requireCouple(user: UserRow): string {
 function moodJson(r: any) {
   return { id: r.id, userId: r.user_id, mood: r.mood, activity: r.activity, note: r.note, createdAt: r.created_at };
 }
-function diaryJson(r: any) {
-  return { id: r.id, userId: r.user_id, text: r.text, mood: r.mood, createdAt: r.created_at };
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+function diaryJson(r: any, images: string[] = []) {
+  return {
+    id: r.id, userId: r.user_id, text: r.text, mood: r.mood, createdAt: r.created_at,
+    entryDate: r.entry_date ?? isoDay(r.created_at), images,
+  };
 }
+async function withImages(env: Env, rows: any[]) {
+  const ids = rows.map((r) => r.id as string);
+  const map: Record<string, string[]> = {};
+  if (ids.length) {
+    const { results } = await env.DB.prepare(
+      `SELECT id, diary_id FROM diary_images WHERE diary_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at, rowid`
+    ).bind(...ids).all();
+    for (const r of results as any[]) (map[r.diary_id] ??= []).push(r.id);
+  }
+  return rows.map((r) => diaryJson(r, map[r.id] ?? []));
+}
+const DIARY_ORDER = "ORDER BY COALESCE(entry_date, date(created_at/1000,'unixepoch')) DESC, created_at DESC, rowid DESC";
+const CATEGORIES = ["birthday", "valentine", "anniversary", "firstdate", "firstkiss", "proposal", "wedding", "trip", "custom"];
 function eventJson(r: any) {
   return {
     id: r.id, createdBy: r.created_by, title: r.title, emoji: r.emoji, date: r.date, time: r.time,
     repeatYearly: !!r.repeat_yearly, notes: r.notes,
+    kind: r.kind ?? "event", category: r.category ?? null, updatedAt: r.updated_at ?? 0, updatedBy: r.updated_by ?? null,
   };
 }
 
@@ -147,8 +186,9 @@ async function register(req: Request, env: Env): Promise<Response> {
   const b = await readJson(req);
   const username = str(b.username, "username", 3, 24);
   if (!/^[A-Za-z0-9_.]+$/.test(username)) throw new HttpError(400, "Username may contain letters, numbers, _ and .");
-  const password = str(b.password, "password", 6, 128);
+  const password = str(b.password, "password", 8, 128);
   const displayName = str(b.displayName ?? username, "displayName", 1, 40);
+  if ((await bump(env, `reg:ip:${clientIp(req)}`, 60 * MIN)) > 10) throw tooMany();
   const exists = await env.DB.prepare("SELECT 1 FROM users WHERE username = ?").bind(username).first();
   if (exists) throw new HttpError(409, "That username is taken");
   const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16)));
@@ -165,11 +205,17 @@ async function login(req: Request, env: Env): Promise<Response> {
   const b = await readJson(req);
   const username = str(b.username, "username", 1, 64);
   const password = str(b.password, "password", 1, 128);
+  const ukey = `login:u:${username.toLowerCase()}`, ikey = `login:ip:${clientIp(req)}`;
+  if ((await attempts(env, ukey)) >= 8 || (await attempts(env, ikey)) >= 40) throw tooMany();
   const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first<UserRow>();
   // Hash even when the user is missing so response time doesn't leak which usernames exist.
   const salt = user ? b64uDecode(user.pass_salt) : new Uint8Array(new ArrayBuffer(16));
   const hash = await hashPassword(password, salt);
-  if (!user || !timingSafeEqual(hash, user.pass_hash)) throw new HttpError(401, "Wrong username or password");
+  if (!user || !timingSafeEqual(hash, user.pass_hash)) {
+    await bump(env, ukey, 15 * MIN); await bump(env, ikey, 15 * MIN);
+    throw new HttpError(401, "Wrong username or password");
+  }
+  await env.DB.prepare("DELETE FROM auth_attempts WHERE key = ?").bind(ukey).run();
   return json({ token: await signJwt(user.id, env.JWT_SECRET), user: publicUser(user) });
 }
 
@@ -214,22 +260,63 @@ async function coupleJoin(c: Ctx): Promise<Response> {
     if (partner) throw new HttpError(409, "You are already paired");
     // Alone in own couple: allow switching by joining someone else's code.
   }
+  if ((await attempts(c.env, `join:u:${c.user.id}`)) >= 10) throw tooMany();
   const b = await readJson(c.req);
   const code = str(b.code, "code", 4, 12).toUpperCase();
-  const couple = await c.env.DB.prepare("SELECT * FROM couples WHERE invite_code = ?").bind(code).first<any>();
-  if (!couple) throw new HttpError(404, "Invite code not found");
+  const couple = await c.env.DB.prepare("SELECT * FROM couples WHERE invite_code = ? AND status = 'active'").bind(code).first<any>();
+  if (!couple) { await bump(c.env, `join:u:${c.user.id}`, 60 * MIN); throw new HttpError(404, "Invite code not found"); }
   if (couple.id === c.user.couple_id) throw new HttpError(400, "That is your own invite code");
-  const members = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE couple_id = ?").bind(couple.id).first<{ n: number }>();
-  if ((members?.n ?? 0) >= 2) throw new HttpError(409, "That couple is already full");
-  const stmts = [
-    c.env.DB.prepare("UPDATE users SET couple_id = ? WHERE id = ?").bind(couple.id, c.user.id),
-    c.env.DB.prepare("UPDATE couples SET invite_code = NULL, anniversary = COALESCE(anniversary, ?) WHERE id = ?")
-      .bind(new Date().toISOString().slice(0, 10), couple.id),
-  ];
-  if (c.user.couple_id) stmts.push(c.env.DB.prepare("DELETE FROM couples WHERE id = ?").bind(c.user.couple_id));
+  const host = await c.env.DB.prepare("SELECT id FROM users WHERE couple_id = ?").bind(couple.id).all<{ id: string }>();
+  if (host.results.length >= 2) throw new HttpError(409, "That couple is already full");
+  const hostId = host.results[0]?.id;
+  if (!hostId) throw new HttpError(404, "Invite code not found");
+  const [ua, ub] = [c.user.id, hostId].sort();
+  const t = now();
+
+  // Same two people connecting again? Bring their saved history back instead of starting blank.
+  const old = await c.env.DB.prepare(
+    "SELECT id FROM couples WHERE status = 'ended' AND user_a = ? AND user_b = ? ORDER BY ended_at DESC LIMIT 1"
+  ).bind(ua, ub).first<{ id: string }>();
+
+  const stmts = [];
+  if (old) {
+    stmts.push(
+      c.env.DB.prepare("UPDATE users SET couple_id = ? WHERE id IN (?, ?)").bind(old.id, ua, ub),
+      c.env.DB.prepare("UPDATE couples SET status = 'active', ended_at = NULL, invite_code = NULL WHERE id = ?").bind(old.id),
+      c.env.DB.prepare("DELETE FROM couples WHERE id = ?").bind(couple.id),
+    );
+  } else {
+    stmts.push(
+      c.env.DB.prepare("UPDATE users SET couple_id = ? WHERE id = ?").bind(couple.id, c.user.id),
+      c.env.DB.prepare("UPDATE couples SET invite_code = NULL, user_a = ?, user_b = ?, anniversary = COALESCE(anniversary, ?) WHERE id = ?")
+        .bind(ua, ub, isoDay(t), couple.id),
+    );
+  }
+  if (c.user.couple_id) stmts.push(c.env.DB.prepare("DELETE FROM couples WHERE id = ? AND status = 'active'").bind(c.user.couple_id));
   await c.env.DB.batch(stmts);
   const fresh = (await getUser(c.env, c.user.id))!;
   return json(await coupleInfo(c.env, fresh));
+}
+
+/** End the relationship in the app. Nothing is deleted: the history stays stored for the pair, and
+ *  comes back only if the same two people connect again. Both people go back to the pairing screen. */
+async function coupleLeave(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const partner = await partnerOf(c.env, c.user);
+  if (!partner) {
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE users SET couple_id = NULL WHERE id = ?").bind(c.user.id),
+      c.env.DB.prepare("DELETE FROM couples WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM moods WHERE couple_id = ?1)").bind(coupleId),
+    ]);
+    return json({ ok: true });
+  }
+  const [ua, ub] = [c.user.id, partner.id].sort();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE users SET couple_id = NULL WHERE couple_id = ?").bind(coupleId),
+    c.env.DB.prepare("UPDATE couples SET status = 'ended', ended_at = ?, user_a = ?, user_b = ?, invite_code = NULL WHERE id = ?")
+      .bind(now(), ua, ub, coupleId),
+  ]);
+  return json({ ok: true });
 }
 
 async function coupleUpdate(c: Ctx): Promise<Response> {
@@ -271,7 +358,7 @@ async function avatarGet(c: Ctx): Promise<Response> {
   if (!row?.avatar) throw new HttpError(404, "No avatar");
   const bytes = row.avatar instanceof ArrayBuffer ? new Uint8Array(row.avatar) : new Uint8Array(row.avatar);
   const type = bytes[0] === 0x89 ? "image/png" : "image/jpeg";
-  return new Response(bytes, { headers: { "content-type": type, "cache-control": "private, max-age=86400", ...cors() } });
+  return new Response(bytes, { headers: { "content-type": type, "cache-control": "private, max-age=86400", ...SEC } });
 }
 
 async function moodPost(c: Ctx): Promise<Response> {
@@ -306,29 +393,74 @@ async function diaryPost(c: Ctx): Promise<Response> {
   const b = await readJson(c.req);
   const text = str(b.text, "text", 1, 2000);
   const mood = b.mood && MOODS.includes(b.mood) ? b.mood : null;
-  const id = uid(), t = now();
-  await c.env.DB.prepare("INSERT INTO diary (id, user_id, couple_id, text, mood, created_at) VALUES (?,?,?,?,?,?)")
-    .bind(id, c.user.id, coupleId, text, mood, t).run();
-  return json(diaryJson({ id, user_id: c.user.id, text, mood, created_at: t }), 201);
+  const t = now();
+  let entryDate: string | null = null;
+  if (b.entryDate != null && b.entryDate !== "") {
+    if (!isDate(b.entryDate)) throw new HttpError(400, "entryDate must be YYYY-MM-DD");
+    if (b.entryDate > isoDay(t + 36 * 3600_000)) throw new HttpError(400, "A diary entry can't be dated in the future");
+    if (b.entryDate < "1970-01-01") throw new HttpError(400, "entryDate is too old");
+    entryDate = b.entryDate;
+  }
+  const id = uid();
+  await c.env.DB.prepare("INSERT INTO diary (id, user_id, couple_id, text, mood, entry_date, created_at) VALUES (?,?,?,?,?,?,?)")
+    .bind(id, c.user.id, coupleId, text, mood, entryDate, t).run();
+  return json(diaryJson({ id, user_id: c.user.id, text, mood, entry_date: entryDate, created_at: t }), 201);
 }
 
 async function diaryList(c: Ctx): Promise<Response> {
   const coupleId = requireCouple(c.user);
-  const limit = Math.min(Math.max(parseInt(c.url.searchParams.get("limit") ?? "50", 10) || 50, 1), 100);
-  const before = parseInt(c.url.searchParams.get("before") ?? "", 10);
-  const q = Number.isFinite(before)
-    ? c.env.DB.prepare("SELECT * FROM diary WHERE couple_id = ? AND created_at < ? ORDER BY created_at DESC, rowid DESC LIMIT ?").bind(coupleId, before, limit)
-    : c.env.DB.prepare("SELECT * FROM diary WHERE couple_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").bind(coupleId, limit);
-  const { results } = await q.all();
-  return json({ entries: results.map(diaryJson) });
+  const limit = Math.min(Math.max(parseInt(c.url.searchParams.get("limit") ?? "30", 10) || 30, 1), 100);
+  const offset = Math.max(parseInt(c.url.searchParams.get("offset") ?? "0", 10) || 0, 0);
+  const { results } = await c.env.DB.prepare(`SELECT * FROM diary WHERE couple_id = ? ${DIARY_ORDER} LIMIT ? OFFSET ?`)
+    .bind(coupleId, limit, offset).all();
+  return json({ entries: await withImages(c.env, results as any[]) });
 }
 
 async function diaryDelete(c: Ctx): Promise<Response> {
   const coupleId = requireCouple(c.user);
-  const r = await c.env.DB.prepare("DELETE FROM diary WHERE id = ? AND couple_id = ? AND user_id = ?")
-    .bind(c.params[0], coupleId, c.user.id).run();
-  if (!r.meta.changes) throw new HttpError(404, "Entry not found (you can only delete your own)");
+  const own = await c.env.DB.prepare("SELECT 1 FROM diary WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id).first();
+  if (!own) throw new HttpError(404, "Entry not found (you can only delete your own)");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM diary_images WHERE diary_id = ?").bind(c.params[0]),
+    c.env.DB.prepare("DELETE FROM diary WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id),
+  ]);
   return json({ ok: true });
+}
+
+const MAX_IMAGES_PER_ENTRY = 4;
+const MAX_IMAGES_PER_COUPLE = 200;
+const MAX_IMAGE_BYTES = 450_000;
+
+/** Raw JPEG body. The app resizes + strips metadata first; the server re-checks size and type. */
+async function diaryImagePost(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const entry = await c.env.DB.prepare("SELECT 1 FROM diary WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id).first();
+  if (!entry) throw new HttpError(404, "Entry not found (you can only add pictures to your own notes)");
+  const len = parseInt(c.req.headers.get("content-length") ?? "0", 10);
+  if (len > MAX_IMAGE_BYTES) throw new HttpError(413, "Picture is too large");
+  const buf = await c.req.arrayBuffer();
+  if (buf.byteLength < 200 || buf.byteLength > MAX_IMAGE_BYTES) throw new HttpError(413, "Picture must be under 450 KB (the app resizes it for you)");
+  const h = new Uint8Array(buf.slice(0, 3));
+  if (!(h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff)) throw new HttpError(415, "Pictures must be JPEG");
+  const counts = await c.env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM diary_images WHERE diary_id = ?1) AS e, (SELECT COUNT(*) FROM diary_images WHERE couple_id = ?2) AS c"
+  ).bind(c.params[0], coupleId).first<{ e: number; c: number }>();
+  if ((counts?.e ?? 0) >= MAX_IMAGES_PER_ENTRY) throw new HttpError(409, `At most ${MAX_IMAGES_PER_ENTRY} pictures per note`);
+  if ((counts?.c ?? 0) >= MAX_IMAGES_PER_COUPLE) throw new HttpError(409, "Your shared picture storage is full. Delete some old notes with pictures first.");
+  const id = uid();
+  await c.env.DB.prepare("INSERT INTO diary_images (id, diary_id, couple_id, user_id, data, created_at) VALUES (?,?,?,?,?,?)")
+    .bind(id, c.params[0], coupleId, c.user.id, buf, now()).run();
+  return json({ id }, 201);
+}
+
+// Only the couple that owns the entry can fetch its pictures.
+async function diaryImageGet(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const row = await c.env.DB.prepare("SELECT data FROM diary_images WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId)
+    .first<{ data: ArrayBuffer | number[] | null }>();
+  if (!row?.data) throw new HttpError(404, "Not found");
+  const bytes = row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : new Uint8Array(row.data);
+  return new Response(bytes, { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable", ...SEC } });
 }
 
 function readEvent(b: any) {
@@ -337,27 +469,33 @@ function readEvent(b: any) {
   if (b.time != null && b.time !== "" && !isTime(b.time)) throw new HttpError(400, "time must be HH:mm");
   const emoji = b.emoji ? str(b.emoji, "emoji", 1, 8) : "❤️";
   const notes = b.notes == null ? "" : str(b.notes, "notes", 0, 500);
-  return { title, date: b.date, time: b.time ? b.time : null, emoji, notes, repeat: b.repeatYearly ? 1 : 0 };
+  const kind = b.kind === "special" ? "special" : "event";
+  const category = kind === "special" ? (CATEGORIES.includes(b.category) ? b.category : "custom") : null;
+  return { title, date: b.date, time: b.time ? b.time : null, emoji, notes, repeat: b.repeatYearly ? 1 : 0, kind, category };
 }
 
 async function eventPost(c: Ctx): Promise<Response> {
   const coupleId = requireCouple(c.user);
   const e = readEvent(await readJson(c.req));
-  const id = uid();
+  const id = uid(), t = now();
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM events WHERE couple_id = ?").bind(coupleId).first<{ n: number }>();
+  if ((n?.n ?? 0) >= 500) throw new HttpError(409, "Too many events. Delete some old ones first.");
   await c.env.DB.prepare(
-    "INSERT INTO events (id, couple_id, created_by, title, emoji, date, time, repeat_yearly, notes, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
-  ).bind(id, coupleId, c.user.id, e.title, e.emoji, e.date, e.time, e.repeat, e.notes, now()).run();
-  return json(eventJson({ id, created_by: c.user.id, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes }), 201);
+    "INSERT INTO events (id, couple_id, created_by, title, emoji, date, time, repeat_yearly, notes, kind, category, updated_at, updated_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(id, coupleId, c.user.id, e.title, e.emoji, e.date, e.time, e.repeat, e.notes, e.kind, e.category, t, c.user.id, t).run();
+  return json(eventJson({ id, created_by: c.user.id, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes, kind: e.kind, category: e.category, updated_at: t, updated_by: c.user.id }), 201);
 }
 
 async function eventPut(c: Ctx): Promise<Response> {
   const coupleId = requireCouple(c.user);
   const e = readEvent(await readJson(c.req));
-  const r = await c.env.DB.prepare(
-    "UPDATE events SET title=?, emoji=?, date=?, time=?, repeat_yearly=?, notes=? WHERE id=? AND couple_id=?"
-  ).bind(e.title, e.emoji, e.date, e.time, e.repeat, e.notes, c.params[0], coupleId).run();
-  if (!r.meta.changes) throw new HttpError(404, "Event not found");
-  return json(eventJson({ id: c.params[0], created_by: c.user.id, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes }));
+  const existing = await c.env.DB.prepare("SELECT created_by FROM events WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<{ created_by: string }>();
+  if (!existing) throw new HttpError(404, "Event not found");
+  const t = now();
+  await c.env.DB.prepare(
+    "UPDATE events SET title=?, emoji=?, date=?, time=?, repeat_yearly=?, notes=?, kind=?, category=?, updated_at=?, updated_by=? WHERE id=? AND couple_id=?"
+  ).bind(e.title, e.emoji, e.date, e.time, e.repeat, e.notes, e.kind, e.category, t, c.user.id, c.params[0], coupleId).run();
+  return json(eventJson({ id: c.params[0], created_by: existing.created_by, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes, kind: e.kind, category: e.category, updated_at: t, updated_by: c.user.id }));
 }
 
 async function eventDelete(c: Ctx): Promise<Response> {
@@ -383,7 +521,7 @@ async function sync(c: Ctx): Promise<Response> {
   const coupleId = user.couple_id;
   const [moods, diary, events, stats, latest] = await Promise.all([
     c.env.DB.prepare("SELECT * FROM moods WHERE couple_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 60").bind(coupleId).all(),
-    c.env.DB.prepare("SELECT * FROM diary WHERE couple_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30").bind(coupleId).all(),
+    c.env.DB.prepare(`SELECT * FROM diary WHERE couple_id = ? ${DIARY_ORDER} LIMIT 40`).bind(coupleId).all(),
     c.env.DB.prepare("SELECT * FROM events WHERE couple_id = ? ORDER BY date ASC, time ASC").bind(coupleId).all(),
     c.env.DB.prepare(
       "SELECT (SELECT COUNT(*) FROM moods WHERE couple_id = ?1) AS moods, (SELECT COUNT(*) FROM diary WHERE couple_id = ?1) AS diary, " +
@@ -401,10 +539,74 @@ async function sync(c: Ctx): Promise<Response> {
     ...base,
     moods: moods.results.map(moodJson),
     latestMoods,
-    diary: diary.results.map(diaryJson),
+    diary: await withImages(c.env, diary.results as any[]),
     events: events.results.map(eventJson),
     stats,
   });
+}
+
+/** Richer numbers for the Stats screen. `tz` = the phone's UTC offset in minutes so days line up with local midnight. */
+async function statsDetail(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const tz = Math.min(Math.max(parseInt(c.url.searchParams.get("tz") ?? "0", 10) || 0, -840), 840);
+  const mod = `${tz >= 0 ? "+" : "-"}${Math.abs(tz)} minutes`;
+  const t = now();
+  const [moodCounts, activityCounts, daily, days, diaryCounts, photos] = await Promise.all([
+    c.env.DB.prepare("SELECT user_id AS userId, mood, COUNT(*) AS n FROM moods WHERE couple_id = ? GROUP BY user_id, mood").bind(coupleId).all(),
+    c.env.DB.prepare("SELECT user_id AS userId, activity, COUNT(*) AS n FROM moods WHERE couple_id = ? AND activity IS NOT NULL GROUP BY user_id, activity ORDER BY n DESC LIMIT 60").bind(coupleId).all(),
+    c.env.DB.prepare("SELECT date(created_at/1000,'unixepoch',?1) AS day, user_id AS userId, COUNT(*) AS n FROM moods WHERE couple_id = ?2 AND created_at > ?3 GROUP BY day, user_id")
+      .bind(mod, coupleId, t - 32 * 86400_000).all(),
+    c.env.DB.prepare(
+      "SELECT day FROM (SELECT date(created_at/1000,'unixepoch',?1) AS day FROM moods WHERE couple_id = ?2 UNION SELECT date(created_at/1000,'unixepoch',?1) FROM diary WHERE couple_id = ?2) ORDER BY day DESC LIMIT 800"
+    ).bind(mod, coupleId).all(),
+    c.env.DB.prepare("SELECT user_id AS userId, COUNT(*) AS n FROM diary WHERE couple_id = ? GROUP BY user_id").bind(coupleId).all(),
+    c.env.DB.prepare("SELECT COUNT(*) AS n FROM diary_images WHERE couple_id = ?").bind(coupleId).first<{ n: number }>(),
+  ]);
+  // Streaks over the days either of you checked in (mood or diary).
+  const list = (days.results as any[]).map((r) => r.day as string); // newest first
+  const dayNum = (d: string) => Math.floor(Date.parse(d + "T00:00:00Z") / 86400_000);
+  const today = Math.floor((t + tz * 60_000) / 86400_000);
+  let streak = 0;
+  if (list.length && dayNum(list[0]) >= today - 1) {
+    streak = 1;
+    for (let i = 1; i < list.length && dayNum(list[i - 1]) - dayNum(list[i]) === 1; i++) streak++;
+  }
+  let best = 0, run = 0;
+  for (let i = 0; i < list.length; i++) {
+    run = i > 0 && dayNum(list[i - 1]) - dayNum(list[i]) === 1 ? run + 1 : 1;
+    if (run > best) best = run;
+  }
+  return json({
+    moodCounts: moodCounts.results, activityCounts: activityCounts.results, daily: daily.results,
+    diaryCounts: diaryCounts.results, photos: photos?.n ?? 0, streak, bestStreak: best, checkInDays: list.length,
+  });
+}
+
+/** Erases the caller's own data and account. The partner (if any) is unpaired and keeps their own data. */
+async function accountDelete(c: Ctx): Promise<Response> {
+  const b = await readJson(c.req);
+  const password = str(b.password, "password", 1, 128);
+  const ukey = `login:u:${c.user.username.toLowerCase()}`;
+  if ((await attempts(c.env, ukey)) >= 8) throw tooMany();
+  const hash = await hashPassword(password, b64uDecode(c.user.pass_salt));
+  if (!timingSafeEqual(hash, c.user.pass_hash)) { await bump(c.env, ukey, 15 * MIN); throw new HttpError(401, "Wrong password"); }
+  const id = c.user.id;
+  const stmts = [];
+  if (c.user.couple_id) {
+    stmts.push(
+      c.env.DB.prepare("UPDATE users SET couple_id = NULL WHERE couple_id = ?").bind(c.user.couple_id),
+      c.env.DB.prepare("UPDATE couples SET status = 'ended', ended_at = ?, invite_code = NULL WHERE id = ?").bind(now(), c.user.couple_id),
+    );
+  }
+  stmts.push(
+    c.env.DB.prepare("DELETE FROM diary_images WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM diary WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM moods WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM events WHERE created_by = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(id),
+  );
+  await c.env.DB.batch(stmts);
+  return json({ ok: true });
 }
 
 // ------------------------------------------------------------- router
@@ -415,25 +617,30 @@ const route = (method: string, path: string, h: Handler) =>
 
 route("GET", "/me", async (c) => json({ user: publicUser(c.user), couple: await coupleInfo(c.env, c.user) }));
 route("PATCH", "/me", profileUpdate);
+route("DELETE", "/me", accountDelete);
 route("PUT", "/me/avatar", avatarPut);
 route("GET", "/avatar/:id", avatarGet);
 route("POST", "/couple", coupleCreate);
 route("POST", "/couple/join", coupleJoin);
+route("POST", "/couple/leave", coupleLeave);
 route("PATCH", "/couple", coupleUpdate);
 route("POST", "/moods", moodPost);
 route("GET", "/moods", moodList);
 route("POST", "/diary", diaryPost);
 route("GET", "/diary", diaryList);
 route("DELETE", "/diary/:id", diaryDelete);
+route("POST", "/diary/:id/images", diaryImagePost);
+route("GET", "/diary/image/:id", diaryImageGet);
 route("GET", "/events", eventList);
 route("POST", "/events", eventPost);
 route("PUT", "/events/:id", eventPut);
 route("DELETE", "/events/:id", eventDelete);
 route("GET", "/sync", sync);
+route("GET", "/stats", statsDetail);
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: SEC });
     const url = new URL(req.url);
     try {
       if (!env.JWT_SECRET) throw new HttpError(500, "Server is missing JWT_SECRET");
@@ -446,7 +653,7 @@ export default {
       const userId = token ? await verifyJwt(token, env.JWT_SECRET) : null;
       if (!userId) throw new HttpError(401, "Please sign in again");
       const user = await getUser(env, userId);
-      if (!user) throw new HttpError(401, "Account no longer exists");
+      if (!user) throw new HttpError(401, "Please sign in again");
 
       for (const r of routes) {
         if (r.method !== req.method) continue;

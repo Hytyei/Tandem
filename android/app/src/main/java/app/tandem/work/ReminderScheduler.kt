@@ -1,8 +1,6 @@
 package app.tandem.work
 
 import android.app.AlarmManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -13,25 +11,13 @@ import app.tandem.MainActivity
 import app.tandem.R
 import app.tandem.TandemApp
 import app.tandem.data.CalendarEvent
+import app.tandem.data.SpecialCategory
 import app.tandem.data.nextDate
 import app.tandem.data.parseTime
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
-
-const val CHANNEL_EVENTS = "events"
-const val CHANNEL_UPDATES = "updates"
-
-fun createNotificationChannels(context: Context) {
-    val nm = context.getSystemService(NotificationManager::class.java)
-    nm.createNotificationChannel(NotificationChannel(CHANNEL_EVENTS, "Event reminders", NotificationManager.IMPORTANCE_HIGH).apply {
-        description = "Reminders for your shared events and anniversaries"
-    })
-    nm.createNotificationChannel(NotificationChannel(CHANNEL_UPDATES, "App updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
-        description = "New versions of Tandem"
-    })
-}
 
 /**
  * Schedules local reminders (no push server needed): the evening before at 20:00 and
@@ -63,9 +49,12 @@ object ReminderScheduler {
             if (day.isAfter(LocalDate.now().plusDays(HORIZON_DAYS))) continue
             val time = parseTime(e.time)
             val startAt = LocalDateTime.of(day, time ?: LocalTime.of(9, 0))
-            val label = "${e.emoji} ${e.title}"
+            val icon = if (e.isSpecial) (SpecialCategory.from(e.category)?.emoji ?: "⭐") else e.emoji
+            val label = "$icon ${e.title}"
             schedule(("${e.id}:day").hashCode(), startAt, label, if (time != null) "Starting now" else "It's today!")
             schedule(("${e.id}:eve").hashCode(), LocalDateTime.of(day.minusDays(1), LocalTime.of(20, 0)), label, "Coming up tomorrow")
+            // Special days also get a heads-up a week ahead so there's time to plan something.
+            if (e.isSpecial) schedule(("${e.id}:wk").hashCode(), LocalDateTime.of(day.minusDays(7), LocalTime.of(9, 0)), label, "One week to go")
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet(KEY_CODES, codes).apply()
     }

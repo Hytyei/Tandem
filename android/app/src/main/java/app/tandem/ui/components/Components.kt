@@ -178,10 +178,13 @@ fun SoftButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
 @Composable
 fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val c = T.colors
-    BoxWithConstraints(modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(12.dp)).background(c.separator.copy(alpha = 0.12f)).padding(3.dp)) {
+    // Dark mode needs a clearly visible track and thumb (the old translucent ones disappeared on the dark sky).
+    val track = if (c.isDark) Color.White.copy(alpha = 0.10f) else c.separator.copy(alpha = 0.12f)
+    val thumb = if (c.isDark) Color.White.copy(alpha = 0.24f) else c.cardRaised
+    BoxWithConstraints(modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(12.dp)).background(track).padding(3.dp)) {
         val segW = maxWidth / options.size
         val x by androidx.compose.animation.core.animateDpAsState(segW * selected, spring(0.75f, Spring.StiffnessMediumLow), label = "seg")
-        Box(Modifier.offset(x = x).width(segW).fillMaxHeight().clip(RoundedCornerShape(10.dp)).background(c.cardRaised))
+        Box(Modifier.offset(x = x).width(segW).fillMaxHeight().clip(RoundedCornerShape(10.dp)).background(thumb))
         Row(Modifier.fillMaxSize()) {
             options.forEachIndexed { i, label ->
                 Box(

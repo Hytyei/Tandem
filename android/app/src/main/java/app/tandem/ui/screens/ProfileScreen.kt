@@ -46,6 +46,14 @@ fun ProfileScreen(vm: AppViewModel) {
     var pickAnniv by remember { mutableStateOf(false) }
     var editServer by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val notifOn = remember { mutableStateOf(app.tandem.work.Notifier.enabled(ctx)) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { notifOn.value = app.tandem.work.Notifier.enabled(ctx) }
+    val nMoods by vm.notifyMoods.collectAsState()
+    val nDiary by vm.notifyDiary.collectAsState()
+    val nEvents by vm.notifyEvents.collectAsState()
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.uploadAvatar(uri) }
 
@@ -78,11 +86,36 @@ fun ProfileScreen(vm: AppViewModel) {
             ListRow("Partner", partner?.displayName ?: "—", leading = { Avatar(partner, 30.dp) })
             Divider()
             ListRow("Together since", parseDate(data.couple.anniversary)?.format(DateTimeFormatter.ofPattern("d MMM yyyy")) ?: "Set date", accent = true, onClick = { pickAnniv = true })
+            Divider()
+            ListRow("Remove partner", "", destructive = true, onClick = { confirmRemove = true })
+        }
+
+        // ---------- Notifications
+        SectionHeader("Notifications")
+        Group(Modifier.staggerIn(2)) {
+            if (!notifOn.value) {
+                ListRow("Notifications are off", "Turn on", accent = true, onClick = {
+                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                })
+                Divider()
+            }
+            SwitchRow("Partner's mood updates", nMoods) { vm.setNotifyMoods(it) }
+            Divider()
+            SwitchRow("New diary notes", nDiary) { vm.setNotifyDiary(it) }
+            Divider()
+            SwitchRow("Events & special days added or changed", nEvents) { vm.setNotifyEvents(it) }
+            Divider()
+            ListRow("Send a test notification", "", accent = true, onClick = { vm.testNotification() })
+            Text(
+                "Event reminders always arrive on time. Partner updates arrive within about 15 minutes when the app is closed (instantly while it's open) because Tandem has no push server.",
+                style = Type.footnote, color = c.secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
         }
 
         // ---------- Appearance
         SectionHeader("Appearance")
-        Group(Modifier.staggerIn(2)) {
+        Group(Modifier.staggerIn(3)) {
             Box(Modifier.padding(12.dp)) {
                 Segmented(listOf("System", "Light", "Dark"), theme.ordinal, { vm.setTheme(ThemeMode.entries[it]) })
             }
@@ -107,7 +140,11 @@ fun ProfileScreen(vm: AppViewModel) {
         }
 
         Spacer(Modifier.height(20.dp))
-        Group(Modifier.staggerIn(4)) { ListRow("Sign out", "", destructive = true, onClick = { confirmLogout = true }) }
+        Group(Modifier.staggerIn(4)) {
+            ListRow("Sign out", "", destructive = true, onClick = { confirmLogout = true })
+            Divider()
+            ListRow("Delete my account", "", destructive = true, onClick = { confirmDelete = true })
+        }
     }
 
     if (editProfile) {
@@ -146,8 +183,43 @@ fun ProfileScreen(vm: AppViewModel) {
             onDismissRequest = { editServer = false }, containerColor = c.sheet,
             title = { Text("Server address") },
             text = { OutlinedTextField(url, { url = it }, singleLine = true, shape = RoundedCornerShape(14.dp), label = { Text("Worker URL") }) },
-            confirmButton = { TextButton(onClick = { vm.setServer(url); editServer = false; vm.refresh(silent = false) }) { Text("Save", color = c.accent) } },
+            confirmButton = { TextButton(onClick = { vm.setServer(url) { editServer = false; vm.refresh(silent = false) } }) { Text("Save", color = c.accent) } },
             dismissButton = { TextButton(onClick = { editServer = false }) { Text("Cancel", color = c.secondary) } },
+        )
+    }
+
+    if (confirmRemove) {
+        val name = partner?.displayName ?: "your partner"
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false }, containerColor = c.sheet,
+            title = { Text("Remove $name?") },
+            text = {
+                Text(
+                    "You'll both be disconnected and go back to the connect screen. Nothing is deleted: your shared moods, diary and events stay saved " +
+                        "for the two of you, and come back if you ever connect again. A new partner starts with a blank slate.",
+                )
+            },
+            confirmButton = { TextButton(enabled = !vm.busy, onClick = { vm.leaveCouple { confirmRemove = false } }) { Text("Remove partner", color = c.danger) } },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Keep", color = c.secondary) } },
+        )
+    }
+
+    if (confirmDelete) {
+        var pw by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false }, containerColor = c.sheet,
+            title = { Text("Delete your account?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("This permanently deletes your account, your moods, diary notes, pictures and events. Your partner is disconnected and keeps their own data. This can't be undone.")
+                    OutlinedTextField(
+                        pw, { pw = it }, label = { Text("Your password") }, singleLine = true, shape = RoundedCornerShape(14.dp),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    )
+                }
+            },
+            confirmButton = { TextButton(enabled = pw.isNotEmpty() && !vm.busy, onClick = { vm.deleteAccount(pw) { confirmDelete = false } }) { Text("Delete forever", color = c.danger) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel", color = c.secondary) } },
         )
     }
 
@@ -165,6 +237,15 @@ fun ProfileScreen(vm: AppViewModel) {
 @Composable
 private fun Group(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(T.colors.card), content = content)
+}
+
+@Composable
+private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val c = T.colors
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = Type.body, color = c.label, modifier = Modifier.weight(1f).padding(end = 12.dp))
+        Switch(checked = checked, onCheckedChange = onChange, colors = SwitchDefaults.colors(checkedTrackColor = c.accent))
+    }
 }
 
 @Composable

@@ -15,7 +15,7 @@ import java.io.File
 import java.io.IOException
 
 @Serializable
-private data class GhAsset(val name: String, @SerialName("browser_download_url") val url: String, val size: Long = 0)
+private data class GhAsset(val name: String, @SerialName("browser_download_url") val url: String, val size: Long = 0, val digest: String? = null)
 
 @Serializable
 private data class GhRelease(
@@ -26,7 +26,7 @@ private data class GhRelease(
     val assets: List<GhAsset> = emptyList(),
 )
 
-data class UpdateInfo(val version: String, val notes: String, val apkUrl: String, val sizeBytes: Long)
+data class UpdateInfo(val version: String, val notes: String, val apkUrl: String, val sizeBytes: Long, val sha256: String? = null)
 
 /** Checks the latest GitHub Release of the configured repo and installs its .apk asset. */
 object Updater {
@@ -36,7 +36,7 @@ object Updater {
     /** Returns info if a newer release than the installed version exists, else null. */
     suspend fun check(): UpdateInfo? = withContext(Dispatchers.IO) {
         val repo = BuildConfig.GITHUB_REPO
-        if (repo.isBlank() || repo.startsWith("YOUR-")) return@withContext null
+        if (!Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(repo) || repo.startsWith("YOUR-")) return@withContext null
         val req = Request.Builder()
             .url("https://api.github.com/repos/$repo/releases/latest")
             .header("Accept", "application/vnd.github+json")
@@ -45,9 +45,13 @@ object Updater {
             if (resp.code == 404) return@withContext null
             if (!resp.isSuccessful) throw IOException("GitHub returned ${resp.code}")
             val rel = AppJson.decodeFromString(GhRelease.serializer(), resp.body!!.string())
-            val apk = rel.assets.firstOrNull { it.name.endsWith(".apk") } ?: return@withContext null
+            if (rel.prerelease) return@withContext null
+            // Only accept downloads that really are assets of THIS repository's releases, over https.
+            val apk = rel.assets.firstOrNull { it.name.endsWith(".apk") && it.url.startsWith("https://github.com/$repo/releases/download/") }
+                ?: return@withContext null
             val v = rel.tag.removePrefix("v")
-            if (isNewer(v, BuildConfig.VERSION_NAME)) UpdateInfo(v, rel.body.orEmpty().trim(), apk.url, apk.size) else null
+            val sha = apk.digest?.removePrefix("sha256:")?.takeIf { it.length == 64 }
+            if (isNewer(v, BuildConfig.VERSION_NAME)) UpdateInfo(v, rel.body.orEmpty().trim(), apk.url, apk.size, sha) else null
         }
     }
 
@@ -79,6 +83,13 @@ object Updater {
                     }
                 }
             }
+        }
+        // If GitHub published a SHA-256 for the asset, make sure the download matches it before offering to install.
+        info.sha256?.let { expected ->
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            out.inputStream().use { ins -> val buf = ByteArray(64 * 1024); while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) } }
+            val actual = md.digest().joinToString("") { "%02x".format(it) }
+            if (!actual.equals(expected, ignoreCase = true)) { out.delete(); throw IOException("Download is corrupted") }
         }
         out
     }

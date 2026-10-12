@@ -3,7 +3,9 @@ package app.tandem
 import androidx.compose.runtime.saveable.rememberSaveable
 import android.Manifest
 import android.os.Build
+import android.content.Intent
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.tandem.data.ThemeMode
+import app.tandem.work.EXTRA_TAB
 import app.tandem.ui.components.*
 import app.tandem.ui.screens.*
 import app.tandem.ui.theme.T
@@ -53,6 +56,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        vm.requestedTab = intent?.getStringExtra(EXTRA_TAB)
         setContent {
             val mode by vm.theme.collectAsState()
             val dark = when (mode) { ThemeMode.System -> isSystemInDarkTheme(); ThemeMode.Light -> false; ThemeMode.Dark -> true }
@@ -61,6 +65,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // Tapping a notification opens the matching tab.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        vm.requestedTab = intent.getStringExtra(EXTRA_TAB)
+    }
+
+    // While visible, partner updates become in-app banners; otherwise they're system notifications.
+    override fun onStart() { super.onStart(); (application as TandemApp).repo.appInForeground = true }
+    override fun onStop() { (application as TandemApp).repo.appInForeground = false; super.onStop() }
 }
 
 @Composable
@@ -71,9 +86,12 @@ private fun Root(vm: AppViewModel) {
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(loggedIn) {
         if (loggedIn && Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        if (loggedIn) vm.autoCheckOncePerDay()
+        if (loggedIn) vm.autoCheckForUpdate()
     }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { if (vm.loggedIn.value) vm.refresh(silent = true) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (vm.loggedIn.value) { vm.refresh(silent = true); vm.autoCheckForUpdate(); vm.startPolling() }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { vm.stopPolling() }
 
     // 0 = auth, 1 = loading, 2 = pairing, 3 = app
     val stage = when {
@@ -122,6 +140,16 @@ private fun LoadingScreen(vm: AppViewModel) {
 @Composable
 private fun Shell(vm: AppViewModel) {
     var tab by rememberSaveable { mutableStateOf(AppTab.Today) }
+    var showStats by rememberSaveable { mutableStateOf(false) }
+    val requested = vm.requestedTab
+    LaunchedEffect(requested) {
+        if (requested != null) {
+            AppTab.entries.firstOrNull { it.name == requested }?.let { tab = it; showStats = false }
+            vm.requestedTab = null
+        }
+    }
+    val update = vm.update
+    val dismissed by vm.dismissedUpdate.collectAsState()
     DreamBackground {
         AnimatedContent(tab, label = "tab", transitionSpec = {
             val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
@@ -129,19 +157,49 @@ private fun Shell(vm: AppViewModel) {
                 (slideOutHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { -dir * it / 6 } + fadeOut(tween(120)))
         }) { t ->
             when (t) {
-                AppTab.Today -> HomeScreen(vm, openCalendar = { tab = AppTab.Calendar })
+                AppTab.Today -> HomeScreen(vm, openCalendar = { tab = AppTab.Calendar }, openStats = { showStats = true })
                 AppTab.Timeline -> TimelineScreen(vm)
                 AppTab.Diary -> DiaryScreen(vm)
                 AppTab.Calendar -> CalendarScreen(vm)
                 AppTab.Profile -> ProfileScreen(vm)
             }
         }
-        FloatingTabBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
+        FloatingTabBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter), badge = if (update != null) AppTab.Profile else null)
+
+        // Full stats page, slides over everything
+        AnimatedVisibility(
+            showStats, modifier = Modifier.fillMaxSize(),
+            enter = slideInVertically(spring(0.85f, Spring.StiffnessMediumLow)) { it / 3 } + fadeIn(tween(220)),
+            exit = slideOutVertically { it / 3 } + fadeOut(tween(160)),
+        ) {
+            BackHandler { showStats = false }
+            StatsScreen(vm, onBack = { showStats = false })
+        }
+    }
+
+    // New release on GitHub: tell the person once per version, right inside the app.
+    if (update != null && dismissed != update.version) {
+        val c = T.colors
+        AlertDialog(
+            onDismissRequest = { vm.dismissUpdateDialog() }, containerColor = c.sheet,
+            title = { Text("Tandem ${update.version} is available") },
+            text = {
+                Column {
+                    Text("A new version is ready to install. Your data stays exactly as it is.", color = c.secondary)
+                    if (update.notes.isNotBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(update.notes.take(500), style = Type.footnote, color = c.secondary)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.dismissUpdateDialog(); vm.installUpdate() }) { Text("Update now", color = c.accent) } },
+            dismissButton = { TextButton(onClick = { vm.dismissUpdateDialog() }) { Text("Later", color = c.secondary) } },
+        )
     }
 }
 
 @Composable
-private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier) {
+private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier, badge: AppTab? = null) {
     val c = T.colors
     Row(
         modifier.navigationBarsPadding().padding(horizontal = 20.dp, vertical = 14.dp)
@@ -159,7 +217,11 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
                     .padding(horizontal = if (on) 14.dp else 12.dp, vertical = 11.dp).animateContentSize(spring(0.8f, Spring.StiffnessMediumLow)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(t.icon, contentDescription = t.label, tint = tint, modifier = Modifier.size(24.dp))
+                Box {
+                    Icon(t.icon, contentDescription = t.label, tint = tint, modifier = Modifier.size(24.dp))
+                    if (badge == t) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).clip(RoundedCornerShape(50)).background(c.accent)
+                        .border(1.5.dp, c.sheet, RoundedCornerShape(50)))
+                }
                 if (on) {
                     Spacer(Modifier.width(6.dp))
                     Text(t.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = tint, maxLines = 1)

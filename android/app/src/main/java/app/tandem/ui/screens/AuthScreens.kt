@@ -109,10 +109,10 @@ fun AuthScreen(vm: AppViewModel) {
             IosField(password, { password = it }, "Password", password = true)
             if (mode == 1) {
                 Spacer(Modifier.height(6.dp))
-                Text("At least 6 characters", style = Type.footnote, color = c.secondary, modifier = Modifier.align(Alignment.Start).padding(start = 8.dp))
+                Text("At least 8 characters", style = Type.footnote, color = c.secondary, modifier = Modifier.align(Alignment.Start).padding(start = 8.dp))
             }
             Spacer(Modifier.height(20.dp))
-            val valid = username.length >= 3 && password.length >= 6
+            val valid = username.length >= 3 && (if (mode == 0) password.isNotEmpty() else password.length >= 8)
             PrimaryButton(
                 if (mode == 0) "Sign in" else "Create account",
                 onClick = { if (mode == 0) vm.login(username, password) else vm.register(username, password, name) },
@@ -129,7 +129,7 @@ fun AuthScreen(vm: AppViewModel) {
                 Column {
                     IosField(server, { server = it }, "https://your-worker.workers.dev", keyboard = KeyboardType.Uri)
                     Spacer(Modifier.height(8.dp))
-                    SoftButton("Save server address", onClick = { vm.setServer(server); vm.toast("Server address saved") })
+                    SoftButton("Save server address", onClick = { vm.setServer(server) { vm.toast("Server address saved") } })
                 }
             }
             Spacer(Modifier.height(32.dp))
@@ -225,6 +225,8 @@ fun PairingScreen(vm: AppViewModel) {
                 )
                 Spacer(Modifier.height(14.dp))
                 PrimaryButton("Connect", onClick = { vm.join(entered) }, enabled = entered.length >= 4, loading = vm.busy && !showCreate)
+                Spacer(Modifier.height(10.dp))
+                Text("Reconnecting with a previous partner brings your saved history back. A new partner starts fresh.", style = Type.footnote, color = c.secondary)
             }
             Spacer(Modifier.height(20.dp))
             Text("Sign out", style = Type.callout, color = c.secondary, modifier = Modifier.pressable(haptic = false) { vm.logout() }.padding(12.dp))

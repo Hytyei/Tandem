@@ -7,11 +7,18 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
 import app.tandem.BuildConfig
 import app.tandem.widget.WidgetUpdater
+import app.tandem.work.Notifier
 import app.tandem.work.ReminderScheduler
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,7 +52,11 @@ class Repository(private val context: Context) {
     @Volatile private var baseUrl: String = BuildConfig.API_URL
     @Volatile private var apiCache: Pair<String, TandemApi>? = null
 
-    val http: OkHttpClient = ApiFactory.client { token }
+    val http: OkHttpClient = ApiFactory.client({ token }, { baseUrl.toHttpUrlOrNull()?.host })
+
+    /** Partner activity seen while the app is open: shown as an in-app banner instead of a system notification. */
+    private val _incoming = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val incoming: SharedFlow<String> = _incoming
 
     private val _state = MutableStateFlow<SyncResponse?>(null)
     /** Latest known snapshot of everything (also persisted so the app and widgets work offline). */
@@ -57,6 +68,7 @@ class Repository(private val context: Context) {
     init {
         // One-time blocking read so the first frame already knows whether we're signed in.
         runBlocking {
+            prefs.migrateSecrets()
             token = prefs.token.firstOrNull()
             prefs.baseUrl.firstOrNull()?.let { baseUrl = it }
             prefs.cache.firstOrNull()?.let { raw ->
@@ -79,12 +91,19 @@ class Repository(private val context: Context) {
 
     suspend fun setBaseUrl(url: String) {
         val clean = url.trim().trimEnd('/')
+        if (clean.isNotBlank()) {
+            val parsed = clean.toHttpUrlOrNull()
+            if (parsed == null || !parsed.isHttps) throw AppException("The server address must start with https://")
+        }
         baseUrl = if (clean.isBlank()) BuildConfig.API_URL else clean
         prefs.setBaseUrl(if (clean.isBlank()) null else clean)
     }
 
     fun avatarUrl(user: User): String? =
         if (user.hasAvatar) "${baseUrl.trimEnd('/')}/avatar/${user.id}?v=${user.avatarVersion}" else null
+
+    /** Pictures attached to diary notes (only your partner and you can load them; the token is added automatically). */
+    fun diaryImageUrl(id: String): String = "${baseUrl.trimEnd('/')}/diary/image/$id"
 
     // ------------------------------------------------------------ error mapping
     private suspend fun <T> call(block: suspend () -> T): T = try {
@@ -96,6 +115,8 @@ class Repository(private val context: Context) {
         throw AppException(msg?.takeIf { it.isNotBlank() } ?: "Server error (${e.code()})")
     } catch (e: IOException) {
         throw AppException("Can't reach the server. Check your connection and server address.")
+    } catch (e: kotlinx.serialization.SerializationException) {
+        throw AppException("The server sent something unexpected. Make sure the latest backend is deployed.")
     }
 
     // ------------------------------------------------------------ auth
@@ -119,6 +140,7 @@ class Repository(private val context: Context) {
         token = null
         prefs.setToken(null)
         prefs.setCache(null)
+        prefs.clearSeen()
         _state.value = null
         _loggedIn.value = false
         ReminderScheduler.cancelAll(context)
@@ -131,8 +153,9 @@ class Repository(private val context: Context) {
         val data = call { api.sync() }
         _state.value = data
         prefs.setCache(AppJson.encodeToString(SyncResponse.serializer(), data))
-        ReminderScheduler.reschedule(context, data.events)
-        WidgetUpdater.updateAll(context)
+        runCatching { ReminderScheduler.reschedule(context, data.events) }
+        runCatching { WidgetUpdater.updateAll(context) }
+        runCatching { Notifier.onSync(context, prefs, data, appInForeground) { _incoming.tryEmit(it) } }
         data
     }
 
@@ -147,9 +170,18 @@ class Repository(private val context: Context) {
         refresh()
     }
 
-    suspend fun addDiary(text: String, mood: Mood?) {
-        call { api.postDiary(DiaryBody(text.trim(), mood?.key)) }
+    /** Pins a note (optionally dated for another day, with up to 4 pictures). Returns how many pictures failed to upload. */
+    suspend fun addDiary(text: String, mood: Mood?, entryDate: String?, images: List<Uri>): Int {
+        val entry = call { api.postDiary(DiaryBody(text.trim(), mood?.key, entryDate)) }
+        var failed = 0
+        for (uri in images.take(4)) {
+            try {
+                val bytes = encodePhoto(uri)
+                call { api.uploadDiaryImage(entry.id, bytes.toRequestBody("image/jpeg".toMediaType())) }
+            } catch (e: Exception) { failed++ }
+        }
         refresh()
+        return failed
     }
 
     suspend fun deleteDiary(id: String) { call { api.deleteDiary(id) }; refresh() }
@@ -169,8 +201,7 @@ class Repository(private val context: Context) {
     /** Downscales the picked image to a 384px square JPEG so the upload stays tiny. */
     suspend fun uploadAvatar(uri: Uri) {
         val bytes = withContext(Dispatchers.IO) {
-            val src = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                ?: throw AppException("Couldn't read that image")
+            val src = decodeScaled(uri, 1024)
             val side = minOf(src.width, src.height)
             val square = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
             val scaled = Bitmap.createScaledBitmap(square, 384, 384, true)
@@ -178,6 +209,73 @@ class Repository(private val context: Context) {
         }
         call { api.uploadAvatar(bytes.toRequestBody("image/jpeg".toMediaType())) }
         refresh()
+    }
+
+    // ------------------------------------------------------------ partner, account, stats
+    /** Ends the relationship. Nothing is deleted on the server: the history is kept for the pair. */
+    suspend fun leaveCouple() {
+        call { api.leaveCouple() }
+        prefs.clearSeen()
+        refresh()
+    }
+
+    /** Permanently deletes your account and your own notes, moods and pictures. */
+    suspend fun deleteAccount(password: String) {
+        call { api.deleteAccount(DeleteBody(password)) }
+        logout()
+    }
+
+    suspend fun statsDetail(): StatsDetail = call { api.statsDetail(utcOffsetMinutes()) }
+
+    // ------------------------------------------------------------ images
+    /** Decodes with the right rotation and a maximum side length. Re-encoding also strips EXIF (GPS, camera info). */
+    private fun decodeScaled(uri: Uri, maxSide: Int): Bitmap {
+        val resolver = context.contentResolver
+        try {
+            if (Build.VERSION.SDK_INT >= 28) {
+                return ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
+                    val longest = maxOf(info.size.width, info.size.height)
+                    if (longest > maxSide) {
+                        val f = maxSide.toFloat() / longest
+                        decoder.setTargetSize((info.size.width * f).toInt().coerceAtLeast(1), (info.size.height * f).toInt().coerceAtLeast(1))
+                    }
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                }
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxSide * 2) sample *= 2
+            val raw = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+                ?: throw AppException("Couldn't read that image")
+            val orientation = resolver.openInputStream(uri)?.use {
+                android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)
+            } ?: android.media.ExifInterface.ORIENTATION_NORMAL
+            val m = Matrix()
+            when (orientation) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+            }
+            val longest = maxOf(raw.width, raw.height)
+            if (longest > maxSide) { val f = maxSide.toFloat() / longest; m.postScale(f, f) }
+            return Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
+        } catch (e: AppException) { throw e } catch (e: Exception) { throw AppException("Couldn't read that image") }
+    }
+
+    /** A diary photo: max 1280px, JPEG, squeezed under ~400 KB (the server accepts up to 450 KB). */
+    private suspend fun encodePhoto(uri: Uri): ByteArray = withContext(Dispatchers.IO) {
+        var bmp = decodeScaled(uri, 1280)
+        var quality = 82
+        var out: ByteArray
+        do {
+            out = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
+            if (out.size > 400_000) {
+                if (quality > 55) quality -= 9
+                else bmp = Bitmap.createScaledBitmap(bmp, (bmp.width * 0.85f).toInt(), (bmp.height * 0.85f).toInt(), true)
+            }
+        } while (out.size > 400_000)
+        out
     }
 
     // ------------------------------------------------------------ widget helpers
@@ -208,6 +306,9 @@ class Repository(private val context: Context) {
         canvas.drawBitmap(src, srcRect, Rect(0, 0, size, size), paint)
         return out
     }
+
+    /** Set by MainActivity so partner updates arrive as in-app banners while you're looking at the app. */
+    @Volatile var appInForeground: Boolean = false
 
     fun launch(block: suspend () -> Unit) { scope.launch { runCatching { block() } } }
 }

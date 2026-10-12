@@ -15,17 +15,20 @@ interface TandemApi {
 
     @GET("me") suspend fun me(): MeResponse
     @PATCH("me") suspend fun updateProfile(@Body b: ProfileBody): User
+    @HTTP(method = "DELETE", path = "me", hasBody = true) suspend fun deleteAccount(@Body b: DeleteBody): OkResponse
     @PUT("me/avatar") suspend fun uploadAvatar(@Body body: RequestBody): User
 
     @POST("couple") suspend fun createCouple(): CoupleInfo
     @POST("couple/join") suspend fun joinCouple(@Body b: JoinBody): CoupleInfo
+    @POST("couple/leave") suspend fun leaveCouple(): OkResponse
     @PATCH("couple") suspend fun setAnniversary(@Body b: AnniversaryBody): CoupleInfo
 
     @POST("moods") suspend fun postMood(@Body b: MoodBody): MoodEntry
     @GET("moods") suspend fun moods(@Query("limit") limit: Int = 100, @Query("before") before: Long? = null): MoodsResponse
 
     @POST("diary") suspend fun postDiary(@Body b: DiaryBody): DiaryEntry
-    @GET("diary") suspend fun diary(@Query("limit") limit: Int = 50, @Query("before") before: Long? = null): DiaryResponse
+    @GET("diary") suspend fun diary(@Query("limit") limit: Int = 30, @Query("offset") offset: Int = 0): DiaryResponse
+    @POST("diary/{id}/images") suspend fun uploadDiaryImage(@Path("id") id: String, @Body body: RequestBody): ImageId
     @DELETE("diary/{id}") suspend fun deleteDiary(@Path("id") id: String)
 
     @GET("events") suspend fun events(): EventsResponse
@@ -34,6 +37,7 @@ interface TandemApi {
     @DELETE("events/{id}") suspend fun deleteEvent(@Path("id") id: String)
 
     @GET("sync") suspend fun sync(): SyncResponse
+    @GET("stats") suspend fun statsDetail(@Query("tz") tzMinutes: Int): StatsDetail
 }
 
 val AppJson = Json {
@@ -43,12 +47,17 @@ val AppJson = Json {
 }
 
 object ApiFactory {
-    fun client(tokenProvider: () -> String?): OkHttpClient = OkHttpClient.Builder()
+    /** The sign-in token is only ever attached to requests for the Tandem server itself (https + its own host). */
+    fun client(tokenProvider: () -> String?, apiHost: () -> String?): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val token = tokenProvider()
-            val req = if (token != null) chain.request().newBuilder().header("Authorization", "Bearer $token").build() else chain.request()
+            val url = chain.request().url
+            val req = if (token != null && url.isHttps && url.host == apiHost()) {
+                chain.request().newBuilder().header("Authorization", "Bearer $token").build()
+            } else chain.request()
             chain.proceed(req)
         }
         .build()

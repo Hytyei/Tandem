@@ -8,6 +8,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -40,7 +44,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 @Composable
-private fun CountUp(target: Long, style: androidx.compose.ui.text.TextStyle, color: Color) {
+fun CountUp(target: Long, style: androidx.compose.ui.text.TextStyle, color: Color) {
     val v by animateIntAsState(target.toInt(), tween(1100, easing = FastOutSlowInEasing), label = "count")
     Text("$v", style = style, color = color)
 }
@@ -53,7 +57,7 @@ private fun greeting(): String = when (LocalTime.now().hour) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit) {
+fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -72,42 +76,39 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit) {
 
             vm.update?.let { u -> UpdateBanner(u.version, vm.updateProgress, onInstall = { vm.installUpdate() }) }
 
-            // ---------- Couple header: a little film poster
+            // ---------- Our numbers: days together drawn as a node graph + three flat icon stats. Tap for the full page.
             val days = daysTogether(data.couple.anniversary)
-            val beat by rememberInfiniteTransition(label = "heart").animateFloat(
-                1f, 1.18f, infiniteRepeatable(tween(650, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "heart")
-            Box(
-                Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(286.dp).staggerIn(0).clip(RoundedCornerShape(32.dp)),
+            val st = data.stats ?: Stats()
+            SoftCard(
+                Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(0).pressable(onClick = openStats),
+                shape = RoundedCornerShape(30.dp), padding = 18.dp,
             ) {
-                Image(painterResource(R.drawable.hero_together), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x00120A3A), Color(0x33120A3A), Color(0xCC120A3A)))))
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(me, 54.dp, ring = Color.White.copy(alpha = .9f))
-                        Heart(30.dp, Modifier.scale(beat).padding(horizontal = 8.dp))
-                        Avatar(partner, 54.dp, ring = Color.White.copy(alpha = .9f))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    if (days != null) {
-                        CountUp(days, Type.numberHuge, Color.White)
-                        Text(
-                            (if (days == 1L) "day together" else "days together") + "  ·  ${me.displayName.substringBefore(' ')} & ${partner?.displayName?.substringBefore(' ') ?: "…"}",
-                            style = Type.callout, color = Color.White.copy(alpha = .85f),
-                        )
-                    } else {
-                        Text("${me.displayName.substringBefore(' ')} & ${partner?.displayName?.substringBefore(' ') ?: "…"}", style = Type.title, color = Color.White)
-                        Spacer(Modifier.height(6.dp))
-                        SoftButton("Set your anniversary", onClick = { vm.toast("Set it in Profile › Relationship") }, color = Color.White)
-                    }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(me, 34.dp, ring = c.me)
+                    Box(Modifier.offset(x = (-8).dp)) { Avatar(partner, 34.dp, ring = c.partner) }
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${me.displayName.substringBefore(' ')} & ${partner?.displayName?.substringBefore(' ') ?: "…"}",
+                        style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f), maxLines = 1,
+                    )
+                    Text("Stats  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
                 }
-            }
-
-            // ---------- Stats
-            Row(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                val st = data.stats ?: Stats()
-                StatTile("Moods shared", st.moods.toLong(), R.drawable.mood_happy, Modifier.weight(1f).staggerIn(1))
-                StatTile("Diary notes", st.diary.toLong(), R.drawable.act_photography, Modifier.weight(1f).staggerIn(2))
-                StatTile("Active days", st.activeDays.toLong(), R.drawable.act_hiking, Modifier.weight(1f).staggerIn(3))
+                Spacer(Modifier.height(14.dp))
+                if (days != null) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        NodeNumber(days, digitHeight = 64.dp, from = c.accent, to = c.me, ghost = c.label.copy(alpha = .12f))
+                        Spacer(Modifier.width(14.dp))
+                        Text(if (days == 1L) "day\ntogether" else "days\ntogether", style = Type.title, color = c.label)
+                    }
+                } else {
+                    Text("Set your anniversary in Profile to start counting days together", style = Type.callout, color = c.secondary)
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MiniStat(Modifier.weight(1f), Icons.Filled.EmojiEmotions, st.moods.toLong(), "moods", c.accent)
+                    MiniStat(Modifier.weight(1f), Icons.Filled.Edit, st.diary.toLong(), "notes", c.me)
+                    MiniStat(Modifier.weight(1f), Icons.Filled.CalendarMonth, st.activeDays.toLong(), "active days", c.special)
+                }
             }
 
             // ---------- Right now
@@ -156,13 +157,15 @@ private fun UpdateBanner(version: String, progress: Float?, onInstall: () -> Uni
 }
 
 @Composable
-private fun StatTile(label: String, value: Long, art: Int, modifier: Modifier) {
+private fun MiniStat(modifier: Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector, value: Long, label: String, tint: Color) {
     val c = T.colors
-    Column(modifier.clip(RoundedCornerShape(22.dp)).background(c.card).padding(vertical = 14.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Art(art, 34.dp)
-        Spacer(Modifier.height(6.dp))
-        CountUp(value, Type.title, c.label)
-        Text(label, style = Type.caption, color = c.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Row(modifier.clip(RoundedCornerShape(16.dp)).background(tint.copy(alpha = .12f)).padding(horizontal = 10.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(7.dp))
+        Column {
+            CountUp(value, Type.callout.copy(fontWeight = FontWeight.Bold), c.label)
+            Text(label, style = Type.caption.copy(fontSize = 10.sp), color = c.secondary, maxLines = 1)
+        }
     }
 }
 

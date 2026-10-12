@@ -10,8 +10,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,14 +57,30 @@ fun CalendarScreen(vm: AppViewModel) {
     var direction by remember { mutableIntStateOf(1) }
     var editing by remember { mutableStateOf<CalendarEvent?>(null) }
     var creating by rememberSaveable { mutableStateOf(false) }
+    var mode by rememberSaveable { mutableIntStateOf(0) }            // 0 = calendar, 1 = special days
+    var preset by rememberSaveable { mutableStateOf<String?>(null) } // special-day category chosen from the chips
 
     val ym = YearMonth.parse(month)
     val selDate = LocalDate.parse(selected)
-    val upcomingList = remember(data.events) { upcoming(data.events) }
+    val upcomingList = remember(data.events) { upcoming(data.events.filter { !it.isSpecial }) }
+    val specialList = remember(data.events) { upcomingSpecial(data.events) }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 150.dp)) {
-            item { LargeTitle("Calendar", subtitle = "Our moments") }
+            item { LargeTitle(if (mode == 0) "Calendar" else "Special days", subtitle = if (mode == 0) "Our moments" else "Dates worth celebrating") }
+            item {
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+                    Segmented(listOf("Calendar", "Special days"), mode, { mode = it })
+                }
+            }
+
+            if (mode == 1) {
+                specialDaysSection(
+                    specialList, c, data,
+                    onAdd = { cat -> preset = cat; creating = true },
+                    onOpen = { editing = it },
+                )
+            } else {
 
             // ---------- Month card
             item {
@@ -111,17 +130,18 @@ fun CalendarScreen(vm: AppViewModel) {
             items(upcomingList.take(12), key = { "u-${it.first.id}" }) { (e, d) ->
                 EventRow(e, d, Modifier.padding(horizontal = 16.dp, vertical = 4.dp).staggerIn(upcomingList.indexOfFirst { it.first.id == e.id }), showCountdown = true) { editing = e }
             }
+            }
         }
 
         Box(
             Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 112.dp).size(60.dp).clip(CircleShape)
-                .background(Brush.linearGradient(listOf(c.accent, Color(0xFFFF6A5E)))).pressable { creating = true },
+                .background(Brush.linearGradient(listOf(c.accent, Color(0xFFFF6A5E)))).pressable { preset = if (mode == 1) "custom" else null; creating = true },
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Filled.Add, contentDescription = "Add event", tint = Color.White, modifier = Modifier.size(30.dp)) }
     }
 
-    if (creating) EventSheet(vm, null, selDate, onDismiss = { creating = false })
-    editing?.let { EventSheet(vm, it, selDate, onDismiss = { editing = null }) }
+    if (creating) EventSheet(vm, null, selDate, special = preset, onDismiss = { creating = false; preset = null })
+    editing?.let { EventSheet(vm, it, selDate, special = if (it.isSpecial) (it.category ?: "custom") else null, onDismiss = { editing = null }) }
 }
 
 @Composable
@@ -149,7 +169,9 @@ private fun MonthGrid(ym: YearMonth, selected: LocalDate, events: List<CalendarE
                             val date = ym.atDay(dayNum)
                             val isSel = date == selected
                             val isToday = date == today
-                            val has = events.any { it.occursOn(date) }
+                            val onDay = events.filter { it.occursOn(date) }
+                            val hasEvent = onDay.any { !it.isSpecial }
+                            val hasSpecial = onDay.any { it.isSpecial }
                             val bg by animateColorAsState(if (isSel) c.accent else Color.Transparent, tween(180), label = "sel")
                             val scale by animateFloatAsState(if (isSel) 1f else 0.92f, spring(0.5f, Spring.StiffnessMedium), label = "selScale")
                             Column(
@@ -159,7 +181,10 @@ private fun MonthGrid(ym: YearMonth, selected: LocalDate, events: List<CalendarE
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                             ) {
                                 Text("$dayNum", style = Type.callout.copy(fontWeight = if (isToday || isSel) FontWeight.Bold else FontWeight.Normal), color = if (isSel) Color.White else c.label)
-                                Box(Modifier.padding(top = 2.dp).size(5.dp).clip(CircleShape).background(if (has) (if (isSel) Color.White else c.accent) else Color.Transparent))
+                                Row(Modifier.padding(top = 2.dp).height(5.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    if (hasEvent) Box(Modifier.size(5.dp).clip(CircleShape).background(if (isSel) Color.White else c.accent))
+                                    if (hasSpecial) Box(Modifier.size(5.dp).clip(CircleShape).background(if (isSel) Color(0xFFFFE08A) else c.special))
+                                }
                             }
                         }
                     }
@@ -175,24 +200,29 @@ private fun Modifier.graphicsScale(s: Float): Modifier = this.then(Modifier.grap
 private fun EventRow(e: CalendarEvent, date: LocalDate, modifier: Modifier = Modifier, showCountdown: Boolean = false, onClick: () -> Unit) {
     val c = T.colors
     val days = daysUntil(date)
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.card).pressable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(c.accentSoft), contentAlignment = Alignment.Center) { Text(e.emoji, fontSize = 24.sp) }
+    val tone = if (e.isSpecial) c.special else c.accent
+    val cat = if (e.isSpecial) SpecialCategory.from(e.category) else null
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.card)
+        .let { if (e.isSpecial) it.border(1.dp, c.special.copy(alpha = .45f), RoundedCornerShape(22.dp)) else it }
+        .pressable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(tone.copy(alpha = .16f)), contentAlignment = Alignment.Center) { Text(e.emoji, fontSize = 24.sp) }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(e.title, style = Type.headline, color = c.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = buildString {
                 append(date.format(DateTimeFormatter.ofPattern("EEE, d MMM")))
                 e.time?.let { append(" · $it") }
+                cat?.let { append(" · ${it.label}") }
                 if (e.repeatYearly) append(" · every year")
             }
             Text(sub, style = Type.footnote, color = c.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (showCountdown) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(c.accentSoft).padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(tone.copy(alpha = .16f)).padding(horizontal = 12.dp, vertical = 6.dp)) {
                 if (days > 1) {
-                    Text("$days", style = Type.title, color = c.accent)
-                    Text("days", style = Type.caption.copy(fontSize = 10.sp), color = c.accent)
-                } else Text(countdownLabel(days), style = Type.callout.copy(fontWeight = FontWeight.Bold), color = c.accent)
+                    Text("$days", style = Type.title, color = tone)
+                    Text("days", style = Type.caption.copy(fontSize = 10.sp), color = tone)
+                } else Text(countdownLabel(days), style = Type.callout.copy(fontWeight = FontWeight.Bold), color = tone)
             }
         }
     }
@@ -200,15 +230,20 @@ private fun EventRow(e: CalendarEvent, date: LocalDate, modifier: Modifier = Mod
 
 private val EmojiChoices = listOf("❤️", "🎂", "💍", "✈️", "🍽️", "🎬", "🏖️", "🎁", "🥂", "🏠", "🎶", "⭐")
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun EventSheet(vm: AppViewModel, existing: CalendarEvent?, initialDate: LocalDate, onDismiss: () -> Unit) {
+private fun EventSheet(vm: AppViewModel, existing: CalendarEvent?, initialDate: LocalDate, special: String?, onDismiss: () -> Unit) {
     val c = T.colors
-    var title by remember { mutableStateOf(existing?.title ?: "") }
-    var emoji by remember { mutableStateOf(existing?.emoji ?: "❤️") }
-    var date by remember { mutableStateOf(parseDate(existing?.date) ?: initialDate) }
+    val isSpecial = special != null
+    var category by remember { mutableStateOf(SpecialCategory.from(special)) }
+    fun defaultDate(cat: SpecialCategory?): LocalDate? = if (cat == SpecialCategory.Valentine) {
+        LocalDate.now().let { t -> LocalDate.of(t.year, 2, 14).let { d -> if (d.isBefore(t)) d.plusYears(1) else d } }
+    } else null
+    var title by remember { mutableStateOf(existing?.title ?: category?.takeIf { it != SpecialCategory.Custom }?.label ?: "") }
+    var emoji by remember { mutableStateOf(existing?.emoji ?: category?.emoji ?: "❤️") }
+    var date by remember { mutableStateOf(parseDate(existing?.date) ?: (if (existing == null) defaultDate(category) else null) ?: initialDate) }
     var time by remember { mutableStateOf(parseTime(existing?.time)) }
-    var yearly by remember { mutableStateOf(existing?.repeatYearly ?: false) }
+    var yearly by remember { mutableStateOf(existing?.repeatYearly ?: isSpecial) }
     var notes by remember { mutableStateOf(existing?.notes ?: "") }
     var pickDate by remember { mutableStateOf(false) }
     var pickTime by remember { mutableStateOf(false) }
@@ -216,8 +251,27 @@ private fun EventSheet(vm: AppViewModel, existing: CalendarEvent?, initialDate: 
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
-            Text(if (existing == null) "New event" else "Edit event", style = Type.title, color = c.label)
+            Text(if (existing == null) (if (isSpecial) "New special day" else "New event") else (if (isSpecial) "Edit special day" else "Edit event"), style = Type.title, color = c.label)
             Spacer(Modifier.height(14.dp))
+            if (isSpecial) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SpecialCategory.entries.forEach { cat ->
+                        val on = category == cat
+                        Row(
+                            Modifier.clip(RoundedCornerShape(50)).background(if (on) c.special.copy(alpha = .22f) else c.card)
+                                .border(if (on) 1.5.dp else 0.dp, if (on) c.special else Color.Transparent, RoundedCornerShape(50))
+                                .pressable {
+                                    val previousAuto = category?.takeIf { it != SpecialCategory.Custom }?.label
+                                    category = cat; emoji = cat.emoji
+                                    if (title.isBlank() || title == previousAuto) title = if (cat == SpecialCategory.Custom) "" else cat.label
+                                    if (existing == null) defaultDate(cat)?.let { date = it }
+                                }.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) { Text(cat.emoji, fontSize = 16.sp); Spacer(Modifier.width(6.dp)); Text(cat.label, style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = c.label) }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 EmojiChoices.take(6).forEach { EmojiChip(it, it == emoji) { emoji = it } }
             }
@@ -259,14 +313,17 @@ private fun EventSheet(vm: AppViewModel, existing: CalendarEvent?, initialDate: 
             )
             Spacer(Modifier.height(18.dp))
             PrimaryButton(
-                if (existing == null) "Add event" else "Save", enabled = title.isNotBlank(), loading = vm.busy,
+                if (existing == null) (if (isSpecial) "Add special day" else "Add event") else "Save", enabled = title.isNotBlank(), loading = vm.busy,
                 onClick = {
-                    vm.saveEvent(existing?.id, EventBody(title.trim(), emoji, date.toString(), time?.format(DateTimeFormatter.ofPattern("HH:mm")), yearly, notes.trim()), onDismiss)
+                    vm.saveEvent(existing?.id, EventBody(
+                        title.trim(), emoji, date.toString(), time?.format(DateTimeFormatter.ofPattern("HH:mm")), yearly, notes.trim(),
+                        kind = if (isSpecial) "special" else "event", category = if (isSpecial) (category ?: SpecialCategory.Custom).key else null,
+                    ), onDismiss)
                 },
             )
             if (existing != null) {
                 Spacer(Modifier.height(10.dp))
-                Text("Delete event", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.danger, textAlign = TextAlign.Center,
+                Text(if (isSpecial) "Delete special day" else "Delete event", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.danger, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().pressable { vm.deleteEvent(existing.id, onDismiss) }.padding(12.dp))
             }
         }
@@ -310,5 +367,67 @@ private fun SheetRow(label: String, value: String, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().pressable(haptic = false, onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = Type.body, color = c.label, modifier = Modifier.weight(1f))
         Text(value, style = Type.body, color = c.accent)
+    }
+}
+
+// ---------------------------------------------------------------- special days tab
+private fun androidx.compose.foundation.lazy.LazyListScope.specialDaysSection(
+    list: List<Pair<CalendarEvent, LocalDate>>, c: app.tandem.ui.theme.TandemColors, data: SyncResponse,
+    onAdd: (String) -> Unit, onOpen: (CalendarEvent) -> Unit,
+) {
+    val next = list.firstOrNull()
+    item {
+        if (next != null) {
+            val (e, d) = next
+            val days = daysUntil(d)
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp))
+                    .background(Brush.linearGradient(listOf(c.special.copy(alpha = .30f), c.accent.copy(alpha = .18f))))
+                    .border(1.dp, c.special.copy(alpha = .5f), RoundedCornerShape(28.dp))
+                    .pressable { onOpen(e) }.padding(20.dp),
+            ) {
+                Text("NEXT SPECIAL DAY", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary)
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(e.emoji, fontSize = 40.sp)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(e.title, style = Type.title, color = c.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(d.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = Type.footnote, color = c.secondary)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (days > 1) {
+                            Text("$days", style = Type.numberHuge.copy(fontSize = 44.sp, lineHeight = 46.sp), color = c.special)
+                            Text("days", style = Type.caption, color = c.secondary)
+                        } else Text(countdownLabel(days), style = Type.title, color = c.special)
+                    }
+                }
+            }
+        }
+    }
+    item { SectionHeader("Add a special day") }
+    item {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SpecialCategory.entries.forEach { cat ->
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(c.card).border(1.dp, c.special.copy(alpha = .35f), RoundedCornerShape(50))
+                        .pressable { onAdd(cat.key) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) { Text(cat.emoji, fontSize = 16.sp); Spacer(Modifier.width(6.dp)); Text(cat.label, style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = c.label) }
+            }
+        }
+    }
+    item { SectionHeader("Coming up") }
+    if (list.isEmpty()) item {
+        Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("✨", fontSize = 44.sp)
+            Spacer(Modifier.height(8.dp))
+            Text("No special days yet", style = Type.headline, color = c.label)
+            Spacer(Modifier.height(4.dp))
+            Text("Birthdays, Valentine's Day, your first date… pick one above and we'll count down and remind you.", style = Type.callout, color = c.secondary, textAlign = TextAlign.Center)
+        }
+    }
+    items(list, key = { "s-${it.first.id}" }) { (e, d) ->
+        EventRow(e, d, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), showCountdown = true) { onOpen(e) }
     }
 }
