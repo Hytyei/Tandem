@@ -11,9 +11,11 @@ Native Android app (Kotlin, Jetpack Compose, Glance widgets) with a free Cloudfl
 ## Features
 
 - **Moods** – share how you feel with an illustrated activity; a timeline readable in light and dark mode.
-- **Diary wall** – a feed of notes for you and your partner, with backdated entries and up to 4 photos per post.
-- **Calendar** – events with reminders, plus a separate **Special days** view (birthdays, Valentine's, anniversaries, first date…) with countdowns.
-- **Stats** – days together drawn as a node-graph number, milestones, 30-day activity, mood mix and favourite activities.
+- **Diary wall** – a feed of notes for you and your partner: backdated entries, up to 4 photos per post, editable posts, a 1–5 heart rating for memories and a "what did we do" tag (date night, movie night, gaming session…).
+- **Calendar** – events with reminders, a separate **Special days** view (birthdays, Valentine's, anniversaries, first date…) with countdowns, and a **Memories** view: this day in earlier years, last month's highlights, your best-rated moments.
+- **Stats & achievements** – days together drawn as a node-graph number, milestones, 30-day activity, mood mix, favourite activities, the kinds of dates you've had, and relationship achievements.
+- **Play** – a placeholder tab for upcoming mini-games.
+- **Patch notes** – shown inside the app after every update (also under Profile › What's new).
 - **Notifications** – partner mood, diary and event updates; event and special-day reminders; new-release notice.
 - **Widgets** – partner mood, both moods, diary wall, next event.
 - **Partners** – remove a partner and connect a new one. History is kept per pair: reconnecting with the same person restores it, a new partner starts blank.
@@ -41,10 +43,11 @@ npx wrangler secret put JWT_SECRET   # enter a long random value when prompted; 
 npm run deploy
 ```
 
-Existing installs: do **not** re-run `schema.sql`. Apply the files in `backend/migrations/` once, in order:
+Existing installs: do **not** re-run `schema.sql`. Apply each file in `backend/migrations/` once, in order, then deploy:
 
 ```bash
-npx wrangler d1 execute tandem --remote --file=migrations/0002_update1.sql
+npx wrangler d1 execute tandem --remote --file=migrations/0002_update1.sql   # skip if already applied
+npx wrangler d1 execute tandem --remote --file=migrations/0003_update2.sql
 npx wrangler deploy
 ```
 
@@ -62,7 +65,7 @@ The secret lives only in Cloudflare (`wrangler secret`) or a local `.dev.vars` f
 
 ## Releasing
 
-Push a tag such as `v1.1.0`; the workflow in `.github/workflows/release-android.yml` builds a signed APK and publishes it to Releases. The signing keystore and passwords are stored as GitHub Actions secrets, never in the repo. The app downloads only assets from `https://github.com/Hytyei/Tandem/releases/download/`, ignores pre-releases, and verifies the SHA-256 digest when GitHub provides one.
+Push a tag such as `v1.1.0` (the tag becomes the app's version name; add a matching entry at the top of `CHANGELOG` in `android/app/src/main/java/app/tandem/data/Changelog.kt` for the in-app patch notes); the workflow in `.github/workflows/release-android.yml` builds a signed APK and publishes it to Releases. The signing keystore and passwords are stored as GitHub Actions secrets, never in the repo. The app downloads only assets from `https://github.com/Hytyei/Tandem/releases/download/`, ignores pre-releases, and verifies the SHA-256 digest when GitHub provides one.
 
 ## Security & privacy
 

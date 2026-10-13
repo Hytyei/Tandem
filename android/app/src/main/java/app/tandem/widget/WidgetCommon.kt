@@ -153,8 +153,8 @@ fun MessageWidget(title: String, body: String) {
             modifier = GlanceModifier.fillMaxSize().padding(14.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(ImageProvider(R.drawable.w_hero_together), contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = GlanceModifier.size(64.dp, 48.dp).cornerRadius(14.dp))
+            Image(ImageProvider(R.drawable.ic_logo), contentDescription = "Tandem", contentScale = ContentScale.Fit,
+                modifier = GlanceModifier.size(48.dp))
             Spacer(GlanceModifier.height(6.dp))
             Text(title, style = WText.primary(14, true), maxLines = 1)
             Text(body, style = WText.secondary(11), maxLines = 2)

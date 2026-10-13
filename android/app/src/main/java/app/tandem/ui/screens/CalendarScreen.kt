@@ -31,6 +31,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.tandem.AppViewModel
 import app.tandem.R
+import app.tandem.TandemApp
+import coil.compose.AsyncImage
 import app.tandem.data.*
 import app.tandem.ui.components.*
 import app.tandem.ui.theme.T
@@ -57,30 +61,61 @@ fun CalendarScreen(vm: AppViewModel) {
     var direction by remember { mutableIntStateOf(1) }
     var editing by remember { mutableStateOf<CalendarEvent?>(null) }
     var creating by rememberSaveable { mutableStateOf(false) }
-    var mode by rememberSaveable { mutableIntStateOf(0) }            // 0 = calendar, 1 = special days
+    var mode by rememberSaveable { mutableIntStateOf(0) }            // 0 = calendar, 1 = special days, 2 = memories
     var preset by rememberSaveable { mutableStateOf<String?>(null) } // special-day category chosen from the chips
 
     val ym = YearMonth.parse(month)
     val selDate = LocalDate.parse(selected)
     val upcomingList = remember(data.events) { upcoming(data.events.filter { !it.isSpecial }) }
     val specialList = remember(data.events) { upcomingSpecial(data.events) }
+    val memories = vm.memories
+    // "Remember when" is loaded from the server (it can reach back further than the synced feed) and refreshed when notes/events change.
+    LaunchedEffect(data.diary.size, data.events.size, data.diary.firstOrNull()?.updatedAt) { vm.loadMemories() }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 150.dp)) {
-            item { LargeTitle(if (mode == 0) "Calendar" else "Special days", subtitle = if (mode == 0) "Our moments" else "Dates worth celebrating") }
+            item {
+                when (mode) {
+                    0 -> LargeTitle("Calendar", subtitle = "Our moments")
+                    1 -> LargeTitle("Special days", subtitle = "Dates worth celebrating")
+                    else -> LargeTitle("Memories", subtitle = "Remember when")
+                }
+            }
             item {
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
-                    Segmented(listOf("Calendar", "Special days"), mode, { mode = it })
+                    Segmented(listOf("Calendar", "Special days", "Memories"), mode, { mode = it })
                 }
             }
 
-            if (mode == 1) {
+            if (mode == 2) {
+                memoriesSection(memories, c, data, onAddNote = { mode = 0 })
+            } else if (mode == 1) {
                 specialDaysSection(
                     specialList, c, data,
                     onAdd = { cat -> preset = cat; creating = true },
                     onOpen = { editing = it },
                 )
             } else {
+
+            // ---------- "On this day" teaser (opens the Memories view)
+            memories?.onThisDay?.firstOrNull()?.let { m ->
+                item {
+                    val title = m.diary?.text ?: m.event?.title ?: ""
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                            .background(c.accent.copy(alpha = .12f)).pressable { mode = 2 }.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(m.diary?.let { DateType.from(it.dateType)?.emoji } ?: m.event?.emoji ?: "💭", fontSize = 26.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("On this day · ${yearsAgoText(m.yearsAgo)}", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+                            Text(title, style = Type.callout, color = c.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text("›", style = Type.title, color = c.accent)
+                    }
+                }
+            }
 
             // ---------- Month card
             item {
@@ -126,7 +161,7 @@ fun CalendarScreen(vm: AppViewModel) {
 
             // ---------- Upcoming with countdowns
             item { SectionHeader("Upcoming") }
-            if (upcomingList.isEmpty()) item { EmptyState(R.drawable.hero_together, "No events yet", "Add anniversaries, trips, dates — we'll count down together.") }
+            if (upcomingList.isEmpty()) item { EmptyState("No events yet", "Add anniversaries, trips, dates — we'll count down together.") }
             items(upcomingList.take(12), key = { "u-${it.first.id}" }) { (e, d) ->
                 EventRow(e, d, Modifier.padding(horizontal = 16.dp, vertical = 4.dp).staggerIn(upcomingList.indexOfFirst { it.first.id == e.id }), showCountdown = true) { editing = e }
             }
@@ -213,6 +248,7 @@ private fun EventRow(e: CalendarEvent, date: LocalDate, modifier: Modifier = Mod
                 append(date.format(DateTimeFormatter.ofPattern("EEE, d MMM")))
                 e.time?.let { append(" · $it") }
                 cat?.let { append(" · ${it.label}") }
+                DateType.from(e.dateType)?.let { append(" · ${it.emoji} ${it.label}") }
                 if (e.repeatYearly) append(" · every year")
             }
             Text(sub, style = Type.footnote, color = c.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -245,6 +281,7 @@ private fun EventSheet(vm: AppViewModel, existing: CalendarEvent?, initialDate: 
     var time by remember { mutableStateOf(parseTime(existing?.time)) }
     var yearly by remember { mutableStateOf(existing?.repeatYearly ?: isSpecial) }
     var notes by remember { mutableStateOf(existing?.notes ?: "") }
+    var dateType by remember { mutableStateOf(DateType.from(existing?.dateType)) }
     var pickDate by remember { mutableStateOf(false) }
     var pickTime by remember { mutableStateOf(false) }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -311,6 +348,10 @@ private fun EventSheet(vm: AppViewModel, existing: CalendarEvent?, initialDate: 
                 shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.accent, unfocusedBorderColor = c.separator, focusedTextColor = c.label, unfocusedTextColor = c.label, cursorColor = c.accent, focusedContainerColor = c.card, unfocusedContainerColor = c.card),
             )
+            Spacer(Modifier.height(14.dp))
+            Text("What kind of date is it? (optional)", style = Type.footnote, color = c.secondary)
+            Spacer(Modifier.height(6.dp))
+            DateTypeChips(dateType, { dateType = it })
             Spacer(Modifier.height(18.dp))
             PrimaryButton(
                 if (existing == null) (if (isSpecial) "Add special day" else "Add event") else "Save", enabled = title.isNotBlank(), loading = vm.busy,
@@ -318,6 +359,7 @@ private fun EventSheet(vm: AppViewModel, existing: CalendarEvent?, initialDate: 
                     vm.saveEvent(existing?.id, EventBody(
                         title.trim(), emoji, date.toString(), time?.format(DateTimeFormatter.ofPattern("HH:mm")), yearly, notes.trim(),
                         kind = if (isSpecial) "special" else "event", category = if (isSpecial) (category ?: SpecialCategory.Custom).key else null,
+                        dateType = dateType?.key,
                     ), onDismiss)
                 },
             )
@@ -429,5 +471,104 @@ private fun androidx.compose.foundation.lazy.LazyListScope.specialDaysSection(
     }
     items(list, key = { "s-${it.first.id}" }) { (e, d) ->
         EventRow(e, d, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), showCountdown = true) { onOpen(e) }
+    }
+}
+
+
+// ---------------------------------------------------------------- memories ("remember when")
+private fun yearsAgoText(n: Int) = when { n <= 0 -> "earlier"; n == 1 -> "1 year ago"; else -> "$n years ago" }
+
+private fun androidx.compose.foundation.lazy.LazyListScope.memoriesSection(
+    m: Memories?, c: app.tandem.ui.theme.TandemColors, data: SyncResponse, onAddNote: () -> Unit,
+) {
+    if (m == null) {
+        item { Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) } }
+        return
+    }
+    if (m.isEmpty) {
+        item {
+            EmptyState("No memories yet", "As you add diary notes and events, this page brings them back: this day in earlier years, last month's highlights and your best-rated moments. Rate notes with hearts to build your best-of list.")
+        }
+        return
+    }
+    fun section(title: String, subtitle: String?, key: String, list: List<Memory>, showYears: Boolean) {
+        if (list.isEmpty()) return
+        item(key = "h-$key") {
+            Column {
+                SectionHeader(title)
+                if (subtitle != null) Text(subtitle, style = Type.footnote, color = c.secondary, modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 4.dp))
+            }
+        }
+        items(list.size, key = { "m-$key-$it" }) { i ->
+            MemoryCard(list[i], data, showYears, Modifier.padding(horizontal = 16.dp, vertical = 5.dp))
+        }
+    }
+    section("On this day", "Moments from this date in earlier years", "day", m.onThisDay, true)
+    section("Best of this month", "Your highest-rated notes so far", "best-month", m.bestOfMonth, false)
+    section("Last month", "Highlights from the month before", "last", m.lastMonth, false)
+    section("Best memories ever", "Everything you rated 4 hearts or more", "ever", m.bestEver, true)
+}
+
+@Composable
+private fun MemoryCard(m: Memory, data: SyncResponse, showYears: Boolean, modifier: Modifier = Modifier) {
+    val c = T.colors
+    val repo = (LocalContext.current.applicationContext as TandemApp).repo
+    val shape = RoundedCornerShape(24.dp)
+    val date = remember(m.date) { parseDate(m.date) }
+    val dateText = date?.format(DateTimeFormatter.ofPattern(if (showYears && m.yearsAgo > 0) "d MMMM yyyy" else "EEE, d MMMM")) ?: m.date
+    val d = m.diary
+    val ev = m.event
+    Column(
+        modifier.fillMaxWidth().clip(shape).background(c.card)
+            .border(1.dp, if (c.isDark) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .7f), shape),
+    ) {
+        if (d != null && d.images.isNotEmpty()) {
+            AsyncImage(
+                model = repo.diaryImageUrl(d.images.first()), contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(c.separator),
+            )
+        }
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(dateText, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.secondary, modifier = Modifier.weight(1f))
+                if (showYears && m.yearsAgo > 0) Text(yearsAgoText(m.yearsAgo), style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+            }
+            Spacer(Modifier.height(6.dp))
+            if (d != null) {
+                val who = if (d.userId == data.me.id) "You" else data.couple.partner?.displayName?.substringBefore(' ') ?: "Partner"
+                if (d.rating != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HeartRating(d.rating, size = 16.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(ratingLabel(d.rating), style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+                Text(d.text, style = Type.body, color = c.label, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                val type = DateType.from(d.dateType)
+                Text(
+                    buildString { append("Diary · $who"); type?.let { append(" · ${it.emoji} ${it.label}") } },
+                    style = Type.footnote, color = c.secondary,
+                )
+            } else if (ev != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(ev.emoji, fontSize = 30.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(ev.title, style = Type.headline, color = c.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val sub = buildString {
+                            append(if (ev.isSpecial) "Special day" else "Event")
+                            DateType.from(ev.dateType)?.let { append(" · ${it.emoji} ${it.label}") }
+                        }
+                        Text(sub, style = Type.footnote, color = c.secondary)
+                    }
+                }
+                if (ev.notes.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(ev.notes, style = Type.callout, color = c.label, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
     }
 }

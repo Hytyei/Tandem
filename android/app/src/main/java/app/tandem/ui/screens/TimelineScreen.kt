@@ -81,7 +81,7 @@ fun TimelineScreen(vm: AppViewModel) {
             }
         }
         if (rows.isEmpty()) {
-            item { EmptyState(R.drawable.mood_calm, "Nothing here yet", "Share your first mood from the Today tab.") }
+            item { EmptyState("Nothing here yet", "Share your first mood from the Today tab.") }
         }
         items(rows, key = { r -> when (r) { is TlRow.Header -> "h-${r.key}"; is TlRow.Item -> r.entry.id } }) { r ->
             when (r) {

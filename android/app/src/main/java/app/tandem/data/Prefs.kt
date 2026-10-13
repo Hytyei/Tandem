@@ -41,6 +41,8 @@ class Prefs(private val context: Context) {
     private val kSeenMoodAt = longPreferencesKey("seen_mood_at")
     private val kSeenDiary = stringSetPreferencesKey("seen_diary")
     private val kSeenEvents = stringSetPreferencesKey("seen_events")
+    private val kNotesSeen = stringPreferencesKey("patch_notes_seen")
+    private val kAchSeen = stringSetPreferencesKey("achievements_seen")
 
     // Token and cached data are encrypted with a Keystore key (see SecureBox).
     val token: Flow<String?> = context.store.data.map { it[kToken]?.let(SecureBox::decrypt) }
@@ -65,6 +67,15 @@ class Prefs(private val context: Context) {
     suspend fun setNotifyMoods(v: Boolean) = context.store.edit { it[kNotifyMoods] = v }
     suspend fun setNotifyDiary(v: Boolean) = context.store.edit { it[kNotifyDiary] = v }
     suspend fun setNotifyEvents(v: Boolean) = context.store.edit { it[kNotifyEvents] = v }
+
+    /** Version whose patch notes the person has already seen. */
+    val notesSeen: Flow<String?> = context.store.data.map { it[kNotesSeen] }
+    suspend fun setNotesSeen(v: String) = context.store.edit { it[kNotesSeen] = v }
+
+    /** Unlocked achievements already announced ("partnerId:achievementId", plus "partnerId:init" once the baseline is set). */
+    suspend fun achievementsSeen(): Set<String> = context.store.data.first()[kAchSeen] ?: emptySet()
+    suspend fun setAchievementsSeen(v: Set<String>) = context.store.edit { it[kAchSeen] = v }
+    suspend fun clearAchievementsSeen() = context.store.edit { it.remove(kAchSeen) }
 
     suspend fun lastUpdateCheck(): Long = context.store.data.first()[kLastUpdateCheck] ?: 0L
     suspend fun setLastUpdateCheck(v: Long) = context.store.edit { it[kLastUpdateCheck] = v }

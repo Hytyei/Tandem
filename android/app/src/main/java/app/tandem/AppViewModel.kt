@@ -90,9 +90,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun createInvite() = busyRun { repo.createInvite() }
     fun join(code: String) = busyRun { repo.joinWithCode(code) }
     fun shareMood(m: Mood, a: Activity?, note: String, done: () -> Unit) = busyRun(done) { repo.shareMood(m, a, note) }
-    fun addDiary(text: String, mood: Mood?, date: java.time.LocalDate?, images: List<Uri>, done: () -> Unit) = busyRun(done) {
-        val failed = repo.addDiary(text, mood, date?.toString(), images)
+    fun addDiary(
+        text: String, mood: Mood?, date: java.time.LocalDate?, rating: Int?, dateType: DateType?, images: List<Uri>, done: () -> Unit,
+    ) = busyRun(done) {
+        val failed = repo.addDiary(text, mood, date?.toString(), rating, dateType, images)
         if (failed > 0) toast(if (failed == 1) "Note pinned, but one picture couldn't be uploaded" else "Note pinned, but $failed pictures couldn't be uploaded")
+    }
+    fun updateDiary(
+        id: String, text: String, mood: Mood?, date: java.time.LocalDate?, rating: Int?, dateType: DateType?,
+        removeImages: List<String>, newImages: List<Uri>, done: () -> Unit,
+    ) = busyRun(done) {
+        val failed = repo.updateDiary(id, text, mood, date?.toString(), rating, dateType, removeImages, newImages)
+        if (failed > 0) toast(if (failed == 1) "Saved, but one picture couldn't be uploaded" else "Saved, but $failed pictures couldn't be uploaded")
     }
     fun leaveCouple(done: () -> Unit) = busyRun(done) { repo.leaveCouple() }
     fun deleteAccount(password: String, done: () -> Unit) = busyRun(done) { repo.deleteAccount(password) }
@@ -108,9 +117,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun loadStats() {
         viewModelScope.launch {
             statsLoading = true
-            try { stats = repo.statsDetail() } catch (e: AppException) { toast(e.message ?: "Couldn't load stats") } finally { statsLoading = false }
+            try {
+                val s = repo.statsDetail()
+                stats = s
+                announceAchievements(s)
+            } catch (e: AppException) { toast(e.message ?: "Couldn't load stats") } finally { statsLoading = false }
         }
     }
+
+    /** Toasts newly unlocked achievements (the first load for a partner just records what's already unlocked). */
+    private suspend fun announceAchievements(s: StatsDetail) {
+        val st = state.value ?: return
+        val pid = st.couple.partner?.id ?: return
+        val unlocked = unlockedAchievements(Achievements.context(daysTogether(st.couple.anniversary) ?: 0L, s)).map { "$pid:${it.id}" }.toSet()
+        val seen = repo.prefs.achievementsSeen()
+        if ("$pid:init" in seen) {
+            val fresh = unlocked - seen
+            Achievements.all.filter { "$pid:${it.id}" in fresh }.forEach { toast("🏆 Achievement unlocked: ${it.title}") }
+        }
+        repo.prefs.setAchievementsSeen(seen + unlocked + "$pid:init")
+    }
+
+    var memories by mutableStateOf<Memories?>(null); private set
+    fun loadMemories() {
+        viewModelScope.launch {
+            try { memories = repo.memories() } catch (_: AppException) { /* keep what we had; the section just stays quiet */ }
+        }
+    }
+
+    /** Patch notes: shown once per version (and always available from Profile). */
+    val notesSeen = repo.prefs.notesSeen.stateIn(viewModelScope, SharingStarted.Eagerly, "?" as String?)
+    fun markNotesSeen(version: String) { viewModelScope.launch { repo.prefs.setNotesSeen(version) } }
     fun deleteDiary(id: String) = busyRun { repo.deleteDiary(id) }
     fun saveEvent(id: String?, e: EventBody, done: () -> Unit) = busyRun(done) { repo.saveEvent(id, e) }
     fun deleteEvent(id: String, done: () -> Unit) = busyRun(done) { repo.deleteEvent(id) }

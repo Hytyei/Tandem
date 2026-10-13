@@ -38,7 +38,7 @@ import java.time.format.DateTimeFormatter
 
 /** The single stats page: days together as a node graph, key numbers with flat icons, and a few small charts. */
 @Composable
-fun StatsScreen(vm: AppViewModel, onBack: () -> Unit) {
+fun StatsScreen(vm: AppViewModel, onBack: () -> Unit, openAchievements: () -> Unit) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -103,6 +103,40 @@ fun StatsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     Metric(Modifier.weight(1f).staggerIn(6), Icons.Filled.PhotoLibrary, "Photos", (detail?.photos ?: 0).toLong(), Color(0xFF5C6BC0))
                 }
 
+                // ---------- Achievements summary
+                if (detail != null) {
+                    val ach = Achievements.context(days ?: 0L, detail)
+                    val done = Achievements.all.filter { it.unlocked(ach) }
+                    Spacer(Modifier.height(12.dp))
+                    SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(7).pressable(onClick = openAchievements)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(c.special.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.EmojiEvents, null, tint = c.special, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Achievements", style = Type.headline, color = c.label)
+                                Text("${done.size} of ${Achievements.all.size} unlocked", style = Type.footnote, color = c.secondary)
+                            }
+                            Text("View all ›", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.label.copy(alpha = .10f))) {
+                            Box(Modifier.fillMaxWidth(done.size.toFloat() / Achievements.all.size).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(c.special))
+                        }
+                        if (done.isNotEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                done.takeLast(6).forEach { a ->
+                                    Box(Modifier.size(34.dp).clip(CircleShape).background(a.group.tint.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
+                                        Icon(a.icon, a.title, tint = a.group.tint, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ---------- Last 30 days
                 SectionHeader("Last 30 days")
                 SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(7)) {
@@ -126,6 +160,21 @@ fun StatsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         MoodMix("You", me.id, detail.moodCounts, c.me)
                         Spacer(Modifier.height(16.dp))
                         MoodMix(partner?.displayName?.substringBefore(' ') ?: "Partner", partner?.id ?: "", detail.moodCounts, c.partner)
+                    }
+                }
+
+                // ---------- Things we did (date types)
+                SectionHeader("Things we did together")
+                SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(9)) {
+                    val types = detail?.dateTypeCounts.orEmpty().mapNotNull { x -> DateType.from(x.dateType)?.let { it to x.n } }.sortedByDescending { it.second }.take(8)
+                    if (detail == null) Text("Loading…", style = Type.callout, color = c.secondary)
+                    else if (types.isEmpty()) Text("Tag diary notes and calendar events with what you did — date night, movie night, gaming session — and they'll be counted here.", style = Type.callout, color = c.secondary)
+                    else {
+                        val max = types.first().second.toFloat()
+                        types.forEachIndexed { i, (t, n) ->
+                            BarRow("${t.emoji} ${t.label}", n, n / max, c.accent, labelWidth = 150.dp)
+                            if (i < types.lastIndex) Spacer(Modifier.height(10.dp))
+                        }
                     }
                 }
 
@@ -254,12 +303,12 @@ private fun MoodMix(name: String, userId: String, counts: List<MoodCount>, accen
 }
 
 @Composable
-private fun BarRow(label: String, n: Int, frac: Float, tint: Color) {
+private fun BarRow(label: String, n: Int, frac: Float, tint: Color, labelWidth: androidx.compose.ui.unit.Dp = 96.dp) {
     val c = T.colors
     val grow = remember { Animatable(0f) }
     LaunchedEffect(frac) { grow.animateTo(frac, tween(900, easing = FastOutSlowInEasing)) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = Type.footnote, color = c.label, modifier = Modifier.width(96.dp), maxLines = 1)
+        Text(label, style = Type.footnote, color = c.label, modifier = Modifier.width(labelWidth), maxLines = 1)
         Box(Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(5.dp)).background(c.label.copy(alpha = .08f))) {
             Box(Modifier.fillMaxWidth(grow.value.coerceAtLeast(0.02f)).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(tint))
         }

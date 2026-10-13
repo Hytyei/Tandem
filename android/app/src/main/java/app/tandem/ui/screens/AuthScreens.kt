@@ -89,7 +89,7 @@ fun AuthScreen(vm: AppViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(48.dp))
-            Art(R.drawable.hero_together, 120.dp, Modifier.scale(pop).offset(y = float.dp))
+            AppLogo(120.dp, Modifier.scale(pop).offset(y = float.dp))
             Spacer(Modifier.height(16.dp))
             Text("Tandem", style = Type.largeTitle.copy(fontSize = 40.sp), color = c.label)
             Text("A little space for the two of you", style = Type.callout, color = c.secondary)
@@ -165,7 +165,7 @@ fun PairingScreen(vm: AppViewModel) {
             Spacer(Modifier.height(32.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Avatar(me, 72.dp, ring = c.me)
-                Heart(44.dp, Modifier.scale(beat).padding(horizontal = 6.dp))
+                AppLogo(52.dp, Modifier.scale(beat).padding(horizontal = 6.dp))
                 Box(Modifier.size(72.dp).clip(RoundedCornerShape(50)).background(c.card), contentAlignment = Alignment.Center) {
                     Text("?", style = Type.title, color = c.tertiary)
                 }

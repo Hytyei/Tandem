@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS diary (
   text TEXT NOT NULL,
   mood TEXT,
   created_at INTEGER NOT NULL,
-  entry_date TEXT             -- YYYY-MM-DD, NULL = day it was written
+  entry_date TEXT,            -- YYYY-MM-DD, NULL = day it was written
+  rating INTEGER,             -- 1..5 hearts, NULL = not rated
+  date_type TEXT,             -- datenight, movie, gaming, ...
+  updated_at INTEGER          -- set when the note is edited
 );
 CREATE TABLE IF NOT EXISTS diary_images (
   id TEXT PRIMARY KEY,
@@ -70,7 +73,8 @@ CREATE TABLE IF NOT EXISTS events (
   kind TEXT NOT NULL DEFAULT 'event',      -- 'event' | 'special'
   category TEXT,
   updated_at INTEGER NOT NULL DEFAULT 0,
-  updated_by TEXT
+  updated_by TEXT,
+  date_type TEXT              -- datenight, movie, gaming, ...
 );
 CREATE INDEX IF NOT EXISTS idx_events_couple ON events(couple_id, date);
 

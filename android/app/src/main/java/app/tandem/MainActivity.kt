@@ -47,6 +47,7 @@ enum class AppTab(val label: String, val icon: ImageVector) {
     Timeline("Moods", Icons.Filled.Timeline),
     Diary("Diary", Icons.Filled.MenuBook),
     Calendar("Calendar", Icons.Filled.CalendarMonth),
+    Play("Play", Icons.Filled.SportsEsports),
     Profile("Profile", Icons.Filled.Person),
 }
 
@@ -123,6 +124,8 @@ private fun LoadingScreen(vm: AppViewModel) {
     LaunchedEffect(Unit) { vm.refresh(silent = false); delay(6000); failed = true }
     AuroraBackground {
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            AppLogo(88.dp)
+            Spacer(Modifier.height(20.dp))
             CircularProgressIndicator(color = c.accent)
             AnimatedVisibility(failed) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 24.dp)) {
@@ -141,6 +144,7 @@ private fun LoadingScreen(vm: AppViewModel) {
 private fun Shell(vm: AppViewModel) {
     var tab by rememberSaveable { mutableStateOf(AppTab.Today) }
     var showStats by rememberSaveable { mutableStateOf(false) }
+    var showAchievements by rememberSaveable { mutableStateOf(false) }
     val requested = vm.requestedTab
     LaunchedEffect(requested) {
         if (requested != null) {
@@ -161,6 +165,7 @@ private fun Shell(vm: AppViewModel) {
                 AppTab.Timeline -> TimelineScreen(vm)
                 AppTab.Diary -> DiaryScreen(vm)
                 AppTab.Calendar -> CalendarScreen(vm)
+                AppTab.Play -> GamesScreen(vm)
                 AppTab.Profile -> ProfileScreen(vm)
             }
         }
@@ -172,13 +177,27 @@ private fun Shell(vm: AppViewModel) {
             enter = slideInVertically(spring(0.85f, Spring.StiffnessMediumLow)) { it / 3 } + fadeIn(tween(220)),
             exit = slideOutVertically { it / 3 } + fadeOut(tween(160)),
         ) {
-            BackHandler { showStats = false }
-            StatsScreen(vm, onBack = { showStats = false })
+            BackHandler(enabled = !showAchievements) { showStats = false }
+            StatsScreen(vm, onBack = { showStats = false }, openAchievements = { showAchievements = true })
+        }
+        AnimatedVisibility(
+            showAchievements, modifier = Modifier.fillMaxSize(),
+            enter = slideInVertically(spring(0.85f, Spring.StiffnessMediumLow)) { it / 3 } + fadeIn(tween(220)),
+            exit = slideOutVertically { it / 3 } + fadeOut(tween(160)),
+        ) {
+            BackHandler { showAchievements = false }
+            AchievementsScreen(vm, onBack = { showAchievements = false })
         }
     }
 
+    // Patch notes: once after the app has been updated to a new version.
+    val notesSeen by vm.notesSeen.collectAsState()
+    val version = BuildConfig.VERSION_NAME
+    val showPatchNotes = notesSeen != "?" && notesSeen != version
+    if (showPatchNotes) PatchNotesDialog(onDismiss = { vm.markNotesSeen(version) })
+
     // New release on GitHub: tell the person once per version, right inside the app.
-    if (update != null && dismissed != update.version) {
+    if (!showPatchNotes && update != null && dismissed != update.version) {
         val c = T.colors
         AlertDialog(
             onDismissRequest = { vm.dismissUpdateDialog() }, containerColor = c.sheet,
@@ -202,7 +221,7 @@ private fun Shell(vm: AppViewModel) {
 private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier, badge: AppTab? = null) {
     val c = T.colors
     Row(
-        modifier.navigationBarsPadding().padding(horizontal = 20.dp, vertical = 14.dp)
+        modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 14.dp)
             .shadow(if (c.isDark) 0.dp else 14.dp, RoundedCornerShape(32.dp), ambientColor = Color(0x33000000), spotColor = Color(0x33000000))
             .clip(RoundedCornerShape(32.dp)).background(c.sheet.copy(alpha = 0.92f))
             .border(1.dp, if (c.isDark) Color.White.copy(alpha = .12f) else Color.White.copy(alpha = .8f), RoundedCornerShape(32.dp)).padding(6.dp),
@@ -214,11 +233,11 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
             val tint by animateColorAsState(if (on) c.accent else c.secondary, tween(220), label = "tabTint")
             Row(
                 Modifier.clip(RoundedCornerShape(26.dp)).background(bg).pressable(haptic = !on) { onSelect(t) }
-                    .padding(horizontal = if (on) 14.dp else 12.dp, vertical = 11.dp).animateContentSize(spring(0.8f, Spring.StiffnessMediumLow)),
+                    .padding(horizontal = if (on) 12.dp else 9.dp, vertical = 11.dp).animateContentSize(spring(0.8f, Spring.StiffnessMediumLow)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box {
-                    Icon(t.icon, contentDescription = t.label, tint = tint, modifier = Modifier.size(24.dp))
+                    Icon(t.icon, contentDescription = t.label, tint = tint, modifier = Modifier.size(22.dp))
                     if (badge == t) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).clip(RoundedCornerShape(50)).background(c.accent)
                         .border(1.5.dp, c.sheet, RoundedCornerShape(50)))
                 }

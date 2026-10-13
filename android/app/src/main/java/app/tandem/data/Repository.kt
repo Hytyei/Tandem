@@ -141,6 +141,7 @@ class Repository(private val context: Context) {
         prefs.setToken(null)
         prefs.setCache(null)
         prefs.clearSeen()
+        prefs.clearAchievementsSeen()
         _state.value = null
         _loggedIn.value = false
         ReminderScheduler.cancelAll(context)
@@ -171,16 +172,33 @@ class Repository(private val context: Context) {
     }
 
     /** Pins a note (optionally dated for another day, with up to 4 pictures). Returns how many pictures failed to upload. */
-    suspend fun addDiary(text: String, mood: Mood?, entryDate: String?, images: List<Uri>): Int {
-        val entry = call { api.postDiary(DiaryBody(text.trim(), mood?.key, entryDate)) }
+    suspend fun addDiary(text: String, mood: Mood?, entryDate: String?, rating: Int?, dateType: DateType?, images: List<Uri>): Int {
+        val entry = call { api.postDiary(DiaryBody(text.trim(), mood?.key, entryDate, rating, dateType?.key)) }
+        val failed = uploadPictures(entry.id, images)
+        refresh()
+        return failed
+    }
+
+    /** Edits one of your own notes: new text/mood/date/rating/type, pictures removed, pictures added. Returns failed uploads. */
+    suspend fun updateDiary(
+        id: String, text: String, mood: Mood?, entryDate: String?, rating: Int?, dateType: DateType?,
+        removeImages: List<String>, newImages: List<Uri>,
+    ): Int {
+        call { api.updateDiary(id, DiaryBody(text.trim(), mood?.key, entryDate, rating, dateType?.key)) }
+        for (img in removeImages) try { call { api.deleteDiaryImage(img) } } catch (_: AppException) { }
+        val failed = uploadPictures(id, newImages)
+        refresh()
+        return failed
+    }
+
+    private suspend fun uploadPictures(entryId: String, images: List<Uri>): Int {
         var failed = 0
         for (uri in images.take(4)) {
             try {
                 val bytes = encodePhoto(uri)
-                call { api.uploadDiaryImage(entry.id, bytes.toRequestBody("image/jpeg".toMediaType())) }
+                call { api.uploadDiaryImage(entryId, bytes.toRequestBody("image/jpeg".toMediaType())) }
             } catch (e: Exception) { failed++ }
         }
-        refresh()
         return failed
     }
 
@@ -226,6 +244,7 @@ class Repository(private val context: Context) {
     }
 
     suspend fun statsDetail(): StatsDetail = call { api.statsDetail(utcOffsetMinutes()) }
+    suspend fun memories(): Memories = call { api.memories(java.time.LocalDate.now().toString()) }
 
     // ------------------------------------------------------------ images
     /** Decodes with the right rotation and a maximum side length. Re-encoding also strips EXIF (GPS, camera info). */

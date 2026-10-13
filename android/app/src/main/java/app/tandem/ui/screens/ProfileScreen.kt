@@ -48,6 +48,7 @@ fun ProfileScreen(vm: AppViewModel) {
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showNotes by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val notifOn = remember { mutableStateOf(app.tandem.work.Notifier.enabled(ctx)) }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { notifOn.value = app.tandem.work.Notifier.enabled(ctx) }
@@ -127,6 +128,8 @@ fun ProfileScreen(vm: AppViewModel) {
             val upd = vm.update
             ListRow("Version", BuildConfig.VERSION_NAME + if (upd != null) "  ·  ${upd.version} available" else "")
             Divider()
+            ListRow("What's new", "Patch notes", onClick = { showNotes = true })
+            Divider()
             if (upd != null) {
                 ListRow(if (vm.updateProgress != null) "Downloading… ${((vm.updateProgress ?: 0f) * 100).toInt()}%" else "Install version ${upd.version}", "", accent = true, onClick = { vm.installUpdate() })
             } else {
@@ -146,6 +149,8 @@ fun ProfileScreen(vm: AppViewModel) {
             ListRow("Delete my account", "", destructive = true, onClick = { confirmDelete = true })
         }
     }
+
+    if (showNotes) PatchNotesSheet { showNotes = false }
 
     if (editProfile) {
         var name by remember { mutableStateOf(me.displayName) }

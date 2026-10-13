@@ -29,7 +29,9 @@ interface TandemApi {
     @POST("diary") suspend fun postDiary(@Body b: DiaryBody): DiaryEntry
     @GET("diary") suspend fun diary(@Query("limit") limit: Int = 30, @Query("offset") offset: Int = 0): DiaryResponse
     @POST("diary/{id}/images") suspend fun uploadDiaryImage(@Path("id") id: String, @Body body: RequestBody): ImageId
+    @PUT("diary/{id}") suspend fun updateDiary(@Path("id") id: String, @Body b: DiaryBody): DiaryEntry
     @DELETE("diary/{id}") suspend fun deleteDiary(@Path("id") id: String)
+    @DELETE("diary/image/{id}") suspend fun deleteDiaryImage(@Path("id") id: String): OkResponse
 
     @GET("events") suspend fun events(): EventsResponse
     @POST("events") suspend fun addEvent(@Body b: EventBody): CalendarEvent
@@ -38,6 +40,7 @@ interface TandemApi {
 
     @GET("sync") suspend fun sync(): SyncResponse
     @GET("stats") suspend fun statsDetail(@Query("tz") tzMinutes: Int): StatsDetail
+    @GET("memories") suspend fun memories(@Query("date") today: String): Memories
 }
 
 val AppJson = Json {

@@ -156,6 +156,7 @@ function diaryJson(r: any, images: string[] = []) {
   return {
     id: r.id, userId: r.user_id, text: r.text, mood: r.mood, createdAt: r.created_at,
     entryDate: r.entry_date ?? isoDay(r.created_at), images,
+    rating: r.rating ?? null, dateType: r.date_type ?? null, updatedAt: r.updated_at ?? 0,
   };
 }
 async function withImages(env: Env, rows: any[]) {
@@ -170,12 +171,19 @@ async function withImages(env: Env, rows: any[]) {
   return rows.map((r) => diaryJson(r, map[r.id] ?? []));
 }
 const DIARY_ORDER = "ORDER BY COALESCE(entry_date, date(created_at/1000,'unixepoch')) DESC, created_at DESC, rowid DESC";
+const DATE_TYPES = ["datenight", "movie", "gaming", "dinner", "coffee", "walk", "trip", "cooking", "concert", "workout", "picnic", "boardgames", "cozy", "shopping", "celebration", "other"];
+const dateType = (v: unknown): string | null => (typeof v === "string" && DATE_TYPES.includes(v) ? v : null);
+function readRating(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 5) throw new HttpError(400, "rating must be 1 to 5");
+  return v;
+}
 const CATEGORIES = ["birthday", "valentine", "anniversary", "firstdate", "firstkiss", "proposal", "wedding", "trip", "custom"];
 function eventJson(r: any) {
   return {
     id: r.id, createdBy: r.created_by, title: r.title, emoji: r.emoji, date: r.date, time: r.time,
     repeatYearly: !!r.repeat_yearly, notes: r.notes,
-    kind: r.kind ?? "event", category: r.category ?? null, updatedAt: r.updated_at ?? 0, updatedBy: r.updated_by ?? null,
+    kind: r.kind ?? "event", category: r.category ?? null, updatedAt: r.updated_at ?? 0, updatedBy: r.updated_by ?? null, dateType: r.date_type ?? null,
   };
 }
 
@@ -401,10 +409,36 @@ async function diaryPost(c: Ctx): Promise<Response> {
     if (b.entryDate < "1970-01-01") throw new HttpError(400, "entryDate is too old");
     entryDate = b.entryDate;
   }
+  const rating = readRating(b.rating);
+  const dtype = dateType(b.dateType);
   const id = uid();
-  await c.env.DB.prepare("INSERT INTO diary (id, user_id, couple_id, text, mood, entry_date, created_at) VALUES (?,?,?,?,?,?,?)")
-    .bind(id, c.user.id, coupleId, text, mood, entryDate, t).run();
-  return json(diaryJson({ id, user_id: c.user.id, text, mood, entry_date: entryDate, created_at: t }), 201);
+  await c.env.DB.prepare("INSERT INTO diary (id, user_id, couple_id, text, mood, entry_date, rating, date_type, created_at) VALUES (?,?,?,?,?,?,?,?,?)")
+    .bind(id, c.user.id, coupleId, text, mood, entryDate, rating, dtype, t).run();
+  return json(diaryJson({ id, user_id: c.user.id, text, mood, entry_date: entryDate, rating, date_type: dtype, created_at: t }), 201);
+}
+
+/** Edit your own note. Send the fields you want to keep or change; `mood`, `rating` and `dateType` may be null to clear them. */
+async function diaryPut(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const row = await c.env.DB.prepare("SELECT * FROM diary WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id).first<any>();
+  if (!row) throw new HttpError(404, "Entry not found (you can only edit your own)");
+  const b = await readJson(c.req);
+  const text = b.text === undefined ? row.text : str(b.text, "text", 1, 2000);
+  const mood = b.mood === undefined ? row.mood : b.mood && MOODS.includes(b.mood) ? b.mood : null;
+  let entryDate: string | null = row.entry_date ?? null;
+  if (b.entryDate != null && b.entryDate !== "") {
+    if (!isDate(b.entryDate)) throw new HttpError(400, "entryDate must be YYYY-MM-DD");
+    if (b.entryDate > isoDay(now() + 36 * 3600_000)) throw new HttpError(400, "A diary entry can't be dated in the future");
+    if (b.entryDate < "1970-01-01") throw new HttpError(400, "entryDate is too old");
+    entryDate = b.entryDate;
+  }
+  const rating = b.rating === undefined ? row.rating ?? null : readRating(b.rating);
+  const dtype = b.dateType === undefined ? row.date_type ?? null : dateType(b.dateType);
+  const t = now();
+  await c.env.DB.prepare("UPDATE diary SET text=?, mood=?, entry_date=?, rating=?, date_type=?, updated_at=? WHERE id=? AND couple_id=? AND user_id=?")
+    .bind(text, mood, entryDate, rating, dtype, t, c.params[0], coupleId, c.user.id).run();
+  const updated = { ...row, text, mood, entry_date: entryDate, rating, date_type: dtype, updated_at: t };
+  return json((await withImages(c.env, [updated]))[0]);
 }
 
 async function diaryList(c: Ctx): Promise<Response> {
@@ -453,6 +487,13 @@ async function diaryImagePost(c: Ctx): Promise<Response> {
   return json({ id }, 201);
 }
 
+async function diaryImageDelete(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const r = await c.env.DB.prepare("DELETE FROM diary_images WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id).run();
+  if (!r.meta.changes) throw new HttpError(404, "Picture not found (you can only remove your own)");
+  return json({ ok: true });
+}
+
 // Only the couple that owns the entry can fetch its pictures.
 async function diaryImageGet(c: Ctx): Promise<Response> {
   const coupleId = requireCouple(c.user);
@@ -471,7 +512,7 @@ function readEvent(b: any) {
   const notes = b.notes == null ? "" : str(b.notes, "notes", 0, 500);
   const kind = b.kind === "special" ? "special" : "event";
   const category = kind === "special" ? (CATEGORIES.includes(b.category) ? b.category : "custom") : null;
-  return { title, date: b.date, time: b.time ? b.time : null, emoji, notes, repeat: b.repeatYearly ? 1 : 0, kind, category };
+  return { title, date: b.date, time: b.time ? b.time : null, emoji, notes, repeat: b.repeatYearly ? 1 : 0, kind, category, dtype: dateType(b.dateType) };
 }
 
 async function eventPost(c: Ctx): Promise<Response> {
@@ -481,9 +522,9 @@ async function eventPost(c: Ctx): Promise<Response> {
   const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM events WHERE couple_id = ?").bind(coupleId).first<{ n: number }>();
   if ((n?.n ?? 0) >= 500) throw new HttpError(409, "Too many events. Delete some old ones first.");
   await c.env.DB.prepare(
-    "INSERT INTO events (id, couple_id, created_by, title, emoji, date, time, repeat_yearly, notes, kind, category, updated_at, updated_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-  ).bind(id, coupleId, c.user.id, e.title, e.emoji, e.date, e.time, e.repeat, e.notes, e.kind, e.category, t, c.user.id, t).run();
-  return json(eventJson({ id, created_by: c.user.id, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes, kind: e.kind, category: e.category, updated_at: t, updated_by: c.user.id }), 201);
+    "INSERT INTO events (id, couple_id, created_by, title, emoji, date, time, repeat_yearly, notes, kind, category, date_type, updated_at, updated_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(id, coupleId, c.user.id, e.title, e.emoji, e.date, e.time, e.repeat, e.notes, e.kind, e.category, e.dtype, t, c.user.id, t).run();
+  return json(eventJson({ id, created_by: c.user.id, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes, kind: e.kind, category: e.category, date_type: e.dtype, updated_at: t, updated_by: c.user.id }), 201);
 }
 
 async function eventPut(c: Ctx): Promise<Response> {
@@ -493,9 +534,9 @@ async function eventPut(c: Ctx): Promise<Response> {
   if (!existing) throw new HttpError(404, "Event not found");
   const t = now();
   await c.env.DB.prepare(
-    "UPDATE events SET title=?, emoji=?, date=?, time=?, repeat_yearly=?, notes=?, kind=?, category=?, updated_at=?, updated_by=? WHERE id=? AND couple_id=?"
-  ).bind(e.title, e.emoji, e.date, e.time, e.repeat, e.notes, e.kind, e.category, t, c.user.id, c.params[0], coupleId).run();
-  return json(eventJson({ id: c.params[0], created_by: existing.created_by, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes, kind: e.kind, category: e.category, updated_at: t, updated_by: c.user.id }));
+    "UPDATE events SET title=?, emoji=?, date=?, time=?, repeat_yearly=?, notes=?, kind=?, category=?, date_type=?, updated_at=?, updated_by=? WHERE id=? AND couple_id=?"
+  ).bind(e.title, e.emoji, e.date, e.time, e.repeat, e.notes, e.kind, e.category, e.dtype, t, c.user.id, c.params[0], coupleId).run();
+  return json(eventJson({ id: c.params[0], created_by: existing.created_by, title: e.title, emoji: e.emoji, date: e.date, time: e.time, repeat_yearly: e.repeat, notes: e.notes, kind: e.kind, category: e.category, date_type: e.dtype, updated_at: t, updated_by: c.user.id }));
 }
 
 async function eventDelete(c: Ctx): Promise<Response> {
@@ -551,7 +592,8 @@ async function statsDetail(c: Ctx): Promise<Response> {
   const tz = Math.min(Math.max(parseInt(c.url.searchParams.get("tz") ?? "0", 10) || 0, -840), 840);
   const mod = `${tz >= 0 ? "+" : "-"}${Math.abs(tz)} minutes`;
   const t = now();
-  const [moodCounts, activityCounts, daily, days, diaryCounts, photos] = await Promise.all([
+  const localToday = new Date(t + tz * 60_000).toISOString().slice(0, 10);
+  const [moodCounts, activityCounts, daily, days, diaryCounts, photos, dateTypeCounts, totals] = await Promise.all([
     c.env.DB.prepare("SELECT user_id AS userId, mood, COUNT(*) AS n FROM moods WHERE couple_id = ? GROUP BY user_id, mood").bind(coupleId).all(),
     c.env.DB.prepare("SELECT user_id AS userId, activity, COUNT(*) AS n FROM moods WHERE couple_id = ? AND activity IS NOT NULL GROUP BY user_id, activity ORDER BY n DESC LIMIT 60").bind(coupleId).all(),
     c.env.DB.prepare("SELECT date(created_at/1000,'unixepoch',?1) AS day, user_id AS userId, COUNT(*) AS n FROM moods WHERE couple_id = ?2 AND created_at > ?3 GROUP BY day, user_id")
@@ -561,6 +603,17 @@ async function statsDetail(c: Ctx): Promise<Response> {
     ).bind(mod, coupleId).all(),
     c.env.DB.prepare("SELECT user_id AS userId, COUNT(*) AS n FROM diary WHERE couple_id = ? GROUP BY user_id").bind(coupleId).all(),
     c.env.DB.prepare("SELECT COUNT(*) AS n FROM diary_images WHERE couple_id = ?").bind(coupleId).first<{ n: number }>(),
+    // Date types from diary notes plus events that have already happened.
+    c.env.DB.prepare(
+      "SELECT date_type AS dateType, COUNT(*) AS n FROM (" +
+      "SELECT date_type FROM diary WHERE couple_id = ?1 AND date_type IS NOT NULL UNION ALL " +
+      "SELECT date_type FROM events WHERE couple_id = ?1 AND date_type IS NOT NULL AND date <= ?2) GROUP BY date_type ORDER BY n DESC"
+    ).bind(coupleId, localToday).all(),
+    c.env.DB.prepare(
+      "SELECT (SELECT COUNT(*) FROM moods WHERE couple_id = ?1) AS moods, (SELECT COUNT(*) FROM diary WHERE couple_id = ?1) AS diary, " +
+      "(SELECT COUNT(*) FROM events WHERE couple_id = ?1 AND kind = 'event') AS events, (SELECT COUNT(*) FROM events WHERE couple_id = ?1 AND kind = 'special') AS specials, " +
+      "(SELECT COUNT(*) FROM diary WHERE couple_id = ?1 AND rating IS NOT NULL) AS rated, (SELECT COUNT(*) FROM diary WHERE couple_id = ?1 AND rating = 5) AS fiveStar"
+    ).bind(coupleId).first<any>(),
   ]);
   // Streaks over the days either of you checked in (mood or diary).
   const list = (days.results as any[]).map((r) => r.day as string); // newest first
@@ -579,6 +632,46 @@ async function statsDetail(c: Ctx): Promise<Response> {
   return json({
     moodCounts: moodCounts.results, activityCounts: activityCounts.results, daily: daily.results,
     diaryCounts: diaryCounts.results, photos: photos?.n ?? 0, streak, bestStreak: best, checkInDays: list.length,
+    dateTypeCounts: dateTypeCounts.results,
+    totals: { moods: totals?.moods ?? 0, diary: totals?.diary ?? 0, events: totals?.events ?? 0, specials: totals?.specials ?? 0, rated: totals?.rated ?? 0, fiveStar: totals?.fiveStar ?? 0 },
+  });
+}
+
+/**
+ * "Remember when": things from earlier years on this calendar day, last month's highlights, the best-rated notes of this
+ * month and of all time. `date` = the phone's local today (YYYY-MM-DD), so it lines up with the person's own midnight.
+ */
+async function memories(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const today = c.url.searchParams.get("date");
+  if (!isDate(today)) throw new HttpError(400, "date must be YYYY-MM-DD");
+  const y = parseInt(today.slice(0, 4), 10), m = parseInt(today.slice(5, 7), 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const thisStart = `${y}-${pad(m)}-01`;
+  const lastStart = m === 1 ? `${y - 1}-12-01` : `${y}-${pad(m - 1)}-01`;
+  const E = "COALESCE(entry_date, date(created_at/1000,'unixepoch'))";
+  const years = (d: string) => y - parseInt(d.slice(0, 4), 10);
+  const db = c.env.DB;
+  const [dayD, dayE, lastD, lastE, monthBest, ever] = await Promise.all([
+    db.prepare(`SELECT *, ${E} AS d FROM diary WHERE couple_id = ?1 AND substr(${E},6) = ?2 AND ${E} < ?3 ORDER BY d DESC LIMIT 10`).bind(coupleId, today.slice(5), today).all(),
+    db.prepare("SELECT * FROM events WHERE couple_id = ?1 AND substr(date,6) = ?2 AND date < ?3 ORDER BY date DESC LIMIT 10").bind(coupleId, today.slice(5), today).all(),
+    db.prepare(`SELECT *, ${E} AS d FROM diary WHERE couple_id = ?1 AND ${E} >= ?2 AND ${E} < ?3 ORDER BY COALESCE(rating,0) DESC, d DESC LIMIT 6`).bind(coupleId, lastStart, thisStart).all(),
+    db.prepare("SELECT * FROM events WHERE couple_id = ?1 AND date >= ?2 AND date < ?3 ORDER BY date DESC LIMIT 6").bind(coupleId, lastStart, thisStart).all(),
+    db.prepare(`SELECT *, ${E} AS d FROM diary WHERE couple_id = ?1 AND rating IS NOT NULL AND ${E} >= ?2 AND ${E} <= ?3 ORDER BY rating DESC, d DESC LIMIT 3`).bind(coupleId, thisStart, today).all(),
+    db.prepare(`SELECT *, ${E} AS d FROM diary WHERE couple_id = ?1 AND rating >= 4 ORDER BY rating DESC, d DESC LIMIT 5`).bind(coupleId).all(),
+  ]);
+  const diary = async (rows: any[], withYears: boolean) => {
+    const list = await withImages(c.env, rows);
+    return list.map((e, i) => ({ kind: "diary", date: rows[i].d as string, yearsAgo: withYears ? years(rows[i].d) : 0, diary: e, event: null }));
+  };
+  const events = (rows: any[], withYears: boolean) =>
+    rows.map((r) => ({ kind: "event", date: r.date as string, yearsAgo: withYears ? years(r.date) : 0, diary: null, event: eventJson(r) }));
+  const byDate = (a: any, b: any) => (a.date < b.date ? 1 : -1);
+  return json({
+    onThisDay: [...(await diary(dayD.results as any[], true)), ...events(dayE.results as any[], true)].sort(byDate),
+    lastMonth: [...(await diary(lastD.results as any[], false)), ...events(lastE.results as any[], false)],
+    bestOfMonth: await diary(monthBest.results as any[], false),
+    bestEver: await diary(ever.results as any[], true),
   });
 }
 
@@ -628,7 +721,9 @@ route("POST", "/moods", moodPost);
 route("GET", "/moods", moodList);
 route("POST", "/diary", diaryPost);
 route("GET", "/diary", diaryList);
+route("PUT", "/diary/:id", diaryPut);
 route("DELETE", "/diary/:id", diaryDelete);
+route("DELETE", "/diary/image/:id", diaryImageDelete);
 route("POST", "/diary/:id/images", diaryImagePost);
 route("GET", "/diary/image/:id", diaryImageGet);
 route("GET", "/events", eventList);
@@ -637,6 +732,7 @@ route("PUT", "/events/:id", eventPut);
 route("DELETE", "/events/:id", eventDelete);
 route("GET", "/sync", sync);
 route("GET", "/stats", statsDetail);
+route("GET", "/memories", memories);
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {

@@ -39,6 +39,9 @@ data class DiaryEntry(
     val createdAt: Long,
     val entryDate: String? = null,          // yyyy-MM-dd the note is about (may be a past day)
     val images: List<String> = emptyList(), // picture ids, fetched from /diary/image/{id}
+    val rating: Int? = null,                // 1..5 hearts
+    val dateType: String? = null,           // DateType.key
+    val updatedAt: Long = 0,                // > 0 once the note has been edited
 )
 
 @Serializable
@@ -55,6 +58,7 @@ data class CalendarEvent(
     val category: String? = null,    // SpecialCategory.key for special days
     val updatedAt: Long = 0,
     val updatedBy: String? = null,
+    val dateType: String? = null,    // DateType.key
 ) {
     val isSpecial: Boolean get() = kind == "special"
 }
@@ -91,12 +95,15 @@ data class SyncResponse(
 @Serializable data class JoinBody(val code: String)
 @Serializable data class AnniversaryBody(val anniversary: String)
 @Serializable data class MoodBody(val mood: String, val activity: String?, val note: String)
-@Serializable data class DiaryBody(val text: String, val mood: String?, val entryDate: String? = null)
+@Serializable data class DiaryBody(
+    val text: String, val mood: String?, val entryDate: String? = null,
+    val rating: Int? = null, val dateType: String? = null,
+)
 @Serializable
 data class EventBody(
     val title: String, val emoji: String, val date: String,
     val time: String?, val repeatYearly: Boolean, val notes: String,
-    val kind: String = "event", val category: String? = null,
+    val kind: String = "event", val category: String? = null, val dateType: String? = null,
 )
 @Serializable data class OkResponse(val ok: Boolean = true)
 @Serializable data class ImageId(val id: String)
@@ -117,4 +124,31 @@ data class StatsDetail(
     val streak: Int = 0,
     val bestStreak: Int = 0,
     val checkInDays: Int = 0,
+    val dateTypeCounts: List<DateTypeCount> = emptyList(),
+    val totals: StatTotals = StatTotals(),
 )
+@Serializable data class DateTypeCount(val dateType: String, val n: Int)
+@Serializable
+data class StatTotals(
+    val moods: Int = 0, val diary: Int = 0, val events: Int = 0, val specials: Int = 0,
+    val rated: Int = 0, val fiveStar: Int = 0,
+)
+
+// ---- /memories ("remember when" in the Calendar tab)
+@Serializable
+data class Memory(
+    val kind: String,                 // "diary" | "event"
+    val date: String,                 // yyyy-MM-dd
+    val yearsAgo: Int = 0,
+    val diary: DiaryEntry? = null,
+    val event: CalendarEvent? = null,
+)
+@Serializable
+data class Memories(
+    val onThisDay: List<Memory> = emptyList(),
+    val lastMonth: List<Memory> = emptyList(),
+    val bestOfMonth: List<Memory> = emptyList(),
+    val bestEver: List<Memory> = emptyList(),
+) {
+    val isEmpty get() = onThisDay.isEmpty() && lastMonth.isEmpty() && bestOfMonth.isEmpty() && bestEver.isEmpty()
+}

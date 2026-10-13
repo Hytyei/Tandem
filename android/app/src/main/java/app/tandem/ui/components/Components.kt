@@ -204,10 +204,16 @@ fun Heart(size: Dp, modifier: Modifier = Modifier) {
     Image(painterResource(R.drawable.ic_heart), contentDescription = null, modifier = modifier.size(size))
 }
 
+/** The Tandem heart (same picture as the launcher icon). Use this wherever the app shows "itself", never an artwork. */
 @Composable
-fun EmptyState(art: Int, title: String, message: String, modifier: Modifier = Modifier) {
+fun AppLogo(size: Dp, modifier: Modifier = Modifier) {
+    Image(painterResource(R.drawable.ic_logo), contentDescription = "Tandem", modifier = modifier.size(size))
+}
+
+@Composable
+fun EmptyState(title: String, message: String, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Art(art, 96.dp)
+        AppLogo(84.dp)
         Spacer(Modifier.height(12.dp))
         Text(title, style = Type.headline, color = T.colors.label)
         Spacer(Modifier.height(4.dp))

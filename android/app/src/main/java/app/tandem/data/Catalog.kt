@@ -58,6 +58,34 @@ enum class SpecialCategory(val key: String, val label: String, val emoji: String
     }
 }
 
+/** Kinds of dates / things you do together (shown as chips, counted in Stats). Keys must match the backend. */
+enum class DateType(val key: String, val label: String, val emoji: String) {
+    DateNight("datenight", "Date night", "🍷"),
+    Movie("movie", "Movie night", "🎬"),
+    Gaming("gaming", "Gaming session", "🎮"),
+    Dinner("dinner", "Dinner out", "🍽️"),
+    Coffee("coffee", "Coffee date", "☕"),
+    Walk("walk", "Walk & nature", "🌿"),
+    Trip("trip", "Trip / getaway", "✈️"),
+    Cooking("cooking", "Cooking together", "🍳"),
+    Concert("concert", "Concert / show", "🎶"),
+    Workout("workout", "Workout", "🏃"),
+    Picnic("picnic", "Picnic", "🧺"),
+    BoardGames("boardgames", "Game night", "🎲"),
+    Cozy("cozy", "Cozy night in", "🛋️"),
+    Shopping("shopping", "Shopping", "🛍️"),
+    Celebration("celebration", "Celebration", "🎉"),
+    Other("other", "Something else", "✨");
+
+    companion object {
+        fun from(key: String?): DateType? = entries.firstOrNull { it.key == key }
+    }
+}
+
+/** How much a memory meant, from "nice" to "unforgettable" (1..5 hearts). */
+val RATING_LABELS = listOf("", "Nice", "Good", "Great", "Wonderful", "Unforgettable")
+fun ratingLabel(r: Int?): String = RATING_LABELS.getOrElse(r ?: 0) { "" }
+
 /** What to show as the "picture" for a mood update: the activity artwork wins, otherwise the mood face. */
 @DrawableRes
 fun MoodEntry.artRes(): Int =
