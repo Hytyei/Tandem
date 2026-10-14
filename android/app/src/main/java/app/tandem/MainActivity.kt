@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import app.tandem.data.CHANGELOG
 import app.tandem.data.ThemeMode
 import app.tandem.work.EXTRA_TAB
 import app.tandem.ui.components.*
@@ -47,6 +48,7 @@ enum class AppTab(val label: String, val icon: ImageVector) {
     Timeline("Moods", Icons.Filled.Timeline),
     Diary("Diary", Icons.Filled.MenuBook),
     Calendar("Calendar", Icons.Filled.CalendarMonth),
+    Heatmap("Heatmap", Icons.Filled.Map),
     Play("Play", Icons.Filled.SportsEsports),
     Profile("Profile", Icons.Filled.Person),
 }
@@ -145,6 +147,8 @@ private fun Shell(vm: AppViewModel) {
     var tab by rememberSaveable { mutableStateOf(AppTab.Today) }
     var showStats by rememberSaveable { mutableStateOf(false) }
     var showAchievements by rememberSaveable { mutableStateOf(false) }
+    var showPage by rememberSaveable { mutableStateOf(false) }
+    var pageMine by rememberSaveable { mutableStateOf(true) }
     val requested = vm.requestedTab
     LaunchedEffect(requested) {
         if (requested != null) {
@@ -161,12 +165,13 @@ private fun Shell(vm: AppViewModel) {
                 (slideOutHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { -dir * it / 6 } + fadeOut(tween(120)))
         }) { t ->
             when (t) {
-                AppTab.Today -> HomeScreen(vm, openCalendar = { tab = AppTab.Calendar }, openStats = { showStats = true })
+                AppTab.Today -> HomeScreen(vm, openCalendar = { tab = AppTab.Calendar }, openStats = { showStats = true }, openPartnerPage = { pageMine = false; showPage = true })
                 AppTab.Timeline -> TimelineScreen(vm)
                 AppTab.Diary -> DiaryScreen(vm)
                 AppTab.Calendar -> CalendarScreen(vm)
+                AppTab.Heatmap -> HeatmapScreen(vm)
                 AppTab.Play -> GamesScreen(vm)
-                AppTab.Profile -> ProfileScreen(vm)
+                AppTab.Profile -> ProfileScreen(vm, openPage = { mine -> pageMine = mine; showPage = true })
             }
         }
         FloatingTabBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter), badge = if (update != null) AppTab.Profile else null)
@@ -188,13 +193,21 @@ private fun Shell(vm: AppViewModel) {
             BackHandler { showAchievements = false }
             AchievementsScreen(vm, onBack = { showAchievements = false })
         }
+        AnimatedVisibility(
+            showPage, modifier = Modifier.fillMaxSize(),
+            enter = slideInVertically(spring(0.85f, Spring.StiffnessMediumLow)) { it / 3 } + fadeIn(tween(220)),
+            exit = slideOutVertically { it / 3 } + fadeOut(tween(160)),
+        ) {
+            BackHandler { showPage = false }
+            PersonPage(vm, mine = pageMine, onBack = { showPage = false })
+        }
     }
 
     // Patch notes: once after the app has been updated to a new version.
     val notesSeen by vm.notesSeen.collectAsState()
-    val version = BuildConfig.VERSION_NAME
-    val showPatchNotes = notesSeen != "?" && notesSeen != version
-    if (showPatchNotes) PatchNotesDialog(onDismiss = { vm.markNotesSeen(version) })
+    val newestNotes = CHANGELOG.first().version
+    val showPatchNotes = notesSeen != "?" && notesSeen != newestNotes
+    if (showPatchNotes) PatchNotesDialog(seen = notesSeen, onDismiss = { vm.markNotesSeen(newestNotes) })
 
     // New release on GitHub: tell the person once per version, right inside the app.
     if (!showPatchNotes && update != null && dismissed != update.version) {
@@ -221,11 +234,11 @@ private fun Shell(vm: AppViewModel) {
 private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier, badge: AppTab? = null) {
     val c = T.colors
     Row(
-        modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 14.dp)
+        modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 14.dp)
             .shadow(if (c.isDark) 0.dp else 14.dp, RoundedCornerShape(32.dp), ambientColor = Color(0x33000000), spotColor = Color(0x33000000))
             .clip(RoundedCornerShape(32.dp)).background(c.sheet.copy(alpha = 0.92f))
-            .border(1.dp, if (c.isDark) Color.White.copy(alpha = .12f) else Color.White.copy(alpha = .8f), RoundedCornerShape(32.dp)).padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically,
+            .border(1.dp, if (c.isDark) Color.White.copy(alpha = .12f) else Color.White.copy(alpha = .8f), RoundedCornerShape(32.dp)).padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
         AppTab.entries.forEach { t ->
             val on = t == selected
@@ -233,7 +246,7 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
             val tint by animateColorAsState(if (on) c.accent else c.secondary, tween(220), label = "tabTint")
             Row(
                 Modifier.clip(RoundedCornerShape(26.dp)).background(bg).pressable(haptic = !on) { onSelect(t) }
-                    .padding(horizontal = if (on) 12.dp else 9.dp, vertical = 11.dp).animateContentSize(spring(0.8f, Spring.StiffnessMediumLow)),
+                    .padding(horizontal = if (on) 10.dp else 6.dp, vertical = 11.dp).animateContentSize(spring(0.8f, Spring.StiffnessMediumLow)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box {
@@ -242,8 +255,8 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
                         .border(1.5.dp, c.sheet, RoundedCornerShape(50)))
                 }
                 if (on) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(t.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = tint, maxLines = 1)
+                    Spacer(Modifier.width(4.dp))
+                    Text(t.label, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = tint, maxLines = 1)
                 }
             }
         }

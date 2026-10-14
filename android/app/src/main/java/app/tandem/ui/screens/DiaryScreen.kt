@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -87,7 +89,8 @@ fun DiaryScreen(vm: AppViewModel) {
             items(data.diary, key = { it.id }) { e ->
                 val mine = e.userId == data.me.id
                 PostCard(
-                    e, if (mine) data.me else data.couple.partner, mine,
+                    e, if (mine) data.me else data.couple.partner, mine, data.me.id,
+                    onReact = { emoji -> vm.react("diary", e.id, emoji) },
                     onEdit = { editing = e },
                     onDelete = { deleting = e },
                     onOpenImage = { i -> viewer = e.images to i },
@@ -123,7 +126,7 @@ fun DiaryScreen(vm: AppViewModel) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PostCard(
-    e: DiaryEntry, author: User?, mine: Boolean, onEdit: () -> Unit, onDelete: () -> Unit, onOpenImage: (Int) -> Unit, modifier: Modifier = Modifier,
+    e: DiaryEntry, author: User?, mine: Boolean, meId: String, onReact: (String?) -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onOpenImage: (Int) -> Unit, modifier: Modifier = Modifier,
 ) {
     val c = T.colors
     val repo = (LocalContext.current.applicationContext as TandemApp).repo
@@ -211,9 +214,16 @@ private fun PostCard(
         Text(e.text, style = Type.body, color = c.label, modifier = Modifier.padding(horizontal = 16.dp))
         val mood = Mood.from(e.mood)
         val type = DateType.from(e.dateType)
-        if (mood != null || type != null) {
+        if (mood != null || type != null || e.placeName != null) {
             Spacer(Modifier.height(10.dp))
             Row(Modifier.padding(horizontal = 14.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                e.placeName?.let { n ->
+                    Row(Modifier.clip(RoundedCornerShape(50)).background(c.special.copy(alpha = .16f)).padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Place, null, tint = c.special, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(n, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1)
+                    }
+                }
                 type?.let { t ->
                     Row(Modifier.clip(RoundedCornerShape(50)).background(c.accent.copy(alpha = .14f)).padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(t.emoji, style = Type.caption)
@@ -230,6 +240,7 @@ private fun PostCard(
                 }
             }
         }
+        ReactionBar(e.reactions, meId, canReact = !mine, onReact = onReact, modifier = Modifier.padding(horizontal = 14.dp).padding(top = 10.dp))
     }
 }
 
@@ -269,6 +280,13 @@ private fun DiarySheet(vm: AppViewModel, existing: DiaryEntry?, onDismiss: () ->
     var rating by remember { mutableStateOf(existing?.rating) }
     var dateType by remember { mutableStateOf(DateType.from(existing?.dateType)) }
     var pickDate by remember { mutableStateOf(false) }
+    var placeId by remember { mutableStateOf(existing?.placeId) }
+    var pickPlace by remember { mutableStateOf(false) }
+    var asOccasion by remember { mutableStateOf(false) }
+    var occTitle by remember { mutableStateOf("") }
+    var occYearly by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (vm.places == null) vm.loadPlaces() }
+    val placeName = vm.places?.firstOrNull { it.id == placeId }?.name ?: existing?.takeIf { it.placeId == placeId }?.placeName
     var keep by remember { mutableStateOf(existing?.images ?: emptyList()) }   // pictures already on the server
     var photos by remember { mutableStateOf<List<Uri>>(emptyList()) }          // newly picked pictures
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -322,6 +340,22 @@ private fun DiarySheet(vm: AppViewModel, existing: DiaryEntry?, onDismiss: () ->
             DateTypeChips(dateType, { dateType = it })
             Spacer(Modifier.height(14.dp))
 
+            // place
+            Text("Where? (optional)", style = Type.footnote, color = c.secondary)
+            Spacer(Modifier.height(6.dp))
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.card).pressable(haptic = false) { pickPlace = true }.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.Place, null, tint = c.special)
+                Spacer(Modifier.width(12.dp))
+                Text(placeName ?: "Pick a place from the Heatmap", style = Type.body, color = if (placeName != null) c.label else c.tertiary, modifier = Modifier.weight(1f), maxLines = 1)
+                if (placeId != null) Box(Modifier.size(32.dp).pressable(haptic = false) { placeId = null }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Close, "Remove place", tint = c.secondary, modifier = Modifier.size(18.dp))
+                } else Text("Choose", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+            }
+            Spacer(Modifier.height(14.dp))
+
             // photos
             Text("Photos (up to 4)", style = Type.footnote, color = c.secondary)
             Spacer(Modifier.height(6.dp))
@@ -355,6 +389,35 @@ private fun DiarySheet(vm: AppViewModel, existing: DiaryEntry?, onDismiss: () ->
             Text("Feeling (optional)", style = Type.footnote, color = c.secondary)
             Spacer(Modifier.height(6.dp))
             MoodGrid(mood, { mood = it })
+
+            if (!editing) {
+                Spacer(Modifier.height(16.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.card).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Event, null, tint = c.special)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text("Add to calendar as an occasion", style = Type.body, color = c.label)
+                            Text("Pins ${if (date == LocalDate.now()) "today" else "this date"} as a special day", style = Type.footnote, color = c.secondary)
+                        }
+                        Switch(asOccasion, {
+                            asOccasion = it
+                            if (it && occTitle.isBlank()) occTitle = text.lineSequence().firstOrNull().orEmpty().trim().take(40)
+                        }, colors = SwitchDefaults.colors(checkedTrackColor = c.accent))
+                    }
+                    if (asOccasion) {
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedTextField(
+                            occTitle, { if (it.length <= 60) occTitle = it }, label = { Text("Occasion name") }, singleLine = true,
+                            shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Repeat every year", style = Type.callout, color = c.label, modifier = Modifier.weight(1f))
+                            Switch(occYearly, { occYearly = it }, colors = SwitchDefaults.colors(checkedTrackColor = c.accent))
+                        }
+                    }
+                }
+            }
             Spacer(Modifier.height(18.dp))
             val label = when {
                 editing -> "Save changes"
@@ -364,12 +427,44 @@ private fun DiarySheet(vm: AppViewModel, existing: DiaryEntry?, onDismiss: () ->
             PrimaryButton(
                 label,
                 onClick = {
-                    if (existing != null) vm.updateDiary(existing.id, text, mood, date, rating, dateType, existing.images - keep.toSet(), photos, onDismiss)
-                    else vm.addDiary(text, mood, date, rating, dateType, photos, onDismiss)
+                    if (existing != null) vm.updateDiary(existing.id, text, mood, date, rating, dateType, placeId, existing.images - keep.toSet(), photos, onDismiss)
+                    else vm.addDiary(
+                        text, mood, date, rating, dateType, placeId,
+                        if (asOccasion) Occasion(occTitle.trim(), occYearly) else null, photos, onDismiss,
+                    )
                 },
-                enabled = text.isNotBlank(), loading = vm.busy,
+                enabled = text.isNotBlank() && (!asOccasion || editing || occTitle.isNotBlank()), loading = vm.busy,
             )
         }
+    }
+
+    if (pickPlace) {
+        val list = vm.places
+        AlertDialog(
+            onDismissRequest = { pickPlace = false }, containerColor = c.sheet,
+            title = { Text("Where was this?") },
+            text = {
+                when {
+                    list == null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) }
+                    list.isEmpty() -> Text("You haven't added any places yet. Add some in the Heatmap tab, then pick them here.", color = c.secondary)
+                    else -> Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                        list.sortedBy { it.name.lowercase() }.forEach { p ->
+                            val cat = PlaceCategory.from(p.category)
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).pressable(haptic = false) { placeId = p.id; pickPlace = false }.padding(horizontal = 6.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(cat.emoji, style = Type.body)
+                                Spacer(Modifier.width(10.dp))
+                                Text(p.name, style = Type.body, color = if (p.id == placeId) c.accent else c.label, maxLines = 1, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { pickPlace = false }) { Text("Close", color = c.secondary) } },
+        )
     }
 
     if (pickDate) {

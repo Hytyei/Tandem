@@ -34,7 +34,7 @@ import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(vm: AppViewModel) {
+fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -86,6 +86,12 @@ fun ProfileScreen(vm: AppViewModel) {
         Group(Modifier.staggerIn(1)) {
             ListRow("Partner", partner?.displayName ?: "—", leading = { Avatar(partner, 30.dp) })
             Divider()
+            ListRow("My page", if (me.profile.isEmpty) "Fill in" else "", accent = me.profile.isEmpty, onClick = { openPage(true) })
+            Divider()
+            if (partner != null) {
+                ListRow("${partner.displayName.substringBefore(' ')}'s page", "", onClick = { openPage(false) })
+                Divider()
+            }
             ListRow("Together since", parseDate(data.couple.anniversary)?.format(DateTimeFormatter.ofPattern("d MMM yyyy")) ?: "Set date", accent = true, onClick = { pickAnniv = true })
             Divider()
             ListRow("Remove partner", "", destructive = true, onClick = { confirmRemove = true })

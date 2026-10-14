@@ -57,7 +57,7 @@ private fun greeting(): String = when (LocalTime.now().hour) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit) {
+fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit, openPartnerPage: () -> Unit = {}) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -95,11 +95,7 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
                 }
                 Spacer(Modifier.height(14.dp))
                 if (days != null) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        NodeNumber(days, digitHeight = 64.dp, from = c.accent, to = c.me, ghost = c.label.copy(alpha = .12f))
-                        Spacer(Modifier.width(14.dp))
-                        Text(if (days == 1L) "day\ntogether" else "days\ntogether", style = Type.title, color = c.label)
-                    }
+                    ConstellationDays(days, Modifier.fillMaxWidth(), height = 230.dp, caption = if (days == 1L) "day together" else "days together")
                 } else {
                     Text("Set your anniversary in Profile to start counting days together", style = Type.callout, color = c.secondary)
                 }
@@ -113,9 +109,31 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
 
             // ---------- Right now
             SectionHeader("Right now")
+            if (partner != null) Row(
+                Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.card)
+                    .pressable(onClick = openPartnerPage).padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Avatar(partner, 30.dp, ring = c.partner)
+                Spacer(Modifier.width(10.dp))
+                val now = partner.profile.let { p -> listOf(p.playing.takeIf { it.isNotBlank() }?.let { "🎮 $it" }, p.watching.takeIf { it.isNotBlank() }?.let { "📺 $it" }, p.listening.takeIf { it.isNotBlank() }?.let { "🎧 $it" }, p.reading.takeIf { it.isNotBlank() }?.let { "📖 $it" }).firstOrNull { it != null } }
+                Text(now ?: "${partner.displayName.substringBefore(' ')}'s page", style = Type.callout, color = c.label, modifier = Modifier.weight(1f), maxLines = 1)
+                Text("Open  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+            }
             Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MoodNowCard(me, data.latestMoods[me.id], "You", c.me, tick, Modifier.weight(1f).staggerIn(4))
-                MoodNowCard(partner, partner?.let { data.latestMoods[it.id] }, partner?.displayName?.substringBefore(' ') ?: "Partner", c.partner, tick, Modifier.weight(1f).staggerIn(5))
+                val myMood = data.latestMoods[me.id]
+                val theirMood = partner?.let { data.latestMoods[it.id] }
+                Column(Modifier.weight(1f)) {
+                    MoodNowCard(me, myMood, "You", c.me, tick, Modifier.fillMaxWidth().staggerIn(4))
+                    ReactionBar(myMood?.reactions.orEmpty(), me.id, canReact = false, onReact = {}, modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    MoodNowCard(partner, theirMood, partner?.displayName?.substringBefore(' ') ?: "Partner", c.partner, tick, Modifier.fillMaxWidth().staggerIn(5))
+                    if (theirMood != null) ReactionBar(
+                        theirMood.reactions, me.id, canReact = true, onReact = { emoji -> vm.react("mood", theirMood.id, emoji) },
+                        modifier = Modifier.padding(top = 8.dp, start = 4.dp),
+                    )
+                }
             }
 
             Spacer(Modifier.height(14.dp))

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -87,6 +89,27 @@ fun MoodGrid(selected: Mood?, onSelect: (Mood?) -> Unit, modifier: Modifier = Mo
                         Text(m.label, style = Type.caption.copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium), color = c.label, maxLines = 1, textAlign = TextAlign.Center)
                     }
                 }
+            }
+        }
+    }
+}
+
+
+/** 1–5 stars for place reviews. [rating] may be fractional for averages (shown rounded). Pass [onChange] to make it tappable. */
+@Composable
+fun StarRating(rating: Double?, modifier: Modifier = Modifier, size: Dp = 20.dp, onChange: ((Int?) -> Unit)? = null) {
+    val c = T.colors
+    val whole = Math.round(rating ?: 0.0).toInt()
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (onChange != null) 2.dp else 0.dp)) {
+        for (i in 1..5) {
+            val on = whole >= i
+            val tap = if (onChange != null) Modifier.size(size + 12.dp).pressable { onChange(if (whole == i && rating == i.toDouble()) null else i) } else Modifier.size(size)
+            Box(tap, contentAlignment = Alignment.Center) {
+                Icon(
+                    if (on) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = if (onChange != null) "$i star${if (i == 1) "" else "s"}" else null,
+                    tint = if (on) c.special else c.tertiary, modifier = Modifier.size(size),
+                )
             }
         }
     }

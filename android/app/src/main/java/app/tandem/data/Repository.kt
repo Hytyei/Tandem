@@ -172,19 +172,33 @@ class Repository(private val context: Context) {
     }
 
     /** Pins a note (optionally dated for another day, with up to 4 pictures). Returns how many pictures failed to upload. */
-    suspend fun addDiary(text: String, mood: Mood?, entryDate: String?, rating: Int?, dateType: DateType?, images: List<Uri>): Int {
-        val entry = call { api.postDiary(DiaryBody(text.trim(), mood?.key, entryDate, rating, dateType?.key)) }
+    suspend fun addDiary(
+        text: String, mood: Mood?, entryDate: String?, rating: Int?, dateType: DateType?, placeId: String?,
+        occasion: Occasion?, images: List<Uri>,
+    ): DiaryResult {
+        val entry = call { api.postDiary(DiaryBody(text.trim(), mood?.key, entryDate, rating, dateType?.key, placeId)) }
         val failed = uploadPictures(entry.id, images)
+        var occasionFailed = false
+        if (occasion != null) {
+            try {
+                call {
+                    api.addEvent(EventBody(
+                        occasion.title.trim().take(80), dateType?.emoji ?: "📖", entryDate ?: java.time.LocalDate.now().toString(), null,
+                        occasion.yearly, "", kind = "special", category = SpecialCategory.Custom.key, dateType = dateType?.key,
+                    ))
+                }
+            } catch (_: AppException) { occasionFailed = true }
+        }
         refresh()
-        return failed
+        return DiaryResult(failed, occasionFailed)
     }
 
     /** Edits one of your own notes: new text/mood/date/rating/type, pictures removed, pictures added. Returns failed uploads. */
     suspend fun updateDiary(
-        id: String, text: String, mood: Mood?, entryDate: String?, rating: Int?, dateType: DateType?,
+        id: String, text: String, mood: Mood?, entryDate: String?, rating: Int?, dateType: DateType?, placeId: String?,
         removeImages: List<String>, newImages: List<Uri>,
     ): Int {
-        call { api.updateDiary(id, DiaryBody(text.trim(), mood?.key, entryDate, rating, dateType?.key)) }
+        call { api.updateDiary(id, DiaryBody(text.trim(), mood?.key, entryDate, rating, dateType?.key, placeId)) }
         for (img in removeImages) try { call { api.deleteDiaryImage(img) } } catch (_: AppException) { }
         val failed = uploadPictures(id, newImages)
         refresh()
@@ -244,6 +258,58 @@ class Repository(private val context: Context) {
     }
 
     suspend fun statsDetail(): StatsDetail = call { api.statsDetail(utcOffsetMinutes()) }
+    // ------------------------------------------------------------ personal page
+    suspend fun saveProfileDetails(p: ProfileDetails) { call { api.saveProfileDetails(p) }; refresh() }
+
+    // ------------------------------------------------------------ places (Heatmap)
+    suspend fun places(): List<Place> = call { api.places() }.places
+    suspend fun addPlace(b: PlaceBody): Place = call { api.addPlace(b) }
+    suspend fun editPlace(id: String, b: PlaceBody): Place = call { api.editPlace(id, b) }
+    suspend fun visitPlace(id: String): Place = call { api.visitPlace(id) }
+    suspend fun reviewPlace(id: String, rating: Int?, comment: String): Place = call { api.reviewPlace(id, ReviewBody(rating, comment.trim())) }
+    suspend fun deletePlace(id: String) { call { api.deletePlace(id) }; refresh() }
+
+    /** Your emoji on a partner's mood ("mood") or diary note ("diary"); null clears it. */
+    suspend fun react(type: String, id: String, emoji: String?) { call { api.react(ReactionBody(type, id, emoji)) }; refresh() }
+
+    suspend fun games(): GamesResponse = call { api.games() }
+    suspend fun createMatch(game: String, rounds: Int): Match = call { api.createMatch(MatchBody(game, rounds)) }
+    suspend fun submitScore(id: String, round: Int, score: Int): Match = call { api.submitScore(id, ScoreBody(round, score)) }
+    suspend fun cancelMatch(id: String) { call { api.cancelMatch(id) } }
+    suspend fun addGoal(title: String, metric: String, target: Int): GameGoal = call { api.addGoal(GoalBody(title.trim(), metric, target)) }
+    suspend fun settleGoal(id: String): GameGoal = call { api.settleGoal(id) }
+    suspend fun deleteGoal(id: String) { call { api.deleteGoal(id) } }
+
+    /**
+     * Looks a place name up on OpenStreetMap's Nominatim (only when the person taps Search). The text they typed is sent to
+     * nominatim.openstreetmap.org, never to the Tandem server. The Tandem token is not attached (the host differs).
+     */
+    suspend fun searchPlaces(query: String): List<GeoResult> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 2) return@withContext emptyList()
+        val url = okhttp3.HttpUrl.Builder().scheme("https").host("nominatim.openstreetmap.org").addPathSegment("search")
+            .addQueryParameter("q", q).addQueryParameter("format", "jsonv2").addQueryParameter("limit", "6").build()
+        val req = Request.Builder().url(url).header("User-Agent", Geo.USER_AGENT)
+            .header("Accept-Language", java.util.Locale.getDefault().toLanguageTag()).build()
+        try {
+            http.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) throw AppException("The place search is busy. Try again in a moment.")
+                val arr = AppJson.parseToJsonElement(r.body?.string().orEmpty()) as? kotlinx.serialization.json.JsonArray ?: return@use emptyList()
+                arr.mapNotNull { el ->
+                    val o = el as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                    fun s(k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                    val lat = s("lat").toDoubleOrNull() ?: return@mapNotNull null
+                    val lon = s("lon").toDoubleOrNull() ?: return@mapNotNull null
+                    val display = s("display_name")
+                    val name = s("name").ifBlank { display.substringBefore(',') }
+                    GeoResult(name, display.substringAfter(',', "").trim(), lat, lon)
+                }
+            }
+        } catch (e: IOException) {
+            throw AppException("Can't reach the place search. Check your connection.")
+        }
+    }
+
     suspend fun memories(): Memories = call { api.memories(java.time.LocalDate.now().toString()) }
 
     // ------------------------------------------------------------ images

@@ -68,7 +68,7 @@ fun StatsScreen(vm: AppViewModel, onBack: () -> Unit, openAchievements: () -> Un
                 SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(0), padding = 20.dp) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         if (days != null) {
-                            NodeNumber(days, from = c.accent, to = c.me, ghost = c.label.copy(alpha = .12f), digitHeight = 92.dp)
+                            ConstellationDays(days, Modifier.fillMaxWidth(), height = 250.dp)
                             Spacer(Modifier.height(10.dp))
                             Text(if (days == 1L) "day together" else "days together", style = Type.title, color = c.label)
                             parseDate(data.couple.anniversary)?.let { since ->

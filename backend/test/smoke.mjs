@@ -237,5 +237,205 @@ r = await call("GET", "/memories?date=" + todayD, F);
 ok("memories: last month lists it", r.body.lastMonth.some((m) => m.kind === "diary" && m.diary.text === "Last month good"), r.body.lastMonth);
 r = await call("GET", "/memories?date=" + todayD, null);
 ok("memories need auth", r.status === 401, r);
+
+// ---------------------------------------------------------------- update 3
+r = await call("POST", "/auth/register", null, { username: "nora", password: "secret567", displayName: "Nora" }); const H = r.body.token;
+r = await call("POST", "/auth/register", null, { username: "paul", password: "secret678", displayName: "Paul" }); const I = r.body.token;
+r = await call("POST", "/auth/register", null, { username: "quin", password: "secret789", displayName: "Quin" }); const J = r.body.token;
+r = await call("POST", "/couple", H); const codeHI = r.body.inviteCode;
+r = await call("POST", "/couple/join", I, { code: codeHI });
+ok("pair H+I", r.status === 200 && r.body.paired, r);
+
+// ---- personal page
+r = await call("PUT", "/me/profile", H, {
+  fullName: "Nora Test", birthday: "1996-04-12", colors: ["pink", "teal", "nonsense", "pink", "blue", "red"], hobbies: ["Reading", " ", "Climbing", "x".repeat(40)],
+  sport: "Tennis", food: "Ramen", music: "Lo-fi", loveLanguage: "time", watching: "Severance", playing: "", listening: "", reading: "Dune",
+  meters: { spicy: 140, hunger: 55.4, sleepy: -3, bogus: 9 }, evil: "<script>",
+});
+ok("profile saved + sanitised", r.status === 200 && r.body.profile.fullName === "Nora Test" && r.body.profile.colors.join() === "pink,teal,blue" &&
+  r.body.profile.hobbies.join() === "Reading,Climbing" && r.body.profile.meters.spicy === 100 && r.body.profile.meters.hunger === 55 && r.body.profile.meters.sleepy === 0 &&
+  r.body.profile.meters.bogus === undefined && r.body.profile.evil === undefined && r.body.profile.nowAt > 0 && r.body.profile.metersAt > 0, r.body);
+const nowAt1 = r.body.profile.nowAt;
+r = await call("PUT", "/me/profile", H, { fullName: "Nora Test", watching: "Severance", reading: "Dune", meters: { spicy: 100, hunger: 55 } });
+ok("unchanged 'now' keeps its timestamp", r.status === 200 && r.body.profile.nowAt === nowAt1, r.body.profile);
+r = await call("PUT", "/me/profile", H, { birthday: "2999-01-01" });
+ok("future birthday rejected", r.status === 400, r);
+r = await call("PUT", "/me/profile", H, { fullName: "n".repeat(100) });
+ok("overlong name rejected", r.status === 400, r);
+r = await call("GET", "/sync", I);
+ok("partner sees the page via sync", r.body.couple.partner.profile.fullName === "Nora Test" && r.body.couple.partner.profile.watching === "Severance", r.body.couple.partner);
+r = await call("GET", "/sync", J);
+ok("stranger gets no partner", !r.body.couple.partner, r.body.couple);
+
+// ---- places + reviews
+r = await call("POST", "/places", H, { name: "Blue Door Cafe", category: "restaurant", lat: 35.6892, lon: 51.389, note: "first coffee", visitDate: "2025-05-01" });
+ok("add place", r.status === 201 && r.body.visits === 1 && r.body.firstVisited === "2025-05-01" && r.body.avg === null && r.body.reviews.length === 0, r.body); const p1 = r.body.id;
+r = await call("POST", "/places", I, { name: "Cinema Palace", category: "entertainment", lat: 35.7, lon: 51.4 });
+const p2 = r.body.id;
+r = await call("POST", "/places", I, { name: "Park", category: "weird-category", lat: 35.71, lon: 51.41 });
+ok("unknown place category -> other", r.status === 201 && r.body.category === "other", r.body); const p3 = r.body.id;
+r = await call("POST", "/places", H, { name: "Nowhere", category: "other", lat: 123, lon: 0 });
+ok("bad coordinates rejected", r.status === 400, r);
+r = await call("POST", "/places", H, { name: "", category: "other", lat: 1, lon: 1 });
+ok("empty name rejected", r.status === 400, r);
+r = await call("GET", "/places", J);
+ok("unpaired user cannot list places", r.status === 409, r);
+r = await call("PUT", "/places/" + p1 + "/review", H, { rating: 5, comment: "perfect" });
+ok("my review", r.status === 200 && r.body.avg === 5 && r.body.count === 1, r.body);
+r = await call("PUT", "/places/" + p1 + "/review", I, { rating: 3 });
+ok("partner review -> average", r.body.avg === 4 && r.body.count === 2 && r.body.reviews.length === 2, r.body);
+r = await call("PUT", "/places/" + p1 + "/review", I, { rating: 2, comment: "meh" });
+ok("review updated in place (no duplicates)", r.body.count === 2 && r.body.avg === 3.5, r.body);
+r = await call("PUT", "/places/" + p1 + "/review", I, { rating: 9 });
+ok("review out of range rejected", r.status === 400, r);
+r = await call("PUT", "/places/" + p2 + "/review", H, { rating: 5 });
+r = await call("PUT", "/places/" + p1 + "/review", J, { rating: 1 });
+ok("outsider cannot review", r.status === 409 || r.status === 404, r.status);
+r = await call("POST", "/places/" + p1 + "/visit", I);
+ok("we went again", r.status === 200 && r.body.visits === 2 && r.body.lastVisited >= "2025-05-01", r.body);
+r = await call("PUT", "/places/" + p1, H, { name: "Blue Door Café", note: "our spot" });
+ok("edit place keeps rest", r.status === 200 && r.body.name === "Blue Door Café" && r.body.lat === 35.6892 && r.body.visits === 2, r.body);
+r = await call("GET", "/places", I);
+ok("list has reviews and 3 places", r.status === 200 && r.body.places.length === 3 && r.body.places.find((x) => x.id === p1).reviews.length === 2, r.body.places.length);
+r = await call("PUT", "/places/" + p1 + "/review", I, { rating: null });
+ok("clear my review", r.body.count === 1 && r.body.avg === 5, r.body);
+
+// ---- diary + place
+r = await call("POST", "/diary", H, { text: "Coffee here", placeId: p1 });
+ok("diary linked to place", r.status === 201 && r.body.placeId === p1 && r.body.placeName === "Blue Door Café", r.body); const dp = r.body.id;
+r = await call("POST", "/diary", H, { text: "bad place", placeId: "nope" });
+ok("diary with unknown place rejected", r.status === 400, r);
+r = await call("PUT", "/diary/" + dp, H, { placeId: p2 });
+ok("move note to another place", r.status === 200 && r.body.placeName === "Cinema Palace" && r.body.text === "Coffee here", r.body);
+r = await call("PUT", "/diary/" + dp, H, { placeId: null });
+ok("clear place", r.status === 200 && r.body.placeId === null, r.body);
+r = await call("PUT", "/diary/" + dp, H, { placeId: p1 });
+r = await call("GET", "/sync", I);
+ok("sync carries place name", r.body.diary.some((d) => d.id === dp && d.placeName === "Blue Door Café"), r.body.diary);
+r = await call("GET", "/stats?tz=0", H);
+ok("stats totals include places/reviews", r.body.totals.places === 3 && r.body.totals.placeReviews === 2, r.body.totals);
+r = await call("DELETE", "/places/" + p1, I);
+ok("delete place", r.status === 200, r);
+r = await call("GET", "/sync", H);
+ok("deleting a place unlinks notes", r.body.diary.some((d) => d.id === dp && d.placeId === null && d.placeName === null), r.body.diary);
+r = await call("GET", "/places", H);
+ok("place gone", r.body.places.length === 2 && !r.body.places.some((x) => x.id === p1), r.body.places.length);
+
+// ---- new activities
+r = await call("POST", "/moods", H, { mood: "calm", activity: "coding" });
+ok("activity coding accepted", r.status === 201 && r.body.activity === "coding", r); const moodNora = r.body.id;
+for (const a of ["working", "studying", "partying"]) { r = await call("POST", "/moods", I, { mood: "happy", activity: a }); ok("activity " + a, r.status === 201, r); }
+r = await call("POST", "/moods", I, { mood: "happy", activity: "knitting" });
+ok("unknown activity rejected", r.status === 400, r);
+const moodPaul = (await call("GET", "/sync", I)).body.latestMoods;
+
+// ---- reactions
+const noraId = (await call("GET", "/me", H)).body.user.id, paulId = (await call("GET", "/me", I)).body.user.id;
+r = await call("PUT", "/reactions", I, { type: "mood", id: moodNora, emoji: "🔥" });
+ok("react to partner's mood", r.status === 200 && r.body.reactions.length === 1 && r.body.reactions[0].emoji === "🔥" && r.body.reactions[0].userId === paulId, r);
+r = await call("PUT", "/reactions", I, { type: "mood", id: moodNora, emoji: "🥹" });
+ok("changing reaction replaces it", r.body.reactions.length === 1 && r.body.reactions[0].emoji === "🥹", r.body);
+r = await call("PUT", "/reactions", H, { type: "mood", id: moodNora, emoji: "😂" });
+ok("can't react to own post", r.status === 403, r);
+r = await call("PUT", "/reactions", I, { type: "mood", id: moodNora, emoji: "👍" });
+ok("emoji outside the list rejected", r.status === 400, r);
+r = await call("PUT", "/reactions", I, { type: "other", id: moodNora, emoji: "🔥" });
+ok("bad type rejected", r.status === 400, r);
+r = await call("PUT", "/reactions", A, { type: "mood", id: moodNora, emoji: "🔥" });
+ok("stranger can't react (not paired)", r.status === 409, r);
+r = await call("PUT", "/reactions", I, { type: "diary", id: "missing", emoji: "🔥" });
+ok("unknown post 404", r.status === 404, r);
+r = await call("GET", "/sync", H);
+ok("sync carries mood reactions", r.body.latestMoods[noraId].reactions[0].emoji === "🥹" && r.body.moods.find((m) => m.id === moodNora).reactions.length === 1, r.body.latestMoods);
+r = await call("POST", "/diary", H, { text: "reactable" }); const reDiary = r.body.id;
+r = await call("PUT", "/reactions", I, { type: "diary", id: reDiary, emoji: "🥳" });
+ok("react to diary", r.status === 200 && r.body.reactions[0].emoji === "🥳", r);
+r = await call("GET", "/sync", H);
+ok("sync carries diary reactions", r.body.diary.find((d) => d.id === reDiary).reactions[0].emoji === "🥳", r.body.diary[0]);
+r = await call("PUT", "/reactions", I, { type: "diary", id: reDiary, emoji: null });
+ok("remove reaction", r.status === 200 && r.body.reactions.length === 0, r);
+r = await call("PUT", "/reactions", I, { type: "diary", id: reDiary, emoji: "📿" });
+r = await call("DELETE", "/diary/" + reDiary, H);
+ok("deleting a note removes its reactions", sqlite.prepare("SELECT COUNT(*) AS n FROM reactions WHERE target_id = ?").get(reDiary).n === 0, r);
+
+// ---- minigames
+r = await call("GET", "/games", A);
+ok("games need a partner", r.status === 409, r);
+r = await call("POST", "/games/matches", H, { game: "chess", rounds: 3 });
+ok("unknown game rejected", r.status === 400, r);
+r = await call("POST", "/games/matches", H, { game: "heart", rounds: 2 });
+ok("bad round count rejected", r.status === 400, r);
+r = await call("POST", "/games/matches", H, { game: "heart", rounds: 3 });
+ok("create match", r.status === 201 && r.body.status === "active" && r.body.rounds === 3 && r.body.createdBy === noraId && Number.isInteger(r.body.seed), r); const m1 = r.body.id;
+r = await call("PUT", `/games/matches/${m1}/score`, I, { round: 1, score: 10 });
+ok("partner can't go before the starter", r.status === 409, r);
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 2, score: 10 });
+ok("can't skip a round", r.status === 409, r);
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 1, score: 9999 });
+ok("impossible score rejected", r.status === 400, r);
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 1, score: 20 });
+ok("starter plays round 1", r.status === 200 && r.body.scores.length === 1, r);
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 1, score: 25 });
+ok("can't replay a round", r.status === 409, r);
+r = await call("PUT", `/games/matches/${m1}/score`, I, { round: 1, score: 15 });
+ok("partner plays round 1", r.status === 200 && r.body.scores.length === 2 && r.body.status === "active", r);
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 2, score: 30 });
+ok("round 2: starter can't go first", r.status === 409, r);
+r = await call("PUT", `/games/matches/${m1}/score`, I, { round: 2, score: 12 });
+ok("round 2 partner goes first", r.status === 200, r);
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 2, score: 5 });
+ok("round 2 starter second", r.status === 200 && r.body.status === "active", r);
+// goal created before the match finishes: first to 2 match wins
+r = await call("POST", "/games/goals", I, { title: "Loser buys dinner 🍽️", metric: "wins", target: 2 });
+ok("create goal", r.status === 201 && r.body.status === "active" && r.body.target === 2, r); const g1 = r.body.id;
+r = await call("POST", "/games/goals", I, { title: "x", metric: "lives", target: 2 });
+ok("bad goal metric rejected", r.status === 400, r);
+r = await call("POST", "/games/goals", I, { title: "x", metric: "points", target: 5 });
+ok("points target must be >= 100", r.status === 400, r);
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 3, score: 40 });
+r = await call("PUT", `/games/matches/${m1}/score`, I, { round: 3, score: 41 });
+ok("match finishes; 2 rounds each -> tie on rounds is broken by total", r.body.status === "done" && r.body.winnerId === paulId, r.body);
+// totals: Nora 20+5+40=65 ; Paul 15+12+41=68 ; rounds: Nora won R1 and R3? R1 20>15 Nora, R2 12>5 Paul, R3 41>40 Paul => Paul wins 2-1
+r = await call("GET", "/games", H);
+ok("summary: goal still active (1 win of 2)", r.body.goals[0].status === "active" && r.body.goals[0].progress[paulId] === 1, r.body.goals);
+ok("summary: stats", r.body.stats.done === 1 && r.body.stats.players.find((p) => p.userId === paulId).wins === 1 && r.body.stats.tandemScore === 133, r.body.stats);
+ok("summary: bests + highs", r.body.stats.bests.find((b) => b.game === "heart" && b.userId === paulId).best === 41 && r.body.stats.highs[0].score === 41, r.body.stats.highs);
+// second match: Paul starts? Nora creates again, Paul wins both -> goal reached
+r = await call("POST", "/games/matches", I, { game: "math", rounds: 1 }); const m2 = r.body.id;
+r = await call("PUT", `/games/matches/${m2}/score`, I, { round: 1, score: 300 });
+r = await call("PUT", `/games/matches/${m2}/score`, H, { round: 1, score: 100 });
+ok("single-round match decided", r.body.status === "done" && r.body.winnerId === paulId, r.body);
+r = await call("GET", "/games", H);
+const goal = r.body.goals.find((g) => g.id === g1);
+ok("goal won by Paul", goal.status === "won" && goal.winnerId === paulId && goal.progress[paulId] === 2, goal);
+ok("streaks tracked", r.body.stats.players.find((p) => p.userId === paulId).streak === 2 && r.body.stats.players.find((p) => p.userId === noraId).streak === 0, r.body.stats.players);
+r = await call("PUT", `/games/goals/${g1}/settle`, H);
+ok("settle won goal", r.status === 200 && r.body.status === "settled", r);
+r = await call("PUT", `/games/goals/${g1}/settle`, H, {});
+ok("can't settle twice", r.status === 409, r);
+// draw: equal everything
+r = await call("POST", "/games/matches", H, { game: "draw", rounds: 1 }); const m3 = r.body.id;
+r = await call("PUT", `/games/matches/${m3}/score`, H, { round: 1, score: 500 });
+r = await call("PUT", `/games/matches/${m3}/score`, I, { round: 1, score: 500 });
+ok("tie = draw (no winner)", r.body.status === "done" && r.body.winnerId === null, r.body);
+r = await call("GET", "/games", I);
+ok("draw counted, streak reset", r.body.stats.draws === 1 && r.body.stats.done === 3 && r.body.stats.players.find((p) => p.userId === paulId).streak === 0, r.body.stats);
+// cancel + limits
+r = await call("POST", "/games/matches", H, { game: "memory", rounds: 3 }); const m4 = r.body.id;
+r = await call("DELETE", `/games/matches/${m4}`, I);
+ok("cancel active match", r.status === 200, r);
+r = await call("DELETE", `/games/matches/${m1}`, I);
+ok("finished matches can't be deleted", r.status === 409, r);
+r = await call("POST", "/games/goals", H, { title: "Points race", metric: "points", target: 100 }); const g2 = r.body.id;
+r = await call("POST", "/games/matches", H, { game: "heart", rounds: 1 }); const m5 = r.body.id;
+r = await call("PUT", `/games/matches/${m5}/score`, H, { round: 1, score: 110 });
+r = await call("PUT", `/games/matches/${m5}/score`, I, { round: 1, score: 30 });
+r = await call("GET", "/games", H);
+ok("points goal won by whoever reaches first", r.body.goals.find((g) => g.id === g2).status === "won" && r.body.goals.find((g) => g.id === g2).winnerId === noraId, r.body.goals);
+r = await call("DELETE", `/games/goals/${g2}`, I);
+ok("delete goal", r.status === 200, r);
+r = await call("DELETE", `/games/goals/${g2}`, I);
+ok("delete goal twice 404", r.status === 404, r);
+
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
 process.exit(fails ? 1 : 0);

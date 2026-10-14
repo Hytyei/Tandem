@@ -75,6 +75,11 @@ object Achievements {
 
         Achievement("type3", AchGroup.Dates, "Variety pack", "Try 3 different kinds of dates", Icons.Filled.Explore, 3) { it.distinctTypes },
         Achievement("type8", AchGroup.Dates, "Adventurers", "Try 8 different kinds of dates", Icons.Filled.AutoAwesome, 8) { it.distinctTypes },
+        Achievement("place1", AchGroup.Dates, "First pin", "Add your first place to the Heatmap", Icons.Filled.Place, 1) { it.stats.totals.places },
+        Achievement("place10", AchGroup.Dates, "Explorers", "Add 10 places", Icons.Filled.Map, 10) { it.stats.totals.places },
+        Achievement("place30", AchGroup.Dates, "Globetrotters", "Add 30 places", Icons.Filled.Explore, 30) { it.stats.totals.places },
+        Achievement("review1", AchGroup.Dates, "Critics", "Review a place", Icons.Filled.RateReview, 1) { it.stats.totals.placeReviews },
+        Achievement("review20", AchGroup.Dates, "Taste makers", "Write 20 place reviews", Icons.Filled.Star, 20) { it.stats.totals.placeReviews },
         Achievement("things10", AchGroup.Dates, "Quality time", "Log 10 things you did together", Icons.Filled.Loyalty, 10) { it.typeTotal },
         Achievement("things50", AchGroup.Dates, "Never bored", "Log 50 things you did together", Icons.Filled.EmojiEvents, 50) { it.typeTotal },
     )

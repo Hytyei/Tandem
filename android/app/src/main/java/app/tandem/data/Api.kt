@@ -16,6 +16,7 @@ interface TandemApi {
     @GET("me") suspend fun me(): MeResponse
     @PATCH("me") suspend fun updateProfile(@Body b: ProfileBody): User
     @HTTP(method = "DELETE", path = "me", hasBody = true) suspend fun deleteAccount(@Body b: DeleteBody): OkResponse
+    @PUT("me/profile") suspend fun saveProfileDetails(@Body b: ProfileDetails): User
     @PUT("me/avatar") suspend fun uploadAvatar(@Body body: RequestBody): User
 
     @POST("couple") suspend fun createCouple(): CoupleInfo
@@ -41,6 +42,23 @@ interface TandemApi {
     @GET("sync") suspend fun sync(): SyncResponse
     @GET("stats") suspend fun statsDetail(@Query("tz") tzMinutes: Int): StatsDetail
     @GET("memories") suspend fun memories(@Query("date") today: String): Memories
+
+    @GET("places") suspend fun places(): PlacesResponse
+    @POST("places") suspend fun addPlace(@Body b: PlaceBody): Place
+    @PUT("places/{id}") suspend fun editPlace(@Path("id") id: String, @Body b: PlaceBody): Place
+    @POST("places/{id}/visit") suspend fun visitPlace(@Path("id") id: String): Place
+    @PUT("places/{id}/review") suspend fun reviewPlace(@Path("id") id: String, @Body b: ReviewBody): Place
+    @DELETE("places/{id}") suspend fun deletePlace(@Path("id") id: String)
+
+    @PUT("reactions") suspend fun react(@Body b: ReactionBody): ReactionsResponse
+
+    @GET("games") suspend fun games(): GamesResponse
+    @POST("games/matches") suspend fun createMatch(@Body b: MatchBody): Match
+    @PUT("games/matches/{id}/score") suspend fun submitScore(@Path("id") id: String, @Body b: ScoreBody): Match
+    @DELETE("games/matches/{id}") suspend fun cancelMatch(@Path("id") id: String): OkResponse
+    @POST("games/goals") suspend fun addGoal(@Body b: GoalBody): GameGoal
+    @PUT("games/goals/{id}/settle") suspend fun settleGoal(@Path("id") id: String): GameGoal
+    @DELETE("games/goals/{id}") suspend fun deleteGoal(@Path("id") id: String): OkResponse
 }
 
 val AppJson = Json {

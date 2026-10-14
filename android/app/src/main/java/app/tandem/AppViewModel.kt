@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import app.tandem.work.Notifier
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -91,16 +93,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun join(code: String) = busyRun { repo.joinWithCode(code) }
     fun shareMood(m: Mood, a: Activity?, note: String, done: () -> Unit) = busyRun(done) { repo.shareMood(m, a, note) }
     fun addDiary(
-        text: String, mood: Mood?, date: java.time.LocalDate?, rating: Int?, dateType: DateType?, images: List<Uri>, done: () -> Unit,
+        text: String, mood: Mood?, date: java.time.LocalDate?, rating: Int?, dateType: DateType?, placeId: String?,
+        occasion: Occasion?, images: List<Uri>, done: () -> Unit,
     ) = busyRun(done) {
-        val failed = repo.addDiary(text, mood, date?.toString(), rating, dateType, images)
+        val r = repo.addDiary(text, mood, date?.toString(), rating, dateType, placeId, occasion, images)
+        val failed = r.failedPictures
         if (failed > 0) toast(if (failed == 1) "Note pinned, but one picture couldn't be uploaded" else "Note pinned, but $failed pictures couldn't be uploaded")
+        else if (r.occasionFailed) toast("Note pinned, but the calendar occasion couldn't be added")
     }
     fun updateDiary(
-        id: String, text: String, mood: Mood?, date: java.time.LocalDate?, rating: Int?, dateType: DateType?,
+        id: String, text: String, mood: Mood?, date: java.time.LocalDate?, rating: Int?, dateType: DateType?, placeId: String?,
         removeImages: List<String>, newImages: List<Uri>, done: () -> Unit,
     ) = busyRun(done) {
-        val failed = repo.updateDiary(id, text, mood, date?.toString(), rating, dateType, removeImages, newImages)
+        val failed = repo.updateDiary(id, text, mood, date?.toString(), rating, dateType, placeId, removeImages, newImages)
         if (failed > 0) toast(if (failed == 1) "Saved, but one picture couldn't be uploaded" else "Saved, but $failed pictures couldn't be uploaded")
     }
     fun leaveCouple(done: () -> Unit) = busyRun(done) { repo.leaveCouple() }
@@ -137,6 +142,67 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         repo.prefs.setAchievementsSeen(seen + unlocked + "$pid:init")
     }
+
+    // ---- personal page
+    fun saveProfileDetails(p: ProfileDetails, done: () -> Unit) = busyRun(done) { repo.saveProfileDetails(p) }
+    fun addBirthdayToCalendar(name: String, date: String) = busyRun {
+        repo.saveEvent(null, EventBody("$name's birthday", SpecialCategory.Birthday.emoji, date, null, true, "", kind = "special", category = SpecialCategory.Birthday.key))
+        toast("Added to your calendar")
+    }
+
+    // ---- places (Heatmap)
+    var places by mutableStateOf<List<Place>?>(null); private set
+    fun loadPlaces() {
+        viewModelScope.launch {
+            try { places = repo.places() } catch (e: AppException) { if (places == null) toast(e.message ?: "Couldn't load places") }
+        }
+    }
+    private fun replace(p: Place) { places = places.orEmpty().let { l -> if (l.any { it.id == p.id }) l.map { if (it.id == p.id) p else it } else listOf(p) + l } }
+    fun addPlace(b: PlaceBody, done: () -> Unit) = busyRun(done) { replace(repo.addPlace(b)) }
+    fun editPlace(id: String, b: PlaceBody, done: () -> Unit) = busyRun(done) { replace(repo.editPlace(id, b)) }
+    fun visitPlace(id: String) = busyRun { replace(repo.visitPlace(id)) }
+    fun reviewPlace(id: String, rating: Int?, comment: String, done: () -> Unit) = busyRun(done) { replace(repo.reviewPlace(id, rating, comment)) }
+    fun deletePlace(id: String, done: () -> Unit) = busyRun(done) { repo.deletePlace(id); places = places.orEmpty().filter { it.id != id } }
+    suspend fun searchPlaces(q: String): List<GeoResult> = repo.searchPlaces(q)
+
+    // ---- reactions
+    /** Reacts to a partner's post. No busy spinner: the sync that follows brings the new chip. */
+    fun react(type: String, id: String, emoji: String?) {
+        viewModelScope.launch { try { repo.react(type, id, emoji) } catch (e: AppException) { toast(e.message ?: "Couldn't react") } }
+    }
+
+    // ---- minigames
+    var games by mutableStateOf<GamesResponse?>(null); private set
+    fun loadGames() {
+        viewModelScope.launch {
+            try { games = repo.games() } catch (e: AppException) { if (games == null) toast(e.message ?: "Couldn't load games") }
+        }
+    }
+    private fun replaceMatch(m: Match) {
+        val g = games ?: GamesResponse()
+        games = g.copy(matches = if (g.matches.any { it.id == m.id }) g.matches.map { if (it.id == m.id) m else it } else listOf(m) + g.matches)
+    }
+    fun startMatch(game: MiniGame, rounds: Int, done: (Match) -> Unit) {
+        viewModelScope.launch {
+            busy = true
+            try { val m = repo.createMatch(game.key, rounds); replaceMatch(m); done(m) }
+            catch (e: AppException) { toast(e.message ?: "Couldn't start the match") } finally { busy = false }
+        }
+    }
+    /** Sends a finished round. The refreshed match (and goals/stats) come back through [loadGames]. */
+    fun submitScore(matchId: String, round: Int, score: Int, done: (Match?) -> Unit) {
+        viewModelScope.launch {
+            busy = true
+            var result: Match? = null
+            try { result = repo.submitScore(matchId, round, score); replaceMatch(result); loadGames() }
+            catch (e: AppException) { toast(e.message ?: "Couldn't save your score") } finally { busy = false }
+            done(result)
+        }
+    }
+    fun cancelMatch(id: String) = busyRun { repo.cancelMatch(id); games = games?.copy(matches = games!!.matches.filter { it.id != id }) }
+    fun addGoal(title: String, metric: String, target: Int, done: () -> Unit) = busyRun(done) { repo.addGoal(title, metric, target); games = repo.games() }
+    fun settleGoal(id: String) = busyRun { repo.settleGoal(id); games = repo.games() }
+    fun deleteGoal(id: String) = busyRun { repo.deleteGoal(id); games = repo.games() }
 
     var memories by mutableStateOf<Memories?>(null); private set
     fun loadMemories() {
@@ -204,5 +270,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissUpdateDialog() {
         val v = update?.version ?: return
         viewModelScope.launch { repo.prefs.setDismissedUpdate(v) }
+    }
+
+    // A different partner (or signing out) means different data: forget what was loaded for the previous pair.
+    // (Declared last so every property above is initialised before this starts collecting.)
+    init {
+        viewModelScope.launch {
+            state.map { it?.couple?.partner?.id }.distinctUntilChanged().collect {
+                places = null; memories = null; stats = null; games = null
+            }
+        }
     }
 }

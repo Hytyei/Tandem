@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  * A number drawn as a little graph: every digit is a path of connected nodes on a 3 x 5 grid
  * (think constellation / circuit diagram). The faint dots are the unused grid points. Lines draw in, nodes pop in.
  */
-private val DIGIT_PATHS: Map<Char, List<List<Pair<Int, Int>>>> = mapOf(
+internal val DIGIT_PATHS: Map<Char, List<List<Pair<Int, Int>>>> = mapOf(
     '0' to listOf(listOf(0 to 0, 2 to 0, 2 to 4, 0 to 4, 0 to 0)),
     '1' to listOf(listOf(0 to 1, 1 to 0, 1 to 4)),
     '2' to listOf(listOf(0 to 0, 2 to 0, 2 to 2, 0 to 2, 0 to 4, 2 to 4)),

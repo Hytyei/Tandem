@@ -14,7 +14,10 @@ Native Android app (Kotlin, Jetpack Compose, Glance widgets) with a free Cloudfl
 - **Diary wall** – a feed of notes for you and your partner: backdated entries, up to 4 photos per post, editable posts, a 1–5 heart rating for memories and a "what did we do" tag (date night, movie night, gaming session…).
 - **Calendar** – events with reminders, a separate **Special days** view (birthdays, Valentine's, anniversaries, first date…) with countdowns, and a **Memories** view: this day in earlier years, last month's highlights, your best-rated moments.
 - **Stats & achievements** – days together drawn as a node-graph number, milestones, 30-day activity, mood mix, favourite activities, the kinds of dates you've had, and relationship achievements.
-- **Play** – a placeholder tab for upcoming mini-games.
+- **Heatmap** – pin the places you've been to on a map (OpenStreetMap tiles restyled to the app's colours) and see a glowing heatmap; places are grouped by category, each of you reviews them out of 5, and they're ranked by the average. Places can be attached to diary notes.
+- **Personal pages** – full name, birthday, favourite colours, hobbies, what you're watching or playing right now, favourites and playful meters; your partner can read your page.
+- **Reactions** – react to your partner's moods and diary notes with a fixed set of emoji.
+- **Play** – turn-based, timed minigames for two (Heart Catch, Memory Match, Math Sprint, Quick Draw): best-of-1/3/5 matches where you each play the same seeded round, high scores, a shared Tandem score, goals with stakes (first to N wins or points, loser buys lunch) and stats.
 - **Patch notes** – shown inside the app after every update (also under Profile › What's new).
 - **Notifications** – partner mood, diary and event updates; event and special-day reminders; new-release notice.
 - **Widgets** – partner mood, both moods, diary wall, next event.
@@ -48,6 +51,7 @@ Existing installs: do **not** re-run `schema.sql`. Apply each file in `backend/m
 ```bash
 npx wrangler d1 execute tandem --remote --file=migrations/0002_update1.sql   # skip if already applied
 npx wrangler d1 execute tandem --remote --file=migrations/0003_update2.sql
+npx wrangler d1 execute tandem --remote --file=migrations/0004_update3.sql
 npx wrangler deploy
 ```
 
@@ -75,7 +79,8 @@ Push a tag such as `v1.1.0` (the tag becomes the app's version name; add a match
 - Passwords are hashed with PBKDF2-SHA256; login, registration and invite-code attempts are rate-limited.
 - API responses carry security headers and are not cacheable; there is no CORS access.
 - Notifications are hidden on the lock screen by default.
-- Account deletion erases your own moods, diary posts, photos and events.
+- Account deletion erases your own moods, diary posts, photos, events, reactions and minigame scores.
+- **Maps and location:** the Heatmap loads map tiles from `tile.openstreetmap.org`, so OpenStreetMap sees which map area you view (and your IP address) like any map app; the Tandem login token is never sent there. Searching for a place sends the typed text to `nominatim.openstreetmap.org`. Location permission is optional and only used when you tap "Use my location" / the locate button; the position is read once on the phone and only stored if you save a place with it. Tiles are cached on the phone (up to ~40 MB).
 
 ## Notes
 

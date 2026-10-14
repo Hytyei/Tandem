@@ -35,12 +35,13 @@ class PartnerMoodWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val data = loadWidgetData(context)
-        provideContent { PartnerContent(data) }
+        val kind = resolveWidgetKind(context, id, WidgetKind.Partner)
+        provideContent { WidgetContentFor(kind, data) }
     }
 }
 
 @Composable
-private fun PartnerContent(data: WidgetData) {
+internal fun PartnerContent(data: WidgetData) {
     if (GateOrNull(data)) return
     val st = data.state!!
     val partner = st.couple.partner
@@ -72,7 +73,8 @@ class BothMoodWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val data = loadWidgetData(context)
-        provideContent { BothContent(data) }
+        val kind = resolveWidgetKind(context, id, WidgetKind.Both)
+        provideContent { WidgetContentFor(kind, data) }
     }
 }
 
@@ -97,7 +99,7 @@ private fun PersonHalf(user: User?, mood: MoodEntry?, data: WidgetData, wide: Bo
 }
 
 @Composable
-private fun BothContent(data: WidgetData) {
+internal fun BothContent(data: WidgetData) {
     if (GateOrNull(data)) return
     val st = data.state!!
     val partner = st.couple.partner

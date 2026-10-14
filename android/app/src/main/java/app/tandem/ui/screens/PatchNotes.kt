@@ -33,20 +33,24 @@ private fun NotesList(notes: ReleaseNotes) {
     }
 }
 
-/** Shown once after the app has been updated: what's new in this version. */
+/** Shown once after the app has been updated: everything added since the notes the person last saw. */
 @Composable
-fun PatchNotesDialog(onDismiss: () -> Unit) {
+fun PatchNotesDialog(seen: String?, onDismiss: () -> Unit) {
     val c = T.colors
-    val notes = notesFor(BuildConfig.VERSION_NAME) ?: return
+    val idx = CHANGELOG.indexOfFirst { it.version == seen }
+    val unseen = (if (idx >= 0) CHANGELOG.take(idx) else CHANGELOG.take(2)).ifEmpty { listOfNotNull(notesFor(BuildConfig.VERSION_NAME)) }
     AlertDialog(
         onDismissRequest = onDismiss, containerColor = c.sheet,
         icon = { AppLogo(44.dp) },
         title = { Text("What's new") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(notes.title, style = Type.headline, color = c.label)
-                Spacer(Modifier.height(8.dp))
-                NotesList(notes)
+                unseen.forEachIndexed { i, notes ->
+                    if (i > 0) Spacer(Modifier.height(16.dp))
+                    Text(notes.title, style = Type.headline, color = c.label)
+                    Spacer(Modifier.height(8.dp))
+                    NotesList(notes)
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Got it", color = c.accent) } },

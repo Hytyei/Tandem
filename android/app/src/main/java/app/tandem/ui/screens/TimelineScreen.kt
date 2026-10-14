@@ -86,7 +86,7 @@ fun TimelineScreen(vm: AppViewModel) {
         items(rows, key = { r -> when (r) { is TlRow.Header -> "h-${r.key}"; is TlRow.Item -> r.entry.id } }) { r ->
             when (r) {
                 is TlRow.Header -> Text(r.label, style = Type.headline, color = c.label, modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp))
-                is TlRow.Item -> TimelineRow(r.entry, mine = r.entry.userId == meId, user = if (r.entry.userId == meId) data.me else partner)
+                is TlRow.Item -> TimelineRow(r.entry, mine = r.entry.userId == meId, meId = meId, onReact = { emoji -> vm.react("mood", r.entry.id, emoji) })
             }
         }
     }
@@ -96,13 +96,13 @@ fun TimelineScreen(vm: AppViewModel) {
 private fun readable(tint: Color, dark: Boolean): Color = if (dark) lerp(tint, Color.White, .6f) else lerp(tint, Color.Black, .3f)
 
 @Composable
-private fun TimelineRow(e: MoodEntry, mine: Boolean, user: User?) {
+private fun TimelineRow(e: MoodEntry, mine: Boolean, meId: String, onReact: (String?) -> Unit) {
     val c = T.colors
     val accent = if (mine) c.me else c.partner
     val time = remember(e.createdAt) { Instant.ofEpochMilli(e.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(IntrinsicSize.Min).animateContentSize(), verticalAlignment = Alignment.Top) {
         Box(Modifier.weight(1f).padding(vertical = 5.dp), contentAlignment = Alignment.CenterEnd) {
-            if (mine) EntryCard(e, time, accent, alignEnd = true)
+            if (mine) EntryCard(e, time, accent, alignEnd = true, meId = meId, onReact = onReact, canReact = false)
         }
         // Rail with dot
         Box(Modifier.width(28.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
@@ -110,13 +110,13 @@ private fun TimelineRow(e: MoodEntry, mine: Boolean, user: User?) {
             Box(Modifier.padding(top = 24.dp).size(15.dp).clip(CircleShape).background(accent).border(2.5.dp, c.sheet, CircleShape))
         }
         Box(Modifier.weight(1f).padding(vertical = 5.dp), contentAlignment = Alignment.CenterStart) {
-            if (!mine) EntryCard(e, time, accent, alignEnd = false)
+            if (!mine) EntryCard(e, time, accent, alignEnd = false, meId = meId, onReact = onReact, canReact = true)
         }
     }
 }
 
 @Composable
-private fun EntryCard(e: MoodEntry, time: String, accent: Color, alignEnd: Boolean) {
+private fun EntryCard(e: MoodEntry, time: String, accent: Color, alignEnd: Boolean, meId: String, onReact: (String?) -> Unit, canReact: Boolean) {
     val c = T.colors
     // Dark mode: a lighter card with a hairline border, and tints lightened so they stay readable on it.
     val shape = RoundedCornerShape(22.dp)
@@ -138,6 +138,10 @@ private fun EntryCard(e: MoodEntry, time: String, accent: Color, alignEnd: Boole
         if (e.note.isNotBlank()) {
             Spacer(Modifier.height(6.dp))
             Text(e.note, style = Type.footnote, color = c.label.copy(alpha = .88f))
+        }
+        if (e.reactions.isNotEmpty() || canReact) {
+            Spacer(Modifier.height(8.dp))
+            ReactionBar(e.reactions, meId, canReact, onReact)
         }
         Spacer(Modifier.height(6.dp))
         Box(Modifier.height(3.dp).width(28.dp).clip(RoundedCornerShape(2.dp)).background(accent))

@@ -34,7 +34,11 @@ enum class Activity(val key: String, val label: String, @DrawableRes val art: In
     Stargazing("stargazing", "Stargazing", R.drawable.act_stargazing, R.drawable.w_act_stargazing, Color(0xFF5667D6)),
     Photography("photography", "Photography", R.drawable.act_photography, R.drawable.w_act_photography, Color(0xFF7C6BC9)),
     Hair("hair", "Hair day", R.drawable.act_hair, R.drawable.w_act_hair, Color(0xFFE26A94)),
-    Nails("nails", "Nail time", R.drawable.act_nails, R.drawable.w_act_nails, Color(0xFFE0558A));
+    Nails("nails", "Nail time", R.drawable.act_nails, R.drawable.w_act_nails, Color(0xFFE0558A)),
+    Working("working", "Working", R.drawable.act_working, R.drawable.w_act_working, Color(0xFF6B7FB8)),
+    Coding("coding", "Coding", R.drawable.act_coding, R.drawable.w_act_coding, Color(0xFF7C5CD6)),
+    Studying("studying", "Studying", R.drawable.act_studying, R.drawable.w_act_studying, Color(0xFFB07A4F)),
+    Partying("partying", "Partying", R.drawable.act_partying, R.drawable.w_act_partying, Color(0xFFD946A8));
 
     companion object {
         fun from(key: String?): Activity? = entries.firstOrNull { it.key == key }
@@ -107,3 +111,89 @@ fun MoodEntry.tint(): Color = Activity.from(activity)?.tint ?: Mood.from(mood)?.
 @DrawableRes
 fun MoodEntry.widgetArtRes(): Int =
     Activity.from(activity)?.wart ?: Mood.from(mood)?.wart ?: Mood.Happy.wart
+
+/** Kinds of places on the Heatmap. Keys must match the backend (PLACE_CATEGORIES). */
+enum class PlaceCategory(val key: String, val label: String, val emoji: String, val tint: Color) {
+    Restaurant("restaurant", "Cafe & Restaurant", "🍽️", Color(0xFFE8894A)),
+    Takeout("takeout", "Take-out Cafe", "☕", Color(0xFFB07A4F)),
+    Entertainment("entertainment", "Entertainment", "🎡", Color(0xFFA855C7)),
+    Nature("nature", "Parks & Nature", "🌳", Color(0xFF3FA66A)),
+    Culture("culture", "Museums & Culture", "🏛️", Color(0xFF5667D6)),
+    Shopping("shopping", "Shopping", "🛍️", Color(0xFFE26A94)),
+    Nightlife("nightlife", "Bars & Nightlife", "🍸", Color(0xFF6D4AE0)),
+    Stay("stay", "Hotels & Stays", "🏨", Color(0xFF3B9AD9)),
+    Sights("sights", "Trips & Sights", "🗺️", Color(0xFF0EA5E9)),
+    Special("special", "Special places", "💞", Color(0xFFE11D48)),
+    Other("other", "Other", "📍", Color(0xFF8B8FA8));
+
+    companion object {
+        fun from(key: String?): PlaceCategory = entries.firstOrNull { it.key == key } ?: Other
+    }
+}
+
+/** Favourite colours on a personal page. */
+enum class ProfileColor(val key: String, val label: String, val color: Color) {
+    Red("red", "Red", Color(0xFFE5384F)), Orange("orange", "Orange", Color(0xFFF59E0B)), Yellow("yellow", "Yellow", Color(0xFFFFD43B)),
+    Green("green", "Green", Color(0xFF3FA66A)), Teal("teal", "Teal", Color(0xFF14B8A6)), Blue("blue", "Blue", Color(0xFF3B82F6)),
+    Purple("purple", "Purple", Color(0xFF8B5CF6)), Pink("pink", "Pink", Color(0xFFEC4899)), Black("black", "Black", Color(0xFF1C1C1E)),
+    White("white", "White", Color(0xFFF5F5F7)), Brown("brown", "Brown", Color(0xFF8D6E63)), Gray("gray", "Gray", Color(0xFF8E8E93));
+
+    companion object {
+        fun from(key: String?): ProfileColor? = entries.firstOrNull { it.key == key }
+    }
+}
+
+enum class LoveLanguage(val key: String, val label: String, val emoji: String) {
+    Words("words", "Words of affirmation", "💬"), Time("time", "Quality time", "⏳"), Gifts("gifts", "Gifts", "🎁"),
+    Acts("acts", "Acts of service", "🛠️"), Touch("touch", "Physical touch", "🤗");
+
+    companion object {
+        fun from(key: String?): LoveLanguage? = entries.firstOrNull { it.key == key }
+    }
+}
+
+/** The playful 0–100 meters on a personal page. [captions] go from lowest to highest. */
+enum class Meter(val key: String, val label: String, val emoji: String, val tint: Color, val captions: List<String>) {
+    Spicy("spicy", "Horniness meter", "🔥", Color(0xFFFF4D6D), listOf("Pure as snow", "A little warm", "Getting ideas", "Hot and bothered", "Call me. Now.")),
+    Hunger("hunger", "Hunger", "🍕", Color(0xFFF59E0B), listOf("Full & happy", "Peckish", "Snack time", "Hangry incoming", "Feed me or else")),
+    Sleepy("sleepy", "Sleepiness", "😴", Color(0xFF6366F1), listOf("Wide awake", "A bit drowsy", "Yawning", "Barely functioning", "Already asleep")),
+    Cuddle("cuddle", "Cuddle need", "🫂", Color(0xFFEC4899), listOf("Independent", "A hug would be nice", "Cuddles please", "Clingy mode", "Koala mode")),
+    Chaos("chaos", "Chaos level", "🌪️", Color(0xFF14B8A6), listOf("Zen", "Mild mischief", "Feeling silly", "Gremlin hours", "Absolute menace"));
+
+    fun caption(value: Int): String = captions[(value / 20).coerceIn(0, captions.lastIndex)]
+
+    companion object {
+        fun from(key: String?): Meter? = entries.firstOrNull { it.key == key }
+    }
+}
+
+/** Western zodiac sign for a birthday (just for fun on the personal page). */
+fun zodiacOf(month: Int, day: Int): String = when {
+    (month == 3 && day >= 21) || (month == 4 && day <= 19) -> "♈ Aries"
+    (month == 4) || (month == 5 && day <= 20) -> "♉ Taurus"
+    (month == 5) || (month == 6 && day <= 20) -> "♊ Gemini"
+    (month == 6) || (month == 7 && day <= 22) -> "♋ Cancer"
+    (month == 7) || (month == 8 && day <= 22) -> "♌ Leo"
+    (month == 8) || (month == 9 && day <= 22) -> "♍ Virgo"
+    (month == 9) || (month == 10 && day <= 22) -> "♎ Libra"
+    (month == 10) || (month == 11 && day <= 21) -> "♏ Scorpio"
+    (month == 11) || (month == 12 && day <= 21) -> "♐ Sagittarius"
+    (month == 12) || (month == 1 && day <= 19) -> "♑ Capricorn"
+    else -> "♒ Aquarius"
+}
+
+
+/** The emoji people can react with (same list as the backend's REACTIONS). */
+val REACTION_EMOJIS = listOf("😂", "🤣", "😭", "🥲", "😐", "🫠", "😑", "🤔", "🐥", "🥹", "🥺", "🔥", "🥳", "📿")
+
+/** The minigames. Keys and score caps must match the backend (GAMES). */
+enum class MiniGame(val key: String, val label: String, val emoji: String, val tint: Color, val blurb: String, val rules: String, val unit: String) {
+    Heart("heart", "Heart Catch", "💗", Color(0xFFF2476F), "30 seconds · tap every heart", "Hearts pop up all over the screen. Tap as many as you can in 30 seconds. Missed taps cost nothing, but hearts vanish fast.", "hearts"),
+    Memory("memory", "Memory Match", "🧠", Color(0xFF6A5CF0), "60 seconds · match the pairs", "Flip two cards to find a pair. Pairs, time left and fewer mistakes all add up to your score.", "pts"),
+    Sums("math", "Math Sprint", "➗", Color(0xFF14B8A6), "45 seconds · quick sums", "Answer as many sums as you can in 45 seconds. Right answers score, wrong ones cost you.", "pts"),
+    Draw("draw", "Quick Draw", "⚡", Color(0xFFF59E0B), "5 tries · wait, then tap", "Wait for the screen to turn gold, then tap as fast as you can. Tap too early and that try scores zero. Five tries.", "pts");
+
+    companion object {
+        fun from(key: String?): MiniGame? = entries.firstOrNull { it.key == key }
+    }
+}

@@ -10,7 +10,32 @@ data class User(
     val bio: String = "",
     val avatarVersion: Int = 0,
     val hasAvatar: Boolean = false,
+    val profile: ProfileDetails = ProfileDetails(),
 )
+
+/** The personal page each partner fills in and the other can read. Sent as-is to PUT /me/profile. */
+@Serializable
+data class ProfileDetails(
+    val fullName: String = "",
+    val birthday: String = "",                 // yyyy-MM-dd or ""
+    val colors: List<String> = emptyList(),    // ProfileColor keys (max 3)
+    val hobbies: List<String> = emptyList(),
+    val sport: String = "",
+    val food: String = "",
+    val music: String = "",
+    val loveLanguage: String = "",             // LoveLanguage key
+    val watching: String = "",
+    val playing: String = "",
+    val listening: String = "",
+    val reading: String = "",
+    val meters: Map<String, Int> = emptyMap(), // Meter keys -> 0..100
+    val nowAt: Long = 0,                       // when "right now" last changed
+    val metersAt: Long = 0,
+) {
+    val hasNow get() = watching.isNotBlank() || playing.isNotBlank() || listening.isNotBlank() || reading.isNotBlank()
+    val isEmpty get() = fullName.isBlank() && birthday.isBlank() && colors.isEmpty() && hobbies.isEmpty() && sport.isBlank() &&
+        food.isBlank() && music.isBlank() && loveLanguage.isBlank() && !hasNow && meters.isEmpty()
+}
 
 @Serializable
 data class CoupleInfo(
@@ -28,7 +53,13 @@ data class MoodEntry(
     val activity: String? = null,
     val note: String = "",
     val createdAt: Long,
+    val reactions: List<Reaction> = emptyList(),
 )
+
+/** One emoji reaction (each person can leave one per mood / diary note). */
+@Serializable data class Reaction(val userId: String, val emoji: String)
+@Serializable data class ReactionBody(val type: String, val id: String, val emoji: String?)
+@Serializable data class ReactionsResponse(val reactions: List<Reaction> = emptyList())
 
 @Serializable
 data class DiaryEntry(
@@ -42,6 +73,9 @@ data class DiaryEntry(
     val rating: Int? = null,                // 1..5 hearts
     val dateType: String? = null,           // DateType.key
     val updatedAt: Long = 0,                // > 0 once the note has been edited
+    val placeId: String? = null,            // Place.id this memory happened at
+    val placeName: String? = null,
+    val reactions: List<Reaction> = emptyList(),
 )
 
 @Serializable
@@ -97,7 +131,7 @@ data class SyncResponse(
 @Serializable data class MoodBody(val mood: String, val activity: String?, val note: String)
 @Serializable data class DiaryBody(
     val text: String, val mood: String?, val entryDate: String? = null,
-    val rating: Int? = null, val dateType: String? = null,
+    val rating: Int? = null, val dateType: String? = null, val placeId: String? = null,
 )
 @Serializable
 data class EventBody(
@@ -105,6 +139,9 @@ data class EventBody(
     val time: String?, val repeatYearly: Boolean, val notes: String,
     val kind: String = "event", val category: String? = null, val dateType: String? = null,
 )
+/** "Add as an occasion to the calendar" chosen while posting a diary note. */
+data class Occasion(val title: String, val yearly: Boolean)
+data class DiaryResult(val failedPictures: Int, val occasionFailed: Boolean)
 @Serializable data class OkResponse(val ok: Boolean = true)
 @Serializable data class ImageId(val id: String)
 @Serializable data class DeleteBody(val password: String)
@@ -131,8 +168,37 @@ data class StatsDetail(
 @Serializable
 data class StatTotals(
     val moods: Int = 0, val diary: Int = 0, val events: Int = 0, val specials: Int = 0,
-    val rated: Int = 0, val fiveStar: Int = 0,
+    val rated: Int = 0, val fiveStar: Int = 0, val places: Int = 0, val placeReviews: Int = 0,
 )
+
+// ---- places (Heatmap tab)
+@Serializable data class PlaceReview(val userId: String, val rating: Int, val comment: String = "", val updatedAt: Long = 0)
+@Serializable
+data class Place(
+    val id: String,
+    val createdBy: String = "",
+    val name: String,
+    val category: String = "other",
+    val lat: Double,
+    val lon: Double,
+    val note: String = "",
+    val visits: Int = 1,
+    val firstVisited: String? = null,
+    val lastVisited: String? = null,
+    val createdAt: Long = 0,
+    val reviews: List<PlaceReview> = emptyList(),
+    val avg: Double? = null,
+    val count: Int = 0,
+) {
+    fun reviewOf(userId: String?) = reviews.firstOrNull { it.userId == userId }
+}
+@Serializable data class PlacesResponse(val places: List<Place> = emptyList())
+@Serializable data class PlaceBody(
+    val name: String, val category: String, val lat: Double, val lon: Double, val note: String = "", val visitDate: String? = null,
+)
+@Serializable data class ReviewBody(val rating: Int?, val comment: String = "")
+/** One hit from the place-name search. */
+data class GeoResult(val name: String, val detail: String, val lat: Double, val lon: Double)
 
 // ---- /memories ("remember when" in the Calendar tab)
 @Serializable
@@ -152,3 +218,73 @@ data class Memories(
 ) {
     val isEmpty get() = onThisDay.isEmpty() && lastMonth.isEmpty() && bestOfMonth.isEmpty() && bestEver.isEmpty()
 }
+
+
+// ---- minigames (turn-based, timed)
+@Serializable data class GameScore(val round: Int, val userId: String, val score: Int)
+@Serializable
+data class Match(
+    val id: String,
+    val game: String,
+    val rounds: Int,
+    val createdBy: String,
+    val status: String = "active",          // active | done
+    val winnerId: String? = null,           // null + done = draw
+    val seed: Long = 0,
+    val createdAt: Long = 0,
+    val finishedAt: Long = 0,
+    val scores: List<GameScore> = emptyList(),
+) {
+    val isDone get() = status == "done"
+    fun scoreOf(round: Int, userId: String): Int? = scores.firstOrNull { it.round == round && it.userId == userId }?.score
+    fun total(userId: String) = scores.filter { it.userId == userId }.sumOf { it.score }
+    fun roundWins(userId: String, otherId: String) = (1..rounds).count { r ->
+        val a = scoreOf(r, userId); val b = scoreOf(r, otherId); a != null && b != null && a > b
+    }
+    /** Who plays first in [round]: the starter in odd rounds, the other player in even rounds. */
+    fun firstIn(round: Int, me: String, partner: String) = if (round % 2 == 1) createdBy else if (createdBy == me) partner else me
+    /** The round [me] can play right now, or null (waiting for the partner, or finished). */
+    fun nextTurn(me: String, partner: String): Int? {
+        if (isDone) return null
+        for (r in 1..rounds) {
+            val mine = scoreOf(r, me); val theirs = scoreOf(r, partner)
+            if (mine != null && theirs != null) continue
+            return if (mine == null && (firstIn(r, me, partner) == me || theirs != null)) r else null
+        }
+        return null
+    }
+    /** The round currently being played (for "Round 2 of 3"). */
+    fun currentRound(): Int = (1..rounds).firstOrNull { r -> scores.count { it.round == r } < 2 } ?: rounds
+}
+@Serializable
+data class GameGoal(
+    val id: String,
+    val title: String,
+    val metric: String,                     // wins | points
+    val target: Int,
+    val status: String = "active",          // active | won | settled
+    val winnerId: String? = null,
+    val createdBy: String = "",
+    val createdAt: Long = 0,
+    val wonAt: Long = 0,
+    val settledAt: Long = 0,
+    val progress: Map<String, Int> = emptyMap(),
+)
+@Serializable data class PlayerStat(val userId: String, val wins: Int = 0, val points: Int = 0, val rounds: Int = 0, val streak: Int = 0, val bestStreak: Int = 0)
+@Serializable data class BestRow(val game: String, val userId: String, val best: Int = 0, val plays: Int = 0, val total: Int = 0)
+@Serializable data class GameWinRow(val game: String, val userId: String? = null, val n: Int = 0)
+@Serializable data class HighRow(val game: String, val userId: String, val score: Int = 0, val at: Long = 0)
+@Serializable
+data class GameStats(
+    val done: Int = 0,
+    val draws: Int = 0,
+    val tandemScore: Int = 0,
+    val players: List<PlayerStat> = emptyList(),
+    val bests: List<BestRow> = emptyList(),
+    val gameWins: List<GameWinRow> = emptyList(),
+    val highs: List<HighRow> = emptyList(),
+)
+@Serializable data class GamesResponse(val matches: List<Match> = emptyList(), val goals: List<GameGoal> = emptyList(), val stats: GameStats = GameStats())
+@Serializable data class MatchBody(val game: String, val rounds: Int)
+@Serializable data class ScoreBody(val round: Int, val score: Int)
+@Serializable data class GoalBody(val title: String, val metric: String, val target: Int)

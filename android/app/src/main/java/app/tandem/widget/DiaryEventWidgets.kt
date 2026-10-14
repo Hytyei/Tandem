@@ -24,7 +24,8 @@ class DiaryWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val data = loadWidgetData(context)
-        provideContent { DiaryContent(data) }
+        val kind = resolveWidgetKind(context, id, WidgetKind.Diary)
+        provideContent { WidgetContentFor(kind, data) }
     }
 }
 
@@ -46,7 +47,7 @@ private fun NoteBlock(e: DiaryEntry, data: WidgetData, lines: Int, modifier: Gla
 }
 
 @Composable
-private fun DiaryContent(data: WidgetData) {
+internal fun DiaryContent(data: WidgetData) {
     if (GateOrNull(data)) return
     val entries = data.state!!.diary
     val wide = LocalSize.current.width >= 220.dp
@@ -79,7 +80,8 @@ class EventWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val data = loadWidgetData(context)
-        provideContent { EventContent(data) }
+        val kind = resolveWidgetKind(context, id, WidgetKind.Event)
+        provideContent { WidgetContentFor(kind, data) }
     }
 }
 
@@ -94,7 +96,7 @@ private fun CountdownBlock(days: Long) {
 }
 
 @Composable
-private fun EventContent(data: WidgetData) {
+internal fun EventContent(data: WidgetData) {
     if (GateOrNull(data)) return
     val list = upcoming(data.state!!.events)
     val wide = LocalSize.current.width >= 220.dp

@@ -1,5 +1,7 @@
 package app.tandem.widget
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
@@ -15,13 +17,13 @@ import androidx.glance.ImageProvider
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.LocalContext
 import androidx.glance.appwidget.cornerRadius
-import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
@@ -39,12 +41,45 @@ val SMALL = DpSize(110.dp, 110.dp)
 val WIDE = DpSize(250.dp, 110.dp)
 val RESPONSIVE = SizeMode.Responsive(setOf(SMALL, WIDE))
 
+/** The four widget types. [receiver] is the broadcast receiver class the home screen binds each one to. */
+enum class WidgetKind(val receiver: Class<*>) {
+    Partner(PartnerMoodReceiver::class.java), Both(BothMoodReceiver::class.java), Diary(DiaryReceiver::class.java), Event(EventReceiver::class.java),
+}
+
+/**
+ * Which kind of widget the home screen really placed under [id], asked of Android itself (not of Glance's own bookkeeping).
+ * Every widget renders the content of the kind it was added as, so a "both moods" widget can never turn into another widget.
+ */
+fun resolveWidgetKind(context: Context, id: GlanceId, fallback: WidgetKind): WidgetKind = try {
+    val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+    val provider = AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)?.provider?.className
+    WidgetKind.entries.firstOrNull { it.receiver.name == provider } ?: fallback
+} catch (_: Exception) { fallback }
+
+@Composable
+fun WidgetContentFor(kind: WidgetKind, data: WidgetData) {
+    when (kind) {
+        WidgetKind.Partner -> PartnerContent(data)
+        WidgetKind.Both -> BothContent(data)
+        WidgetKind.Diary -> DiaryContent(data)
+        WidgetKind.Event -> EventContent(data)
+    }
+}
+
 object WidgetUpdater {
+    /** Refreshes every placed widget, pairing each Android widget id with its own provider's widget class. */
     suspend fun updateAll(context: Context) {
-        PartnerMoodWidget().updateAll(context)
-        BothMoodWidget().updateAll(context)
-        DiaryWidget().updateAll(context)
-        EventWidget().updateAll(context)
+        val awm = AppWidgetManager.getInstance(context)
+        val glance = GlanceAppWidgetManager(context)
+        for (kind in WidgetKind.entries) {
+            val widget: GlanceAppWidget = when (kind) {
+                WidgetKind.Partner -> PartnerMoodWidget(); WidgetKind.Both -> BothMoodWidget()
+                WidgetKind.Diary -> DiaryWidget(); WidgetKind.Event -> EventWidget()
+            }
+            for (appWidgetId in awm.getAppWidgetIds(ComponentName(context, kind.receiver))) {
+                try { widget.update(context, glance.getGlanceIdBy(appWidgetId)) } catch (_: Exception) { }
+            }
+        }
     }
 }
 

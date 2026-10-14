@@ -9,6 +9,7 @@ const MOODS = ["happy", "loved", "calm", "excited", "tired", "sad", "anxious", "
 const ACTIVITIES = [
   "gaming", "sleeping", "eating", "tv", "music", "football", "cycling",
   "hiking", "camping", "roadtrip", "stargazing", "photography", "hair", "nails",
+  "working", "coding", "studying", "partying",
 ];
 const TOKEN_TTL = 60 * 60 * 24 * 90; // 90 days
 const PBKDF2_ITER = 100_000;
@@ -110,6 +111,7 @@ const MIN = 60_000;
 interface UserRow {
   id: string; username: string; display_name: string; bio: string;
   pass_hash: string; pass_salt: string; avatar_version: number; couple_id: string | null; created_at: number;
+  profile?: string | null;
 }
 
 async function readJson<T = any>(req: Request): Promise<T> {
@@ -128,10 +130,58 @@ const isDate = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{
 const isTime = (s: unknown): s is string => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 
 function publicUser(u: UserRow) {
+  let profile: unknown = {};
+  try { profile = u.profile ? JSON.parse(u.profile) : {}; } catch { profile = {}; }
   return {
     id: u.id, username: u.username, displayName: u.display_name, bio: u.bio,
-    avatarVersion: u.avatar_version, hasAvatar: u.avatar_version > 0,
+    avatarVersion: u.avatar_version, hasAvatar: u.avatar_version > 0, profile,
   };
+}
+
+// ------------------------------------------------------------- personal page (profile details)
+const PROFILE_COLORS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "black", "white", "brown", "gray"];
+const LOVE_LANGUAGES = ["words", "time", "gifts", "acts", "touch"];
+const METERS = ["spicy", "hunger", "sleepy", "cuddle", "chaos"];
+const optStr = (v: unknown, field: string, max: number): string => {
+  if (v == null) return "";
+  if (typeof v !== "string") throw new HttpError(400, `${field} must be text`);
+  const t = v.trim();
+  if (t.length > max) throw new HttpError(400, `${field} must be at most ${max} characters`);
+  return t;
+};
+/** Validates the "my page" form and returns the JSON that gets stored. Only known keys survive. */
+function cleanProfile(b: any, prevRaw: string | null | undefined): Record<string, unknown> {
+  let prev: any = {};
+  try { prev = prevRaw ? JSON.parse(prevRaw) : {}; } catch { prev = {}; }
+  let birthday = "";
+  if (b.birthday != null && b.birthday !== "") {
+    if (!isDate(b.birthday) || b.birthday < "1900-01-01" || b.birthday > isoDay(now())) throw new HttpError(400, "birthday must be a past date (YYYY-MM-DD)");
+    birthday = b.birthday;
+  }
+  const colors = Array.isArray(b.colors) ? [...new Set(b.colors.filter((x: unknown) => typeof x === "string" && PROFILE_COLORS.includes(x)))].slice(0, 3) : [];
+  const hobbies = Array.isArray(b.hobbies)
+    ? b.hobbies.filter((x: unknown): x is string => typeof x === "string").map((x: string) => x.trim()).filter((x: string) => x.length > 0 && x.length <= 24).slice(0, 8)
+    : [];
+  const meters: Record<string, number> = {};
+  if (b.meters && typeof b.meters === "object") {
+    for (const k of METERS) {
+      const v = (b.meters as any)[k];
+      if (typeof v === "number" && isFinite(v)) meters[k] = Math.min(100, Math.max(0, Math.round(v)));
+    }
+  }
+  const p: Record<string, unknown> = {
+    fullName: optStr(b.fullName, "fullName", 60), birthday, colors, hobbies,
+    sport: optStr(b.sport, "sport", 40), food: optStr(b.food, "food", 40), music: optStr(b.music, "music", 40),
+    loveLanguage: LOVE_LANGUAGES.includes(b.loveLanguage) ? b.loveLanguage : "",
+    watching: optStr(b.watching, "watching", 60), playing: optStr(b.playing, "playing", 60),
+    listening: optStr(b.listening, "listening", 60), reading: optStr(b.reading, "reading", 60),
+    meters,
+  };
+  const nowChanged = ["watching", "playing", "listening", "reading"].some((k) => (prev[k] ?? "") !== p[k]);
+  p.nowAt = nowChanged ? now() : (prev.nowAt ?? 0);
+  const metersChanged = JSON.stringify(prev.meters ?? {}) !== JSON.stringify(meters);
+  p.metersAt = metersChanged ? now() : (prev.metersAt ?? 0);
+  return p;
 }
 
 async function getUser(env: Env, id: string): Promise<UserRow | null> {
@@ -148,15 +198,56 @@ function requireCouple(user: UserRow): string {
   return user.couple_id;
 }
 
-function moodJson(r: any) {
-  return { id: r.id, userId: r.user_id, mood: r.mood, activity: r.activity, note: r.note, createdAt: r.created_at };
+function moodJson(r: any, reactions: Reaction[] = []) {
+  return { id: r.id, userId: r.user_id, mood: r.mood, activity: r.activity, note: r.note, createdAt: r.created_at, reactions };
+}
+
+// ------------------------------------------------------------- reactions (one emoji per person per mood / diary note)
+const REACTIONS = ["😂", "🤣", "😭", "🥲", "😐", "🫠", "😑", "🤔", "🐥", "🥹", "🥺", "🔥", "🥳", "📿"];
+type Reaction = { userId: string; emoji: string };
+async function reactionMap(env: Env, type: "mood" | "diary", ids: string[]): Promise<Record<string, Reaction[]>> {
+  const map: Record<string, Reaction[]> = {};
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const { results } = await env.DB.prepare(
+      `SELECT target_id, user_id, emoji FROM reactions WHERE target_type = ? AND target_id IN (${chunk.map(() => "?").join(",")}) ORDER BY created_at`
+    ).bind(type, ...chunk).all();
+    for (const r of results as any[]) (map[r.target_id] ??= []).push({ userId: r.user_id, emoji: r.emoji });
+  }
+  return map;
+}
+async function moodsWithReactions(env: Env, rows: any[]) {
+  const map = await reactionMap(env, "mood", rows.map((r) => r.id));
+  return rows.map((r) => moodJson(r, map[r.id] ?? []));
+}
+/** PUT /reactions { type: "mood"|"diary", id, emoji | null } — react to your partner's post (null removes your reaction). */
+async function reactionPut(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const b = await readJson(c.req);
+  if (b.type !== "mood" && b.type !== "diary") throw new HttpError(400, "type must be mood or diary");
+  const id = str(b.id, "id", 1, 64);
+  const row = await c.env.DB.prepare(`SELECT couple_id, user_id FROM ${b.type === "mood" ? "moods" : "diary"} WHERE id = ?`).bind(id).first<any>();
+  if (!row || row.couple_id !== coupleId) throw new HttpError(404, "That post doesn't exist any more");
+  if (row.user_id === c.user.id) throw new HttpError(403, "You can only react to your partner's posts");
+  if (b.emoji == null) {
+    await c.env.DB.prepare("DELETE FROM reactions WHERE target_type = ? AND target_id = ? AND user_id = ?").bind(b.type, id, c.user.id).run();
+  } else {
+    if (typeof b.emoji !== "string" || !REACTIONS.includes(b.emoji)) throw new HttpError(400, "That reaction isn't available");
+    await c.env.DB.prepare(
+      "INSERT INTO reactions (target_type, target_id, user_id, emoji, created_at) VALUES (?,?,?,?,?) " +
+      "ON CONFLICT(target_type, target_id, user_id) DO UPDATE SET emoji = excluded.emoji, created_at = excluded.created_at"
+    ).bind(b.type, id, c.user.id, b.emoji, now()).run();
+  }
+  return json({ reactions: (await reactionMap(c.env, b.type, [id]))[id] ?? [] });
 }
 const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-function diaryJson(r: any, images: string[] = []) {
+function diaryJson(r: any, images: string[] = [], reactions: Reaction[] = []) {
   return {
+    reactions,
     id: r.id, userId: r.user_id, text: r.text, mood: r.mood, createdAt: r.created_at,
     entryDate: r.entry_date ?? isoDay(r.created_at), images,
     rating: r.rating ?? null, dateType: r.date_type ?? null, updatedAt: r.updated_at ?? 0,
+    placeId: r.place_id ?? null, placeName: r.place_name ?? null,
   };
 }
 async function withImages(env: Env, rows: any[]) {
@@ -168,7 +259,14 @@ async function withImages(env: Env, rows: any[]) {
     ).bind(...ids).all();
     for (const r of results as any[]) (map[r.diary_id] ??= []).push(r.id);
   }
-  return rows.map((r) => diaryJson(r, map[r.id] ?? []));
+  const placeIds = [...new Set(rows.map((r) => r.place_id).filter((x) => !!x))] as string[];
+  const names: Record<string, string> = {};
+  if (placeIds.length) {
+    const { results } = await env.DB.prepare(`SELECT id, name FROM places WHERE id IN (${placeIds.map(() => "?").join(",")})`).bind(...placeIds).all();
+    for (const r of results as any[]) names[r.id] = r.name;
+  }
+  const reacts = await reactionMap(env, "diary", ids);
+  return rows.map((r) => diaryJson({ ...r, place_name: r.place_id ? names[r.place_id] ?? null : null }, map[r.id] ?? [], reacts[r.id] ?? []));
 }
 const DIARY_ORDER = "ORDER BY COALESCE(entry_date, date(created_at/1000,'unixepoch')) DESC, created_at DESC, rowid DESC";
 const DATE_TYPES = ["datenight", "movie", "gaming", "dinner", "coffee", "walk", "trip", "cooking", "concert", "workout", "picnic", "boardgames", "cozy", "shopping", "celebration", "other"];
@@ -343,6 +441,13 @@ async function profileUpdate(c: Ctx): Promise<Response> {
   return json(publicUser((await getUser(c.env, c.user.id))!));
 }
 
+async function profilePut(c: Ctx): Promise<Response> {
+  const b = await readJson(c.req);
+  const p = cleanProfile(b, c.user.profile);
+  await c.env.DB.prepare("UPDATE users SET profile = ? WHERE id = ?").bind(JSON.stringify(p), c.user.id).run();
+  return json(publicUser((await getUser(c.env, c.user.id))!));
+}
+
 async function avatarPut(c: Ctx): Promise<Response> {
   const buf = await c.req.arrayBuffer();
   if (buf.byteLength < 100 || buf.byteLength > 200_000) throw new HttpError(413, "Avatar must be under 200 KB (the app resizes it for you)");
@@ -393,7 +498,7 @@ async function moodList(c: Ctx): Promise<Response> {
     ? c.env.DB.prepare("SELECT * FROM moods WHERE couple_id = ? AND created_at < ? ORDER BY created_at DESC, rowid DESC LIMIT ?").bind(coupleId, before, limit)
     : c.env.DB.prepare("SELECT * FROM moods WHERE couple_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").bind(coupleId, limit);
   const { results } = await q.all();
-  return json({ moods: results.map(moodJson) });
+  return json({ moods: await moodsWithReactions(c.env, results as any[]) });
 }
 
 async function diaryPost(c: Ctx): Promise<Response> {
@@ -411,10 +516,20 @@ async function diaryPost(c: Ctx): Promise<Response> {
   }
   const rating = readRating(b.rating);
   const dtype = dateType(b.dateType);
+  const placeId = await readPlaceId(c.env, coupleId, b.placeId);
   const id = uid();
-  await c.env.DB.prepare("INSERT INTO diary (id, user_id, couple_id, text, mood, entry_date, rating, date_type, created_at) VALUES (?,?,?,?,?,?,?,?,?)")
-    .bind(id, c.user.id, coupleId, text, mood, entryDate, rating, dtype, t).run();
-  return json(diaryJson({ id, user_id: c.user.id, text, mood, entry_date: entryDate, rating, date_type: dtype, created_at: t }), 201);
+  await c.env.DB.prepare("INSERT INTO diary (id, user_id, couple_id, text, mood, entry_date, rating, date_type, place_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+    .bind(id, c.user.id, coupleId, text, mood, entryDate, rating, dtype, placeId, t).run();
+  return json((await withImages(c.env, [{ id, user_id: c.user.id, text, mood, entry_date: entryDate, rating, date_type: dtype, place_id: placeId, created_at: t }]))[0], 201);
+}
+
+/** A place id sent with a note must belong to the same couple (null/"" = no place). */
+async function readPlaceId(env: Env, coupleId: string, v: unknown): Promise<string | null> {
+  if (v == null || v === "") return null;
+  if (typeof v !== "string") throw new HttpError(400, "placeId must be text");
+  const ok = await env.DB.prepare("SELECT 1 FROM places WHERE id = ? AND couple_id = ?").bind(v, coupleId).first();
+  if (!ok) throw new HttpError(400, "Unknown place");
+  return v;
 }
 
 /** Edit your own note. Send the fields you want to keep or change; `mood`, `rating` and `dateType` may be null to clear them. */
@@ -434,10 +549,11 @@ async function diaryPut(c: Ctx): Promise<Response> {
   }
   const rating = b.rating === undefined ? row.rating ?? null : readRating(b.rating);
   const dtype = b.dateType === undefined ? row.date_type ?? null : dateType(b.dateType);
+  const placeId = b.placeId === undefined ? row.place_id ?? null : await readPlaceId(c.env, coupleId, b.placeId);
   const t = now();
-  await c.env.DB.prepare("UPDATE diary SET text=?, mood=?, entry_date=?, rating=?, date_type=?, updated_at=? WHERE id=? AND couple_id=? AND user_id=?")
-    .bind(text, mood, entryDate, rating, dtype, t, c.params[0], coupleId, c.user.id).run();
-  const updated = { ...row, text, mood, entry_date: entryDate, rating, date_type: dtype, updated_at: t };
+  await c.env.DB.prepare("UPDATE diary SET text=?, mood=?, entry_date=?, rating=?, date_type=?, place_id=?, updated_at=? WHERE id=? AND couple_id=? AND user_id=?")
+    .bind(text, mood, entryDate, rating, dtype, placeId, t, c.params[0], coupleId, c.user.id).run();
+  const updated = { ...row, text, mood, entry_date: entryDate, rating, date_type: dtype, place_id: placeId, updated_at: t };
   return json((await withImages(c.env, [updated]))[0]);
 }
 
@@ -455,6 +571,7 @@ async function diaryDelete(c: Ctx): Promise<Response> {
   const own = await c.env.DB.prepare("SELECT 1 FROM diary WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id).first();
   if (!own) throw new HttpError(404, "Entry not found (you can only delete your own)");
   await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM reactions WHERE target_type = 'diary' AND target_id = ?").bind(c.params[0]),
     c.env.DB.prepare("DELETE FROM diary_images WHERE diary_id = ?").bind(c.params[0]),
     c.env.DB.prepare("DELETE FROM diary WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id),
   ]);
@@ -574,16 +691,125 @@ async function sync(c: Ctx): Promise<Response> {
     ).bind(coupleId).all(),
   ]);
   const latestMoods: Record<string, unknown> = {};
-  for (const r of latest.results as any[]) latestMoods[r.user_id] = moodJson(r);
+  const latestWithReactions = await moodsWithReactions(c.env, latest.results as any[]);
+  for (const m of latestWithReactions) latestMoods[m.userId] = m;
 
   return json({
     ...base,
-    moods: moods.results.map(moodJson),
+    moods: await moodsWithReactions(c.env, moods.results as any[]),
     latestMoods,
     diary: await withImages(c.env, diary.results as any[]),
     events: events.results.map(eventJson),
     stats,
   });
+}
+
+// ------------------------------------------------------------- places (heatmap) + reviews
+const PLACE_CATEGORIES = ["restaurant", "takeout", "entertainment", "nature", "culture", "shopping", "nightlife", "stay", "sights", "special", "other"];
+const MAX_PLACES = 300;
+function placeJson(r: any, reviews: any[]) {
+  const rs = reviews.map((x) => ({ userId: x.user_id, rating: x.rating, comment: x.comment, updatedAt: x.updated_at }));
+  const avg = rs.length ? Math.round((rs.reduce((a, x) => a + x.rating, 0) / rs.length) * 100) / 100 : null;
+  return {
+    id: r.id, createdBy: r.created_by, name: r.name, category: r.category, lat: r.lat, lon: r.lon, note: r.note,
+    visits: r.visits, firstVisited: r.first_visited ?? null, lastVisited: r.last_visited ?? null,
+    createdAt: r.created_at, updatedAt: r.updated_at ?? 0, reviews: rs, avg, count: rs.length,
+  };
+}
+async function loadPlaces(env: Env, coupleId: string, onlyId?: string) {
+  const places = onlyId
+    ? await env.DB.prepare("SELECT * FROM places WHERE couple_id = ? AND id = ?").bind(coupleId, onlyId).all()
+    : await env.DB.prepare("SELECT * FROM places WHERE couple_id = ? ORDER BY created_at DESC, rowid DESC").bind(coupleId).all();
+  const rev = onlyId
+    ? await env.DB.prepare("SELECT * FROM place_reviews WHERE couple_id = ? AND place_id = ? ORDER BY updated_at").bind(coupleId, onlyId).all()
+    : await env.DB.prepare("SELECT * FROM place_reviews WHERE couple_id = ? ORDER BY updated_at").bind(coupleId).all();
+  const by: Record<string, any[]> = {};
+  for (const r of rev.results as any[]) (by[r.place_id] ??= []).push(r);
+  return (places.results as any[]).map((p) => placeJson(p, by[p.id] ?? []));
+}
+function readPlace(b: any, partial: boolean) {
+  const out: Record<string, any> = {};
+  if (!partial || b.name !== undefined) out.name = str(b.name, "name", 1, 80);
+  if (!partial || b.category !== undefined) out.category = PLACE_CATEGORIES.includes(b.category) ? b.category : "other";
+  if (!partial || b.lat !== undefined || b.lon !== undefined) {
+    if (typeof b.lat !== "number" || typeof b.lon !== "number" || !isFinite(b.lat) || !isFinite(b.lon) || Math.abs(b.lat) > 90 || Math.abs(b.lon) > 180)
+      throw new HttpError(400, "lat/lon must be valid coordinates");
+    out.lat = Math.round(b.lat * 1e6) / 1e6; out.lon = Math.round(b.lon * 1e6) / 1e6;
+  }
+  if (!partial || b.note !== undefined) out.note = b.note == null ? "" : str(b.note, "note", 0, 300);
+  return out;
+}
+const dayOrToday = (v: unknown) => (isDate(v) && v <= isoDay(now() + 36 * 3600_000) ? (v as string) : isoDay(now()));
+
+async function placesList(c: Ctx): Promise<Response> {
+  return json({ places: await loadPlaces(c.env, requireCouple(c.user)) });
+}
+async function placePost(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const b = await readJson(c.req);
+  const p = readPlace(b, false);
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM places WHERE couple_id = ?").bind(coupleId).first<{ n: number }>();
+  if ((n?.n ?? 0) >= MAX_PLACES) throw new HttpError(409, "Too many places. Delete some old ones first.");
+  const id = uid(), t = now(), day = dayOrToday(b.visitDate);
+  await c.env.DB.prepare(
+    "INSERT INTO places (id, couple_id, created_by, name, category, lat, lon, note, visits, first_visited, last_visited, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(id, coupleId, c.user.id, p.name, p.category, p.lat, p.lon, p.note, 1, day, day, t, t).run();
+  return json((await loadPlaces(c.env, coupleId, id))[0], 201);
+}
+async function placeOwned(c: Ctx): Promise<any> {
+  const coupleId = requireCouple(c.user);
+  const row = await c.env.DB.prepare("SELECT * FROM places WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<any>();
+  if (!row) throw new HttpError(404, "Place not found");
+  return row;
+}
+async function placePut(c: Ctx): Promise<Response> {
+  const row = await placeOwned(c);
+  const b = await readJson(c.req);
+  const p = readPlace(b, true);
+  const merged = { ...row, ...p };
+  let visits = row.visits;
+  if (b.visits !== undefined) {
+    if (!Number.isInteger(b.visits) || b.visits < 1 || b.visits > 999) throw new HttpError(400, "visits must be 1 to 999");
+    visits = b.visits;
+  }
+  await c.env.DB.prepare("UPDATE places SET name=?, category=?, lat=?, lon=?, note=?, visits=?, updated_at=? WHERE id=? AND couple_id=?")
+    .bind(merged.name, merged.category, merged.lat, merged.lon, merged.note, visits, now(), row.id, row.couple_id).run();
+  return json((await loadPlaces(c.env, row.couple_id, row.id))[0]);
+}
+/** "We went again": one more visit. */
+async function placeVisit(c: Ctx): Promise<Response> {
+  const row = await placeOwned(c);
+  const b = c.req.headers.get("content-length") === "0" ? {} : await readJson(c.req).catch(() => ({}));
+  const day = dayOrToday((b as any).date);
+  if (row.visits >= 999) throw new HttpError(409, "That is a lot of visits already");
+  await c.env.DB.prepare("UPDATE places SET visits = visits + 1, last_visited = ?, first_visited = COALESCE(first_visited, ?), updated_at = ? WHERE id = ?")
+    .bind(day > (row.last_visited ?? "") ? day : row.last_visited ?? day, day, now(), row.id).run();
+  return json((await loadPlaces(c.env, row.couple_id, row.id))[0]);
+}
+async function placeDelete(c: Ctx): Promise<Response> {
+  const row = await placeOwned(c);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM place_reviews WHERE place_id = ?").bind(row.id),
+    c.env.DB.prepare("UPDATE diary SET place_id = NULL WHERE place_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM places WHERE id = ?").bind(row.id),
+  ]);
+  return json({ ok: true });
+}
+/** Your own review of a place (1-5, optional comment). `rating: null` removes it. */
+async function placeReview(c: Ctx): Promise<Response> {
+  const row = await placeOwned(c);
+  const b = await readJson(c.req);
+  if (b.rating == null) {
+    await c.env.DB.prepare("DELETE FROM place_reviews WHERE place_id = ? AND user_id = ?").bind(row.id, c.user.id).run();
+  } else {
+    if (typeof b.rating !== "number" || !Number.isInteger(b.rating) || b.rating < 1 || b.rating > 5) throw new HttpError(400, "rating must be 1 to 5");
+    const comment = b.comment == null ? "" : str(b.comment, "comment", 0, 200);
+    await c.env.DB.prepare(
+      "INSERT INTO place_reviews (place_id, couple_id, user_id, rating, comment, updated_at) VALUES (?,?,?,?,?,?) " +
+      "ON CONFLICT(place_id, user_id) DO UPDATE SET rating = excluded.rating, comment = excluded.comment, updated_at = excluded.updated_at"
+    ).bind(row.id, row.couple_id, c.user.id, b.rating, comment, now()).run();
+  }
+  return json((await loadPlaces(c.env, row.couple_id, row.id))[0]);
 }
 
 /** Richer numbers for the Stats screen. `tz` = the phone's UTC offset in minutes so days line up with local midnight. */
@@ -612,7 +838,8 @@ async function statsDetail(c: Ctx): Promise<Response> {
     c.env.DB.prepare(
       "SELECT (SELECT COUNT(*) FROM moods WHERE couple_id = ?1) AS moods, (SELECT COUNT(*) FROM diary WHERE couple_id = ?1) AS diary, " +
       "(SELECT COUNT(*) FROM events WHERE couple_id = ?1 AND kind = 'event') AS events, (SELECT COUNT(*) FROM events WHERE couple_id = ?1 AND kind = 'special') AS specials, " +
-      "(SELECT COUNT(*) FROM diary WHERE couple_id = ?1 AND rating IS NOT NULL) AS rated, (SELECT COUNT(*) FROM diary WHERE couple_id = ?1 AND rating = 5) AS fiveStar"
+      "(SELECT COUNT(*) FROM diary WHERE couple_id = ?1 AND rating IS NOT NULL) AS rated, (SELECT COUNT(*) FROM diary WHERE couple_id = ?1 AND rating = 5) AS fiveStar, " +
+      "(SELECT COUNT(*) FROM places WHERE couple_id = ?1) AS places, (SELECT COUNT(*) FROM place_reviews WHERE couple_id = ?1) AS placeReviews"
     ).bind(coupleId).first<any>(),
   ]);
   // Streaks over the days either of you checked in (mood or diary).
@@ -633,7 +860,7 @@ async function statsDetail(c: Ctx): Promise<Response> {
     moodCounts: moodCounts.results, activityCounts: activityCounts.results, daily: daily.results,
     diaryCounts: diaryCounts.results, photos: photos?.n ?? 0, streak, bestStreak: best, checkInDays: list.length,
     dateTypeCounts: dateTypeCounts.results,
-    totals: { moods: totals?.moods ?? 0, diary: totals?.diary ?? 0, events: totals?.events ?? 0, specials: totals?.specials ?? 0, rated: totals?.rated ?? 0, fiveStar: totals?.fiveStar ?? 0 },
+    totals: { moods: totals?.moods ?? 0, diary: totals?.diary ?? 0, events: totals?.events ?? 0, specials: totals?.specials ?? 0, rated: totals?.rated ?? 0, fiveStar: totals?.fiveStar ?? 0, places: totals?.places ?? 0, placeReviews: totals?.placeReviews ?? 0 },
   });
 }
 
@@ -675,6 +902,241 @@ async function memories(c: Ctx): Promise<Response> {
   });
 }
 
+
+// ------------------------------------------------------------- minigames: turn-based timed matches, high scores, goals
+// A match is N rounds of one game. Every round both players play the SAME seeded, timed run on their own phone, one after the other
+// (the starter goes first in odd rounds, the partner in even rounds). Higher score wins the round; most rounds wins the match.
+const GAMES: Record<string, { max: number }> = {
+  heart: { max: 120 },    // Heart Catch: hearts tapped in 30 s
+  memory: { max: 1500 },  // Memory Match: pairs + time bonus - mistakes
+  math: { max: 1000 },    // Math Sprint: correct answers in 45 s
+  draw: { max: 3000 },    // Quick Draw: reaction speed over 5 tries
+};
+const MATCH_ROUNDS = [1, 3, 5];
+const MAX_ACTIVE_MATCHES = 6;
+const MAX_OPEN_GOALS = 6;
+const GOAL_METRICS = ["wins", "points"];
+
+function matchJson(r: any, scores: any[]) {
+  return {
+    id: r.id, game: r.game, rounds: r.rounds, createdBy: r.created_by, status: r.status, winnerId: r.winner_id ?? null,
+    seed: r.seed, createdAt: r.created_at, finishedAt: r.finished_at ?? 0,
+    scores: scores.filter((s) => s.match_id === r.id).map((s) => ({ round: s.round, userId: s.user_id, score: s.score })),
+  };
+}
+async function loadMatches(env: Env, coupleId: string, onlyId?: string) {
+  const q = onlyId
+    ? env.DB.prepare("SELECT * FROM game_matches WHERE couple_id = ? AND id = ?").bind(coupleId, onlyId)
+    : env.DB.prepare(
+        "SELECT * FROM (SELECT * FROM game_matches WHERE couple_id = ? AND status = 'active' UNION ALL " +
+        "SELECT * FROM (SELECT * FROM game_matches WHERE couple_id = ? AND status = 'done' ORDER BY finished_at DESC LIMIT 20)) ORDER BY created_at DESC"
+      ).bind(coupleId, coupleId);
+  const { results } = await q.all();
+  const rows = results as any[];
+  const scores: any[] = [];
+  for (let i = 0; i < rows.length; i += 50) {
+    const chunk = rows.slice(i, i + 50);
+    const res = await env.DB.prepare(`SELECT * FROM game_scores WHERE match_id IN (${chunk.map(() => "?").join(",")}) ORDER BY round, created_at`).bind(...chunk.map((r) => r.id)).all();
+    scores.push(...(res.results as any[]));
+  }
+  return rows.map((r) => matchJson(r, scores));
+}
+function goalJson(r: any, progress: Record<string, number> | null) {
+  return {
+    id: r.id, title: r.title, metric: r.metric, target: r.target, status: r.status, winnerId: r.winner_id ?? null,
+    createdBy: r.created_by, createdAt: r.created_at, wonAt: r.won_at ?? 0, settledAt: r.settled_at ?? 0, progress: progress ?? {},
+  };
+}
+async function goalProgress(env: Env, coupleId: string, g: any, ids: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const id of ids) out[id] = 0;
+  if (g.metric === "wins") {
+    const { results } = await env.DB.prepare(
+      "SELECT winner_id, COUNT(*) AS n FROM game_matches WHERE couple_id = ? AND status = 'done' AND finished_at >= ? AND winner_id IS NOT NULL GROUP BY winner_id"
+    ).bind(coupleId, g.created_at).all();
+    for (const r of results as any[]) if (r.winner_id in out) out[r.winner_id] = r.n;
+  } else {
+    const { results } = await env.DB.prepare(
+      "SELECT s.user_id, SUM(s.score) AS n FROM game_scores s JOIN game_matches m ON m.id = s.match_id WHERE m.couple_id = ? AND s.created_at >= ? GROUP BY s.user_id"
+    ).bind(coupleId, g.created_at).all();
+    for (const r of results as any[]) if (r.user_id in out) out[r.user_id] = r.n ?? 0;
+  }
+  return out;
+}
+/** Marks goals as won the first time somebody reaches the target (the higher one if both do at once). Safe to call any time. */
+async function resolveGoals(env: Env, coupleId: string, ids: string[]) {
+  const { results } = await env.DB.prepare("SELECT * FROM game_goals WHERE couple_id = ? AND status = 'active'").bind(coupleId).all();
+  const out: Record<string, Record<string, number>> = {};
+  for (const g of results as any[]) {
+    const prog = await goalProgress(env, coupleId, g, ids);
+    out[g.id] = prog;
+    const reached = ids.filter((i) => prog[i] >= g.target).sort((a, b) => prog[b] - prog[a]);
+    if (reached.length === 0) continue;
+    if (reached.length > 1 && prog[reached[0]] === prog[reached[1]]) continue; // dead heat: keep playing
+    await env.DB.prepare("UPDATE game_goals SET status = 'won', winner_id = ?, won_at = ?, result = ? WHERE id = ? AND status = 'active'")
+      .bind(reached[0], now(), JSON.stringify(prog), g.id).run();
+  }
+  return out;
+}
+async function gamesSummary(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const partner = await partnerOf(c.env, c.user);
+  const ids = [c.user.id, ...(partner ? [partner.id] : [])];
+  const live = await resolveGoals(c.env, coupleId, ids);
+  const [matches, goalsRes, scoreAgg, winAgg, order, highs] = await Promise.all([
+    loadMatches(c.env, coupleId),
+    c.env.DB.prepare("SELECT * FROM game_goals WHERE couple_id = ? ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'won' THEN 1 ELSE 2 END, created_at DESC LIMIT 30").bind(coupleId).all(),
+    c.env.DB.prepare(
+      "SELECT m.game AS game, s.user_id AS user_id, MAX(s.score) AS best, COUNT(*) AS plays, SUM(s.score) AS total FROM game_scores s JOIN game_matches m ON m.id = s.match_id " +
+      "WHERE m.couple_id = ? GROUP BY m.game, s.user_id"
+    ).bind(coupleId).all(),
+    c.env.DB.prepare("SELECT game, winner_id, COUNT(*) AS n FROM game_matches WHERE couple_id = ? AND status = 'done' GROUP BY game, winner_id").bind(coupleId).all(),
+    c.env.DB.prepare("SELECT winner_id FROM game_matches WHERE couple_id = ? AND status = 'done' ORDER BY finished_at ASC, rowid ASC LIMIT 1000").bind(coupleId).all(),
+    c.env.DB.prepare(
+      "SELECT m.game AS game, s.user_id AS user_id, s.score AS score, s.created_at AS at FROM game_scores s JOIN game_matches m ON m.id = s.match_id " +
+      "WHERE m.couple_id = ? ORDER BY s.score DESC, s.created_at ASC LIMIT 400"
+    ).bind(coupleId).all(),
+  ]);
+  const goals = [];
+  for (const g of goalsRes.results as any[]) {
+    let prog: Record<string, number> | null = live[g.id] ?? null;
+    if (!prog) { try { prog = g.result ? JSON.parse(g.result) : null; } catch { prog = null; } }
+    goals.push(goalJson(g, prog));
+  }
+  // streaks
+  const streak: Record<string, { cur: number; best: number }> = {};
+  for (const id of ids) streak[id] = { cur: 0, best: 0 };
+  for (const r of order.results as any[]) {
+    for (const id of ids) {
+      if (r.winner_id === id) { streak[id].cur++; streak[id].best = Math.max(streak[id].best, streak[id].cur); }
+      else streak[id].cur = 0;
+    }
+  }
+  const scoreRows = scoreAgg.results as any[];
+  const winRows = winAgg.results as any[];
+  const players = ids.map((id) => ({
+    userId: id,
+    wins: winRows.filter((w) => w.winner_id === id).reduce((a, w) => a + w.n, 0),
+    points: scoreRows.filter((r) => r.user_id === id).reduce((a, r) => a + (r.total ?? 0), 0),
+    rounds: scoreRows.filter((r) => r.user_id === id).reduce((a, r) => a + r.plays, 0),
+    streak: streak[id].cur, bestStreak: streak[id].best,
+  }));
+  const perGameHighs: any[] = [];
+  const counts: Record<string, number> = {};
+  for (const h of highs.results as any[]) {
+    counts[h.game] = (counts[h.game] ?? 0) + 1;
+    if (counts[h.game] <= 5) perGameHighs.push({ game: h.game, userId: h.user_id, score: h.score, at: h.at });
+  }
+  return json({
+    matches, goals,
+    stats: {
+      done: winRows.reduce((a, w) => a + w.n, 0),
+      draws: winRows.filter((w) => w.winner_id == null).reduce((a, w) => a + w.n, 0),
+      tandemScore: players.reduce((a, p) => a + p.points, 0),
+      players,
+      bests: scoreRows.map((r) => ({ game: r.game, userId: r.user_id, best: r.best, plays: r.plays, total: r.total ?? 0 })),
+      gameWins: winRows.map((w) => ({ game: w.game, userId: w.winner_id ?? null, n: w.n })),
+      highs: perGameHighs,
+    },
+  });
+}
+async function matchPost(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  if (!(await partnerOf(c.env, c.user))) throw new HttpError(409, "Connect with your partner first");
+  const b = await readJson(c.req);
+  if (typeof b.game !== "string" || !(b.game in GAMES)) throw new HttpError(400, `game must be one of ${Object.keys(GAMES).join(", ")}`);
+  if (!MATCH_ROUNDS.includes(b.rounds)) throw new HttpError(400, "rounds must be 1, 3 or 5");
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM game_matches WHERE couple_id = ? AND status = 'active'").bind(coupleId).first<{ n: number }>();
+  if ((n?.n ?? 0) >= MAX_ACTIVE_MATCHES) throw new HttpError(409, "You have a lot of unfinished matches. Finish or cancel one first.");
+  const id = uid(), t = now();
+  const seed = crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff;
+  await c.env.DB.prepare("INSERT INTO game_matches (id, couple_id, game, rounds, created_by, status, seed, created_at) VALUES (?,?,?,?,?,'active',?,?)")
+    .bind(id, coupleId, b.game, b.rounds, c.user.id, seed, t).run();
+  return json((await loadMatches(c.env, coupleId, id))[0], 201);
+}
+async function matchScore(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const partner = await partnerOf(c.env, c.user);
+  if (!partner) throw new HttpError(409, "Connect with your partner first");
+  const m = await c.env.DB.prepare("SELECT * FROM game_matches WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<any>();
+  if (!m) throw new HttpError(404, "Match not found");
+  if (m.status !== "active") throw new HttpError(409, "This match is already over");
+  const b = await readJson(c.req);
+  if (!Number.isInteger(b.round) || b.round < 1 || b.round > m.rounds) throw new HttpError(400, "Invalid round");
+  const max = GAMES[m.game].max;
+  if (!Number.isInteger(b.score) || b.score < 0 || b.score > max) throw new HttpError(400, `score must be 0 to ${max}`);
+  const { results } = await c.env.DB.prepare("SELECT * FROM game_scores WHERE match_id = ?").bind(m.id).all();
+  const scores = results as any[];
+  const has = (round: number, user: string) => scores.some((s) => s.round === round && s.user_id === user);
+  if (has(b.round, c.user.id)) throw new HttpError(409, "You already played this round");
+  for (let r = 1; r < b.round; r++) if (!has(r, c.user.id) || !has(r, partner.id)) throw new HttpError(409, "Finish the earlier rounds first");
+  const first = b.round % 2 === 1 ? m.created_by : (m.created_by === c.user.id ? partner.id : c.user.id);
+  if (c.user.id !== first && !has(b.round, first)) throw new HttpError(409, "It's not your turn yet");
+  const t = now();
+  await c.env.DB.prepare("INSERT INTO game_scores (match_id, round, user_id, score, created_at) VALUES (?,?,?,?,?)").bind(m.id, b.round, c.user.id, b.score, t).run();
+  scores.push({ match_id: m.id, round: b.round, user_id: c.user.id, score: b.score, created_at: t });
+  if (scores.length === m.rounds * 2) {
+    const wins: Record<string, number> = { [c.user.id]: 0, [partner.id]: 0 };
+    const total: Record<string, number> = { [c.user.id]: 0, [partner.id]: 0 };
+    for (let r = 1; r <= m.rounds; r++) {
+      const a = scores.find((s) => s.round === r && s.user_id === c.user.id)!.score;
+      const o = scores.find((s) => s.round === r && s.user_id === partner.id)!.score;
+      total[c.user.id] += a; total[partner.id] += o;
+      if (a > o) wins[c.user.id]++; else if (o > a) wins[partner.id]++;
+    }
+    let winner: string | null = null;
+    if (wins[c.user.id] !== wins[partner.id]) winner = wins[c.user.id] > wins[partner.id] ? c.user.id : partner.id;
+    else if (total[c.user.id] !== total[partner.id]) winner = total[c.user.id] > total[partner.id] ? c.user.id : partner.id;
+    await c.env.DB.prepare("UPDATE game_matches SET status = 'done', winner_id = ?, finished_at = ? WHERE id = ?").bind(winner, t, m.id).run();
+  }
+  await resolveGoals(c.env, coupleId, [c.user.id, partner.id]);
+  return json((await loadMatches(c.env, coupleId, m.id))[0]);
+}
+async function matchDelete(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const m = await c.env.DB.prepare("SELECT status FROM game_matches WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<any>();
+  if (!m) throw new HttpError(404, "Match not found");
+  if (m.status !== "active") throw new HttpError(409, "Finished matches stay in your history");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM game_scores WHERE match_id = ?").bind(c.params[0]),
+    c.env.DB.prepare("DELETE FROM game_matches WHERE id = ?").bind(c.params[0]),
+  ]);
+  return json({ ok: true });
+}
+async function goalPost(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  if (!(await partnerOf(c.env, c.user))) throw new HttpError(409, "Connect with your partner first");
+  const b = await readJson(c.req);
+  const title = str(b.title, "title", 1, 60);
+  if (typeof b.metric !== "string" || !GOAL_METRICS.includes(b.metric)) throw new HttpError(400, "metric must be wins or points");
+  const [lo, hi] = b.metric === "wins" ? [1, 50] : [100, 100000];
+  if (!Number.isInteger(b.target) || b.target < lo || b.target > hi) throw new HttpError(400, `target must be ${lo} to ${hi}`);
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM game_goals WHERE couple_id = ? AND status IN ('active','won')").bind(coupleId).first<{ n: number }>();
+  if ((n?.n ?? 0) >= MAX_OPEN_GOALS) throw new HttpError(409, "Too many open goals. Settle or delete one first.");
+  const id = uid();
+  await c.env.DB.prepare("INSERT INTO game_goals (id, couple_id, created_by, title, metric, target, status, created_at) VALUES (?,?,?,?,?,?,'active',?)")
+    .bind(id, coupleId, c.user.id, title, b.metric, b.target, now()).run();
+  const row = await c.env.DB.prepare("SELECT * FROM game_goals WHERE id = ?").bind(id).first<any>();
+  return json(goalJson(row, {}), 201);
+}
+/** "Paid up!": the goal was won and the loser has delivered the lunch. */
+async function goalSettle(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const g = await c.env.DB.prepare("SELECT * FROM game_goals WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<any>();
+  if (!g) throw new HttpError(404, "Goal not found");
+  if (g.status !== "won") throw new HttpError(409, "This goal hasn't been won yet");
+  await c.env.DB.prepare("UPDATE game_goals SET status = 'settled', settled_at = ? WHERE id = ?").bind(now(), g.id).run();
+  const row = await c.env.DB.prepare("SELECT * FROM game_goals WHERE id = ?").bind(g.id).first<any>();
+  let prog = null; try { prog = row.result ? JSON.parse(row.result) : null; } catch { /* ignore */ }
+  return json(goalJson(row, prog));
+}
+async function goalDelete(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const r = await c.env.DB.prepare("DELETE FROM game_goals WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).run();
+  if (!r.meta.changes) throw new HttpError(404, "Goal not found");
+  return json({ ok: true });
+}
+
 /** Erases the caller's own data and account. The partner (if any) is unpaired and keeps their own data. */
 async function accountDelete(c: Ctx): Promise<Response> {
   const b = await readJson(c.req);
@@ -692,8 +1154,10 @@ async function accountDelete(c: Ctx): Promise<Response> {
     );
   }
   stmts.push(
+    c.env.DB.prepare("DELETE FROM reactions WHERE user_id = ? OR (target_type = 'diary' AND target_id IN (SELECT id FROM diary WHERE user_id = ?)) OR (target_type = 'mood' AND target_id IN (SELECT id FROM moods WHERE user_id = ?))").bind(id, id, id),
     c.env.DB.prepare("DELETE FROM diary_images WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM diary WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM game_scores WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM moods WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM events WHERE created_by = ?").bind(id),
     c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(id),
@@ -711,6 +1175,7 @@ const route = (method: string, path: string, h: Handler) =>
 route("GET", "/me", async (c) => json({ user: publicUser(c.user), couple: await coupleInfo(c.env, c.user) }));
 route("PATCH", "/me", profileUpdate);
 route("DELETE", "/me", accountDelete);
+route("PUT", "/me/profile", profilePut);
 route("PUT", "/me/avatar", avatarPut);
 route("GET", "/avatar/:id", avatarGet);
 route("POST", "/couple", coupleCreate);
@@ -733,6 +1198,20 @@ route("DELETE", "/events/:id", eventDelete);
 route("GET", "/sync", sync);
 route("GET", "/stats", statsDetail);
 route("GET", "/memories", memories);
+route("GET", "/places", placesList);
+route("POST", "/places", placePost);
+route("PUT", "/places/:id", placePut);
+route("DELETE", "/places/:id", placeDelete);
+route("POST", "/places/:id/visit", placeVisit);
+route("PUT", "/places/:id/review", placeReview);
+route("PUT", "/reactions", reactionPut);
+route("GET", "/games", gamesSummary);
+route("POST", "/games/matches", matchPost);
+route("PUT", "/games/matches/:id/score", matchScore);
+route("DELETE", "/games/matches/:id", matchDelete);
+route("POST", "/games/goals", goalPost);
+route("PUT", "/games/goals/:id/settle", goalSettle);
+route("DELETE", "/games/goals/:id", goalDelete);
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
