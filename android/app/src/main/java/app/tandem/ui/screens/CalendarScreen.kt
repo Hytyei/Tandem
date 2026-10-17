@@ -61,7 +61,10 @@ fun CalendarScreen(vm: AppViewModel) {
     var direction by remember { mutableIntStateOf(1) }
     var editing by remember { mutableStateOf<CalendarEvent?>(null) }
     var creating by rememberSaveable { mutableStateOf(false) }
-    var mode by rememberSaveable { mutableIntStateOf(0) }            // 0 = calendar, 1 = special days, 2 = memories
+    var mode by rememberSaveable { mutableIntStateOf(0) }            // 0 = calendar, 1 = special days, 2 = memories, 3 = notes
+    var noteKind by rememberSaveable { mutableStateOf<String?>(null) }   // set while the "new note / checklist" sheet is open
+    var editingNote by remember { mutableStateOf<Note?>(null) }
+    LaunchedEffect(mode) { if (mode == 3) vm.loadNotes() }
     var preset by rememberSaveable { mutableStateOf<String?>(null) } // special-day category chosen from the chips
 
     val ym = YearMonth.parse(month)
@@ -78,16 +81,19 @@ fun CalendarScreen(vm: AppViewModel) {
                 when (mode) {
                     0 -> LargeTitle("Calendar", subtitle = "Our moments")
                     1 -> LargeTitle("Special days", subtitle = "Dates worth celebrating")
+                    3 -> LargeTitle("Notes", subtitle = "Lists and thoughts, shared")
                     else -> LargeTitle("Memories", subtitle = "Remember when")
                 }
             }
             item {
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
-                    Segmented(listOf("Calendar", "Special days", "Memories"), mode, { mode = it })
+                    Segmented(listOf("Calendar", "Special", "Memories", "Notes"), mode, { mode = it })
                 }
             }
 
-            if (mode == 2) {
+            if (mode == 3) {
+                notesSection(vm, data, onNew = { noteKind = it }, onOpen = { editingNote = it })
+            } else if (mode == 2) {
                 memoriesSection(memories, c, data, onAddNote = { mode = 0 })
             } else if (mode == 1) {
                 specialDaysSection(
@@ -177,6 +183,8 @@ fun CalendarScreen(vm: AppViewModel) {
 
     if (creating) EventSheet(vm, null, selDate, special = preset, onDismiss = { creating = false; preset = null })
     editing?.let { EventSheet(vm, it, selDate, special = if (it.isSpecial) (it.category ?: "custom") else null, onDismiss = { editing = null }) }
+    noteKind?.let { NoteSheet(vm, null, it, onDismiss = { noteKind = null }) }
+    editingNote?.let { NoteSheet(vm, it, it.kind, onDismiss = { editingNote = null }) }
 }
 
 @Composable

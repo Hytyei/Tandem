@@ -149,6 +149,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         repo.saveEvent(null, EventBody("$name's birthday", SpecialCategory.Birthday.emoji, date, null, true, "", kind = "special", category = SpecialCategory.Birthday.key))
         toast("Added to your calendar")
     }
+    /** Poster / cover search for the "right now" fields. Throws AppException with a friendly message. */
+    suspend fun lookupMedia(kind: String, query: String): List<MediaInfo> = repo.lookupMedia(kind, query)
 
     // ---- places (Heatmap)
     var places by mutableStateOf<List<Place>?>(null); private set
@@ -164,6 +166,79 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun reviewPlace(id: String, rating: Int?, comment: String, done: () -> Unit) = busyRun(done) { replace(repo.reviewPlace(id, rating, comment)) }
     fun deletePlace(id: String, done: () -> Unit) = busyRun(done) { repo.deletePlace(id); places = places.orEmpty().filter { it.id != id } }
     suspend fun searchPlaces(q: String): List<GeoResult> = repo.searchPlaces(q)
+    fun addPlaceImages(placeId: String, uris: List<Uri>) = busyRun {
+        val failed = repo.addPlaceImages(placeId, uris)
+        places = repo.places()
+        if (failed > 0) toast(if (failed == 1) "One picture couldn't be uploaded" else "$failed pictures couldn't be uploaded")
+    }
+    fun deletePlaceImage(id: String) = busyRun { repo.deletePlaceImage(id); places = repo.places() }
+
+    // ---- saved addresses (home etc.)
+    var addresses by mutableStateOf<List<SavedAddress>?>(null); private set
+    fun loadAddresses() {
+        viewModelScope.launch { try { addresses = repo.addresses() } catch (e: AppException) { if (addresses == null) toast(e.message ?: "Couldn't load addresses") } }
+    }
+    fun saveAddress(existingId: String?, b: AddressBody, done: () -> Unit) = busyRun(done) {
+        repo.saveAddress(existingId, b); addresses = repo.addresses()
+    }
+    fun deleteAddress(id: String) = busyRun { repo.deleteAddress(id); addresses = addresses.orEmpty().filter { it.id != id } }
+
+    // ---- shared notes + checklists
+    var notes by mutableStateOf<List<Note>?>(null); private set
+    fun loadNotes() {
+        viewModelScope.launch { try { notes = repo.notes() } catch (e: AppException) { if (notes == null) toast(e.message ?: "Couldn't load notes") } }
+    }
+    private fun putNote(n: Note) {
+        val l = notes.orEmpty()
+        notes = (if (l.any { it.id == n.id }) l.map { if (it.id == n.id) n else it } else listOf(n) + l).sortedWith(compareByDescending<Note> { it.pinned }.thenByDescending { it.updatedAt })
+    }
+    fun saveNote(existingId: String?, b: NoteBody, done: () -> Unit) = busyRun(done) { putNote(repo.saveNote(existingId, b)) }
+    fun deleteNote(id: String) = busyRun { repo.deleteNote(id); notes = notes.orEmpty().filter { it.id != id } }
+    /** Ticks / unticks right away (optimistic) and settles with the server's answer; a failure puts it back. */
+    fun setItemDone(note: Note, item: NoteItem, done: Boolean) {
+        putNote(note.copy(items = note.items.map { if (it.id == item.id) it.copy(done = done, doneBy = if (done) state.value?.me?.id else null) else it }))
+        viewModelScope.launch {
+            try { putNote(repo.setItemDone(item.id, done)) } catch (e: AppException) { putNote(note); toast(e.message ?: "Couldn't update the list") }
+        }
+    }
+    fun addNoteItem(noteId: String, text: String) {
+        if (text.isBlank()) return
+        viewModelScope.launch { try { putNote(repo.addNoteItem(noteId, text)) } catch (e: AppException) { toast(e.message ?: "Couldn't add the item") } }
+    }
+    fun editNoteItem(itemId: String, text: String) {
+        if (text.isBlank()) return
+        viewModelScope.launch { try { putNote(repo.setItemText(itemId, text)) } catch (e: AppException) { toast(e.message ?: "Couldn't change the item") } }
+    }
+    fun deleteNoteItem(itemId: String) {
+        viewModelScope.launch { try { putNote(repo.deleteNoteItem(itemId)) } catch (e: AppException) { toast(e.message ?: "Couldn't remove the item") } }
+    }
+
+    // ---- live-tracked dates
+    var trips by mutableStateOf<TripsResponse?>(null); private set
+    var tripDetail by mutableStateOf<TripDetail?>(null); private set
+    fun loadTrips() {
+        viewModelScope.launch { try { trips = repo.trips() } catch (e: AppException) { if (trips == null) toast(e.message ?: "Couldn't load trips") } }
+    }
+    fun openTrip(id: String) {
+        viewModelScope.launch { try { tripDetail = repo.tripDetail(id) } catch (e: AppException) { toast(e.message ?: "Couldn't load that trip") } }
+    }
+    fun closeTrip() { tripDetail = null }
+    fun startTrip(title: String, done: (Trip) -> Unit) {
+        viewModelScope.launch {
+            busy = true
+            try { val t = repo.startTrip(title); loadTrips(); done(t) } catch (e: AppException) { toast(e.message ?: "Couldn't start the date") } finally { busy = false }
+        }
+    }
+    fun joinTrip(id: String, done: (Trip) -> Unit) {
+        viewModelScope.launch {
+            busy = true
+            try { val t = repo.joinTrip(id); loadTrips(); done(t) } catch (e: AppException) { toast(e.message ?: "Couldn't join the date") } finally { busy = false }
+        }
+    }
+    fun leaveTrip(id: String) = busyRun { repo.leaveTrip(id); loadTrips() }
+    fun endTrip(id: String, done: () -> Unit = {}) = busyRun(done) { repo.endTrip(id); loadTrips() }
+    fun renameTrip(id: String, title: String) = busyRun { repo.renameTrip(id, title); loadTrips(); tripDetail = tripDetail?.let { d -> if (d.trip.id == id) repo.tripDetail(id) else d } }
+    fun deleteTrip(id: String) = busyRun { repo.deleteTrip(id); tripDetail = null; loadTrips() }
 
     // ---- reactions
     /** Reacts to a partner's post. No busy spinner: the sync that follows brings the new chip. */
@@ -278,6 +353,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             state.map { it?.couple?.partner?.id }.distinctUntilChanged().collect {
                 places = null; memories = null; stats = null; games = null
+                addresses = null; notes = null; trips = null; tripDetail = null
             }
         }
     }

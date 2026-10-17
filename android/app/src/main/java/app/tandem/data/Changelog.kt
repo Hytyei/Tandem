@@ -5,6 +5,24 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.3.0", title = "Update 4 · Live dates, notes & brain teasers", date = "2026-10-17",
+        items = listOf(
+            "Heatmap: with the heat overlay on, the map turns into a quiet, label-free city so the glow is what you see. The overlay is stronger and warmer where you go most.",
+            "Places remember how many times you've been before: enter a number when adding or editing.",
+            "Add pictures to any place, and see them in its details.",
+            "Saved addresses: pin your home (and your partner's) on the map, so you always know where it is.",
+            "Live dates: start a tracked date together, and Tandem records where you went. Afterwards see the route, distance and time, plus your totals. Location is only used while a date is live, and you can stop at any time.",
+            "Now watching, playing, listening or reading can be looked up: pick a poster/cover and a short description (for example Cyberpunk 2077) and it appears on your page.",
+            "Your birthday is added to the calendar automatically as a birthday occasion.",
+            "Mood sharing: pick what you're doing first (required), and the long left-to-right scrolling is gone.",
+            "Today: the constellation fills the top of the screen, mood shares come next, then \"about your partner\" with their meters and current activities.",
+            "Calendar: a new Notes tab with shared notes and checklists you can both tick off.",
+            "Four new brain teasers: Next Number, Code Breaker, Lights Out and Slide Puzzle.",
+            "The bottom tab bar has new icons.",
+            "The server address is no longer shown in Profile.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.2.0", title = "Update 3 · Heatmap, minigames & reactions", date = "2026-10-14",
         items = listOf(
             "New Heatmap tab: pin the places you've been to and watch a glowing heatmap of your adventures grow.",

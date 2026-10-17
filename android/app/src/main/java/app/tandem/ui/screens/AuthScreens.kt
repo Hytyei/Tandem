@@ -3,6 +3,8 @@ package app.tandem.ui.screens
 import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.Intent
 import androidx.compose.animation.*
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -89,7 +91,8 @@ fun AuthScreen(vm: AppViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(48.dp))
-            AppLogo(120.dp, Modifier.scale(pop).offset(y = float.dp))
+            // The server address is not something people need to see. Long-press the logo to reveal it (for self-hosters).
+            AppLogo(120.dp, Modifier.scale(pop).offset(y = float.dp).pointerInput(Unit) { detectTapGestures(onLongPress = { showServer = !showServer }) })
             Spacer(Modifier.height(16.dp))
             Text("Tandem", style = Type.largeTitle.copy(fontSize = 40.sp), color = c.label)
             Text("A little space for the two of you", style = Type.callout, color = c.secondary)
@@ -120,13 +123,9 @@ fun AuthScreen(vm: AppViewModel) {
             )
 
             Spacer(Modifier.height(20.dp))
-            Text(
-                if (showServer) "Hide server settings" else "Server settings",
-                style = Type.footnote, color = c.secondary,
-                modifier = Modifier.pressable(haptic = false) { showServer = !showServer }.padding(8.dp),
-            )
             AnimatedVisibility(showServer) {
                 Column {
+                    Text("Server address", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(bottom = 6.dp))
                     IosField(server, { server = it }, "https://your-worker.workers.dev", keyboard = KeyboardType.Uri)
                     Spacer(Modifier.height(8.dp))
                     SoftButton("Save server address", onClick = { vm.setServer(server) { vm.toast("Server address saved") } })

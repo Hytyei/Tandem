@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropFree
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -70,8 +71,13 @@ fun HeatmapScreen(vm: AppViewModel) {
     var editing by remember { mutableStateOf<Place?>(null) }
     var detailId by remember { mutableStateOf<String?>(null) }
     var fitted by remember { mutableStateOf(false) }
+    var selectedAddrId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAddresses by remember { mutableStateOf(false) }
+    val tripActions = rememberTripActions(vm)
+    val addresses = vm.addresses.orEmpty()
+    val selectedAddr = addresses.firstOrNull { it.id == selectedAddrId }
 
-    LaunchedEffect(Unit) { vm.loadPlaces() }
+    LaunchedEffect(Unit) { vm.loadPlaces(); vm.loadAddresses(); vm.loadTrips() }
     LaunchedEffect(places) {
         if (!fitted && places != null) {
             fitted = true
@@ -118,6 +124,7 @@ fun HeatmapScreen(vm: AppViewModel) {
                     places = list, camera = camera, modifier = Modifier.fillMaxSize(), selectedId = selectedId, heat = heat,
                     pending = addAt.takeIf { showAdd },
                     onSelect = { selectedId = it },
+                    addresses = addresses, meId = me.id, selectedAddressId = selectedAddrId, onSelectAddress = { selectedAddrId = it },
                     onLongPress = { lat, lon -> addAt = lat to lon; editing = null; showAdd = true },
                 )
                 // controls
@@ -126,6 +133,7 @@ fun HeatmapScreen(vm: AppViewModel) {
                     MapButton(Icons.Filled.Remove, "Zoom out") { scope.launch { camera.zoomBy(-1.0) } }
                     MapButton(Icons.Filled.CropFree, "Show all places") { scope.launch { if (list.isNotEmpty()) camera.fit(list) } }
                     MapButton(Icons.Filled.MyLocation, "My location") { locateWithPermission() }
+                    MapButton(Icons.Filled.Home, "Saved addresses") { showAddresses = true }
                     MapButton(Icons.Filled.Whatshot, "Heat", on = heat) { heat = !heat }
                 }
                 if (places != null && list.isEmpty()) Text(
@@ -134,6 +142,27 @@ fun HeatmapScreen(vm: AppViewModel) {
                     modifier = Modifier.align(Alignment.Center).padding(horizontal = 40.dp).clip(RoundedCornerShape(16.dp)).background(c.sheet.copy(alpha = .85f)).padding(14.dp),
                 )
                 if (places == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = c.accent)
+                // selected address
+                if (selectedAddr != null && selected == null) {
+                    val mineAddr = selectedAddr.userId == me.id
+                    Row(
+                        Modifier.align(Alignment.BottomCenter).padding(start = 10.dp, end = 10.dp, bottom = 26.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                            .background(c.sheet.copy(alpha = .96f)).pressable { showAddresses = true }.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background((if (mineAddr) c.me else c.partner).copy(alpha = .3f)), contentAlignment = Alignment.Center) {
+                            Text(AddressKind.from(selectedAddr.kind).emoji, fontSize = 21.sp)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(selectedAddr.label, style = Type.headline, color = c.label, maxLines = 1)
+                            Text((if (mineAddr) "Yours" else "$pName's") + if (selectedAddr.address.isNotBlank()) " · ${selectedAddr.address}" else "", style = Type.caption, color = c.secondary, maxLines = 1)
+                        }
+                        Box(Modifier.size(28.dp).pressable(haptic = false) { selectedAddrId = null }, contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.Close, "Close", tint = c.secondary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
                 // selected place
                 if (selected != null) {
                     val cat = PlaceCategory.from(selected.category)
@@ -171,6 +200,9 @@ fun HeatmapScreen(vm: AppViewModel) {
             }
         }
 
+        // ---------- live-tracked dates
+        item { TripsCard(vm, tripActions) { t -> vm.openTrip(t.id) } }
+
         // ---------- lists
         if (list.isNotEmpty()) {
             item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { Segmented(listOf("By category", "Top rated"), listMode, { listMode = it }) } }
@@ -206,6 +238,11 @@ fun HeatmapScreen(vm: AppViewModel) {
         onDismiss = { showAdd = false; addAt = null; editing = null },
         onSaved = { lat, lon -> scope.launch { camera.animateTo(lat, lon, 15.0) } },
     )
+    if (showAddresses) AddressesSheet(
+        vm, mapCenter = camera.lat() to camera.lon(), onDismiss = { showAddresses = false },
+        onShow = { a -> showAddresses = false; selectedAddrId = a.id; selectedId = null; scope.launch { camera.animateTo(a.lat, a.lon, 16.0) } },
+    )
+    if (vm.tripDetail != null) TripDetailSheet(vm, onDismiss = { vm.closeTrip() })
     detailId?.let { id ->
         PlaceSheet(
             vm, id, onDismiss = { detailId = null },
@@ -289,6 +326,7 @@ private fun AddPlaceSheet(
     var category by remember { mutableStateOf(if (editing != null) PlaceCategory.from(editing.category) else PlaceCategory.Restaurant) }
     var loc by remember { mutableStateOf(editing?.let { it.lat to it.lon } ?: initial) }
     var note by remember { mutableStateOf(editing?.note ?: "") }
+    var visitsText by remember { mutableStateOf((editing?.visits ?: 1).toString()) }
     var date by remember { mutableStateOf(LocalDate.now()) }
     var pickDate by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -385,6 +423,14 @@ private fun AddPlaceSheet(
             Spacer(Modifier.height(14.dp))
             OutlinedTextField(note, { if (it.length <= 200) note = it }, label = { Text("A note (optional)") }, maxLines = 3, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(), colors = fieldColors)
 
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                visitsText, { v -> if (v.length <= 3 && v.all { it.isDigit() }) visitsText = v },
+                label = { Text(if (editing == null) "Times you've been here (including before)" else "Times visited") },
+                supportingText = { Text("Enter a number, 1 to 999") },
+                singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(), colors = fieldColors,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+            )
             if (editing == null) {
                 Spacer(Modifier.height(12.dp))
                 Row(
@@ -392,7 +438,7 @@ private fun AddPlaceSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("When did you go?", style = Type.footnote, color = c.secondary)
+                        Text("When was the latest time?", style = Type.footnote, color = c.secondary)
                         Text(if (date == LocalDate.now()) "Today" else date.format(DateTimeFormatter.ofPattern("d MMMM yyyy")), style = Type.body, color = c.label)
                     }
                     Text("Change", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
@@ -404,7 +450,8 @@ private fun AddPlaceSheet(
                 enabled = name.isNotBlank() && loc != null, loading = vm.busy,
                 onClick = {
                     val l = loc ?: return@PrimaryButton
-                    val body = PlaceBody(name.trim(), category.key, l.first, l.second, note.trim(), if (editing == null) date.toString() else null)
+                    val visits = (visitsText.toIntOrNull() ?: 1).coerceIn(1, 999)
+                    val body = PlaceBody(name.trim(), category.key, l.first, l.second, note.trim(), if (editing == null) date.toString() else null, visits)
                     if (editing != null) vm.editPlace(editing.id, body) { onSaved(l.first, l.second); onDismiss() }
                     else vm.addPlace(body) { onSaved(l.first, l.second); onDismiss() }
                 },
@@ -479,6 +526,8 @@ private fun PlaceSheet(vm: AppViewModel, placeId: String, onDismiss: () -> Unit,
                 SoftButton("We went again", onClick = { vm.visitPlace(place.id) })
             }
             if (place.note.isNotBlank()) Text("“${place.note}”", style = Type.callout, color = c.label, modifier = Modifier.padding(top = 10.dp))
+
+            PlacePhotosSection(vm, place)
 
             // ----- reviews
             SectionTitle("Your review")

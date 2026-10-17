@@ -143,6 +143,8 @@ fun GamesScreen(vm: AppViewModel) {
             1 -> {
                 items(MiniGame.entries.size) { i ->
                     val game = MiniGame.entries[i]
+                    Column {
+                    if (i == 0 || MiniGame.entries[i - 1].brain != game.brain) SectionHeader(if (game.brain) "Brain teasers" else "Quick reflexes")
                     val mine = stats.bests.firstOrNull { it.game == game.key && it.userId == me.id }
                     val theirs = stats.bests.firstOrNull { it.game == game.key && it.userId == partner.id }
                     val highs = stats.highs.filter { it.game == game.key }
@@ -176,6 +178,7 @@ fun GamesScreen(vm: AppViewModel) {
                                 }
                             }
                         } else Text("Not played yet", style = Type.footnote, color = c.tertiary, modifier = Modifier.padding(top = 10.dp))
+                    }
                     }
                 }
             }
@@ -411,6 +414,8 @@ private fun NewMatchSheet(vm: AppViewModel, onDismiss: () -> Unit, onStarted: (M
             Text("New match", style = Type.title, color = c.label)
             Text("You each play the same timed round, one after the other. Higher score wins the round.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
             MiniGame.entries.forEach { gm ->
+                if (gm == MiniGame.entries.first() || gm == MiniGame.entries.first { it.brain })
+                    Text(if (gm.brain) "BRAIN TEASERS" else "QUICK REFLEXES", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
                 val on = gm == game
                 val shape = RoundedCornerShape(20.dp)
                 Row(

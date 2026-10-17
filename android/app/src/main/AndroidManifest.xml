@@ -5,9 +5,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- Only used when you tap "Use my location" while adding a place on the Heatmap. -->
+    <!-- Location is only used (a) when you tap "Use my location" on the Heatmap and (b) while YOU have started or joined a
+         live-tracked date. That recording runs as a visible foreground service with a notification you can stop at any time. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
@@ -49,6 +52,9 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_event" />
         </receiver>
+
+        <!-- Live-tracked dates: only runs after you start or join one, with a persistent notification -->
+        <service android:name=".work.TrackingService" android:exported="false" android:foregroundServiceType="location" />
 
         <!-- Reminders -->
         <receiver android:name=".work.ReminderReceiver" android:exported="false" />

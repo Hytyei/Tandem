@@ -192,7 +192,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(label, style = Type.callout.copy(fontWeight = if (i == selected) FontWeight.SemiBold else FontWeight.Medium),
-                        color = if (i == selected) c.label else c.secondary)
+                        color = if (i == selected) c.label else c.secondary, maxLines = 1, softWrap = false)
                 }
             }
         }

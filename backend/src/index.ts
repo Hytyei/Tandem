@@ -149,6 +149,27 @@ const optStr = (v: unknown, field: string, max: number): string => {
   if (t.length > max) throw new HttpError(400, `${field} must be at most ${max} characters`);
   return t;
 };
+// Poster / cover lookups happen on the phone (Wikipedia, iTunes, Open Library). Only these image hosts are accepted back.
+const MEDIA_KINDS = ["watching", "playing", "listening", "reading"];
+const MEDIA_HOSTS = [/^upload\.wikimedia\.org$/, /^is\d*-ssl\.mzstatic\.com$/, /^is\d*\.mzstatic\.com$/, /^covers\.openlibrary\.org$/];
+function cleanMedia(raw: unknown, p: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const k of MEDIA_KINDS) {
+    const m = (raw as any)[k];
+    if (!m || typeof m !== "object" || !p[k]) continue;   // info only lives next to a title
+    let img = "";
+    if (typeof m.img === "string" && m.img.length <= 400) {
+      try {
+        const u = new URL(m.img);
+        if (u.protocol === "https:" && MEDIA_HOSTS.some((re) => re.test(u.hostname))) img = u.toString();
+      } catch { /* not a URL: ignore */ }
+    }
+    const src = ["wikipedia", "itunes", "openlibrary"].includes(m.src) ? m.src : "";
+    out[k] = { title: optStr(m.title, "media title", 80), blurb: optStr(m.blurb, "media blurb", 260), sub: optStr(m.sub, "media sub", 80), img, src };
+  }
+  return out;
+}
 /** Validates the "my page" form and returns the JSON that gets stored. Only known keys survive. */
 function cleanProfile(b: any, prevRaw: string | null | undefined): Record<string, unknown> {
   let prev: any = {};
@@ -177,6 +198,7 @@ function cleanProfile(b: any, prevRaw: string | null | undefined): Record<string
     listening: optStr(b.listening, "listening", 60), reading: optStr(b.reading, "reading", 60),
     meters,
   };
+  p.media = cleanMedia(b.media, p);
   const nowChanged = ["watching", "playing", "listening", "reading"].some((k) => (prev[k] ?? "") !== p[k]);
   p.nowAt = nowChanged ? now() : (prev.nowAt ?? 0);
   const metersChanged = JSON.stringify(prev.meters ?? {}) !== JSON.stringify(meters);
@@ -674,7 +696,7 @@ async function sync(c: Ctx): Promise<Response> {
   const user = c.user;
   const info = await coupleInfo(c.env, user);
   const base = { serverTime: now(), me: publicUser(user), couple: info };
-  if (!user.couple_id) return json({ ...base, moods: [], latestMoods: {}, diary: [], events: [], stats: null });
+  if (!user.couple_id) return json({ ...base, moods: [], latestMoods: {}, diary: [], events: [], stats: null, trip: null });
 
   const coupleId = user.couple_id;
   const [moods, diary, events, stats, latest] = await Promise.all([
@@ -701,19 +723,20 @@ async function sync(c: Ctx): Promise<Response> {
     diary: await withImages(c.env, diary.results as any[]),
     events: events.results.map(eventJson),
     stats,
+    trip: await activeTrip(c.env, coupleId),
   });
 }
 
 // ------------------------------------------------------------- places (heatmap) + reviews
 const PLACE_CATEGORIES = ["restaurant", "takeout", "entertainment", "nature", "culture", "shopping", "nightlife", "stay", "sights", "special", "other"];
 const MAX_PLACES = 300;
-function placeJson(r: any, reviews: any[]) {
+function placeJson(r: any, reviews: any[], images: string[] = []) {
   const rs = reviews.map((x) => ({ userId: x.user_id, rating: x.rating, comment: x.comment, updatedAt: x.updated_at }));
   const avg = rs.length ? Math.round((rs.reduce((a, x) => a + x.rating, 0) / rs.length) * 100) / 100 : null;
   return {
     id: r.id, createdBy: r.created_by, name: r.name, category: r.category, lat: r.lat, lon: r.lon, note: r.note,
     visits: r.visits, firstVisited: r.first_visited ?? null, lastVisited: r.last_visited ?? null,
-    createdAt: r.created_at, updatedAt: r.updated_at ?? 0, reviews: rs, avg, count: rs.length,
+    createdAt: r.created_at, updatedAt: r.updated_at ?? 0, reviews: rs, avg, count: rs.length, images,
   };
 }
 async function loadPlaces(env: Env, coupleId: string, onlyId?: string) {
@@ -723,9 +746,14 @@ async function loadPlaces(env: Env, coupleId: string, onlyId?: string) {
   const rev = onlyId
     ? await env.DB.prepare("SELECT * FROM place_reviews WHERE couple_id = ? AND place_id = ? ORDER BY updated_at").bind(coupleId, onlyId).all()
     : await env.DB.prepare("SELECT * FROM place_reviews WHERE couple_id = ? ORDER BY updated_at").bind(coupleId).all();
+  const img = onlyId
+    ? await env.DB.prepare("SELECT id, place_id FROM place_images WHERE couple_id = ? AND place_id = ? ORDER BY created_at, rowid").bind(coupleId, onlyId).all()
+    : await env.DB.prepare("SELECT id, place_id FROM place_images WHERE couple_id = ? ORDER BY created_at, rowid").bind(coupleId).all();
   const by: Record<string, any[]> = {};
   for (const r of rev.results as any[]) (by[r.place_id] ??= []).push(r);
-  return (places.results as any[]).map((p) => placeJson(p, by[p.id] ?? []));
+  const imgs: Record<string, string[]> = {};
+  for (const r of img.results as any[]) (imgs[r.place_id] ??= []).push(r.id);
+  return (places.results as any[]).map((p) => placeJson(p, by[p.id] ?? [], imgs[p.id] ?? []));
 }
 function readPlace(b: any, partial: boolean) {
   const out: Record<string, any> = {};
@@ -751,9 +779,14 @@ async function placePost(c: Ctx): Promise<Response> {
   const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM places WHERE couple_id = ?").bind(coupleId).first<{ n: number }>();
   if ((n?.n ?? 0) >= MAX_PLACES) throw new HttpError(409, "Too many places. Delete some old ones first.");
   const id = uid(), t = now(), day = dayOrToday(b.visitDate);
+  let visits = 1;   // "times visited so far" (including places you went to long before using the app)
+  if (b.visits !== undefined && b.visits !== null) {
+    if (!Number.isInteger(b.visits) || b.visits < 1 || b.visits > 999) throw new HttpError(400, "visits must be 1 to 999");
+    visits = b.visits;
+  }
   await c.env.DB.prepare(
     "INSERT INTO places (id, couple_id, created_by, name, category, lat, lon, note, visits, first_visited, last_visited, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
-  ).bind(id, coupleId, c.user.id, p.name, p.category, p.lat, p.lon, p.note, 1, day, day, t, t).run();
+  ).bind(id, coupleId, c.user.id, p.name, p.category, p.lat, p.lon, p.note, visits, day, day, t, t).run();
   return json((await loadPlaces(c.env, coupleId, id))[0], 201);
 }
 async function placeOwned(c: Ctx): Promise<any> {
@@ -790,6 +823,7 @@ async function placeDelete(c: Ctx): Promise<Response> {
   const row = await placeOwned(c);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM place_reviews WHERE place_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM place_images WHERE place_id = ?").bind(row.id),
     c.env.DB.prepare("UPDATE diary SET place_id = NULL WHERE place_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM places WHERE id = ?").bind(row.id),
   ]);
@@ -810,6 +844,380 @@ async function placeReview(c: Ctx): Promise<Response> {
     ).bind(row.id, row.couple_id, c.user.id, b.rating, comment, now()).run();
   }
   return json((await loadPlaces(c.env, row.couple_id, row.id))[0]);
+}
+
+// ------------------------------------------------------------- place pictures
+const MAX_IMAGES_PER_PLACE = 6;
+const MAX_PLACE_IMAGES_PER_COUPLE = 150;
+async function readJpeg(c: Ctx): Promise<ArrayBuffer> {
+  const len = parseInt(c.req.headers.get("content-length") ?? "0", 10);
+  if (len > MAX_IMAGE_BYTES) throw new HttpError(413, "Picture is too large");
+  const buf = await c.req.arrayBuffer();
+  if (buf.byteLength < 200 || buf.byteLength > MAX_IMAGE_BYTES) throw new HttpError(413, "Picture must be under 450 KB (the app resizes it for you)");
+  const h = new Uint8Array(buf.slice(0, 3));
+  if (!(h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff)) throw new HttpError(415, "Pictures must be JPEG");
+  return buf;
+}
+async function placeImagePost(c: Ctx): Promise<Response> {
+  const row = await placeOwned(c);
+  const buf = await readJpeg(c);
+  const counts = await c.env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM place_images WHERE place_id = ?1) AS p, (SELECT COUNT(*) FROM place_images WHERE couple_id = ?2) AS c"
+  ).bind(row.id, row.couple_id).first<{ p: number; c: number }>();
+  if ((counts?.p ?? 0) >= MAX_IMAGES_PER_PLACE) throw new HttpError(409, `At most ${MAX_IMAGES_PER_PLACE} pictures per place`);
+  if ((counts?.c ?? 0) >= MAX_PLACE_IMAGES_PER_COUPLE) throw new HttpError(409, "Your shared place-picture storage is full. Remove some old pictures first.");
+  const id = uid();
+  await c.env.DB.prepare("INSERT INTO place_images (id, place_id, couple_id, user_id, data, created_at) VALUES (?,?,?,?,?,?)")
+    .bind(id, row.id, row.couple_id, c.user.id, buf, now()).run();
+  await c.env.DB.prepare("UPDATE places SET updated_at = ? WHERE id = ?").bind(now(), row.id).run();
+  return json({ id }, 201);
+}
+/** Places belong to both of you, so either of you can remove a picture. */
+async function placeImageDelete(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const img = await c.env.DB.prepare("SELECT place_id FROM place_images WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<{ place_id: string }>();
+  if (!img) throw new HttpError(404, "Picture not found");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM place_images WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId),
+    c.env.DB.prepare("UPDATE places SET updated_at = ? WHERE id = ?").bind(now(), img.place_id),
+  ]);
+  return json({ ok: true });
+}
+async function placeImageGet(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const row = await c.env.DB.prepare("SELECT data FROM place_images WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId)
+    .first<{ data: ArrayBuffer | number[] | null }>();
+  if (!row?.data) throw new HttpError(404, "Not found");
+  const bytes = row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : new Uint8Array(row.data);
+  return new Response(bytes, { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable", ...SEC } });
+}
+
+// ------------------------------------------------------------- saved addresses (each person's home etc., shown on the map)
+const ADDRESS_KINDS = ["home", "work", "family", "friends", "other"];
+const MAX_ADDRESSES_PER_USER = 8;
+function addressJson(r: any) {
+  return { id: r.id, userId: r.user_id, label: r.label, kind: r.kind, address: r.address, lat: r.lat, lon: r.lon, updatedAt: r.updated_at };
+}
+function readAddress(b: any) {
+  const label = str(b.label, "label", 1, 40);
+  const kind = ADDRESS_KINDS.includes(b.kind) ? b.kind : "home";
+  const address = b.address == null ? "" : str(b.address, "address", 0, 160);
+  if (typeof b.lat !== "number" || typeof b.lon !== "number" || !isFinite(b.lat) || !isFinite(b.lon) || Math.abs(b.lat) > 90 || Math.abs(b.lon) > 180)
+    throw new HttpError(400, "lat/lon must be valid coordinates");
+  return { label, kind, address, lat: Math.round(b.lat * 1e6) / 1e6, lon: Math.round(b.lon * 1e6) / 1e6 };
+}
+async function addressList(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const { results } = await c.env.DB.prepare("SELECT * FROM saved_addresses WHERE couple_id = ? ORDER BY created_at, rowid").bind(coupleId).all();
+  return json({ addresses: results.map(addressJson) });
+}
+async function addressPost(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const a = readAddress(await readJson(c.req));
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM saved_addresses WHERE couple_id = ? AND user_id = ?").bind(coupleId, c.user.id).first<{ n: number }>();
+  if ((n?.n ?? 0) >= MAX_ADDRESSES_PER_USER) throw new HttpError(409, `You can save up to ${MAX_ADDRESSES_PER_USER} addresses`);
+  const id = uid(), t = now();
+  await c.env.DB.prepare("INSERT INTO saved_addresses (id, couple_id, user_id, label, kind, address, lat, lon, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+    .bind(id, coupleId, c.user.id, a.label, a.kind, a.address, a.lat, a.lon, t, t).run();
+  return json(addressJson({ id, user_id: c.user.id, ...a, updated_at: t }), 201);
+}
+async function addressPut(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const a = readAddress(await readJson(c.req));
+  const t = now();
+  const r = await c.env.DB.prepare("UPDATE saved_addresses SET label=?, kind=?, address=?, lat=?, lon=?, updated_at=? WHERE id=? AND couple_id=? AND user_id=?")
+    .bind(a.label, a.kind, a.address, a.lat, a.lon, t, c.params[0], coupleId, c.user.id).run();
+  if (!r.meta.changes) throw new HttpError(404, "Address not found (you can only change your own)");
+  return json(addressJson({ id: c.params[0], user_id: c.user.id, ...a, updated_at: t }));
+}
+async function addressDelete(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const r = await c.env.DB.prepare("DELETE FROM saved_addresses WHERE id = ? AND couple_id = ? AND user_id = ?").bind(c.params[0], coupleId, c.user.id).run();
+  if (!r.meta.changes) throw new HttpError(404, "Address not found (you can only remove your own)");
+  return json({ ok: true });
+}
+
+// ------------------------------------------------------------- shared notes + checklists (Calendar tab)
+const MAX_NOTES = 200;
+const MAX_ITEMS_PER_NOTE = 60;
+function noteJson(r: any, items: any[]) {
+  return {
+    id: r.id, createdBy: r.created_by, title: r.title, body: r.body, kind: r.kind, date: r.note_date ?? null, pinned: !!r.pinned,
+    createdAt: r.created_at, updatedAt: r.updated_at, updatedBy: r.updated_by ?? null,
+    items: items.map((i) => ({ id: i.id, text: i.text, done: !!i.done, doneBy: i.done_by ?? null, position: i.position })),
+  };
+}
+async function loadNotes(env: Env, coupleId: string, onlyId?: string) {
+  const notes = onlyId
+    ? await env.DB.prepare("SELECT * FROM notes WHERE couple_id = ? AND id = ?").bind(coupleId, onlyId).all()
+    : await env.DB.prepare("SELECT * FROM notes WHERE couple_id = ? ORDER BY pinned DESC, updated_at DESC, rowid DESC").bind(coupleId).all();
+  const items = onlyId
+    ? await env.DB.prepare("SELECT * FROM note_items WHERE couple_id = ? AND note_id = ? ORDER BY position, rowid").bind(coupleId, onlyId).all()
+    : await env.DB.prepare("SELECT * FROM note_items WHERE couple_id = ? ORDER BY position, rowid").bind(coupleId).all();
+  const by: Record<string, any[]> = {};
+  for (const i of items.results as any[]) (by[i.note_id] ??= []).push(i);
+  return (notes.results as any[]).map((n) => noteJson(n, by[n.id] ?? []));
+}
+function readNote(b: any, partial: boolean) {
+  const out: Record<string, any> = {};
+  if (!partial || b.title !== undefined) out.title = str(b.title, "title", 1, 80);
+  if (!partial || b.body !== undefined) out.body = b.body == null ? "" : str(b.body, "body", 0, 2000);
+  if (!partial || b.date !== undefined) {
+    if (b.date == null || b.date === "") out.date = null;
+    else if (isDate(b.date)) out.date = b.date;
+    else throw new HttpError(400, "date must be YYYY-MM-DD");
+  }
+  if (!partial || b.pinned !== undefined) out.pinned = b.pinned ? 1 : 0;
+  return out;
+}
+async function noteList(c: Ctx): Promise<Response> {
+  return json({ notes: await loadNotes(c.env, requireCouple(c.user)) });
+}
+async function notePost(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const b = await readJson(c.req);
+  const n = readNote(b, false);
+  const kind = b.kind === "list" ? "list" : "note";
+  const count = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM notes WHERE couple_id = ?").bind(coupleId).first<{ n: number }>();
+  if ((count?.n ?? 0) >= MAX_NOTES) throw new HttpError(409, "Too many notes. Delete some old ones first.");
+  const texts: string[] = Array.isArray(b.items) ? b.items.filter((x: unknown): x is string => typeof x === "string").map((x: string) => x.trim()).filter((x: string) => x.length > 0 && x.length <= 120).slice(0, MAX_ITEMS_PER_NOTE) : [];
+  const id = uid(), t = now();
+  const stmts = [c.env.DB.prepare(
+    "INSERT INTO notes (id, couple_id, created_by, title, body, kind, note_date, pinned, created_at, updated_at, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(id, coupleId, c.user.id, n.title, n.body, kind, n.date, n.pinned, t, t, c.user.id)];
+  texts.forEach((text, i) => stmts.push(c.env.DB.prepare("INSERT INTO note_items (id, note_id, couple_id, text, done, position, done_by, updated_at) VALUES (?,?,?,?,0,?,NULL,?)").bind(uid(), id, coupleId, text, i, t)));
+  await c.env.DB.batch(stmts);
+  return json((await loadNotes(c.env, coupleId, id))[0], 201);
+}
+async function noteOwned(c: Ctx): Promise<any> {
+  const coupleId = requireCouple(c.user);
+  const row = await c.env.DB.prepare("SELECT * FROM notes WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<any>();
+  if (!row) throw new HttpError(404, "Note not found");
+  return row;
+}
+async function notePut(c: Ctx): Promise<Response> {
+  const row = await noteOwned(c);
+  const n = readNote(await readJson(c.req), true);
+  const m = { title: row.title, body: row.body, date: row.note_date, pinned: row.pinned, ...n };
+  await c.env.DB.prepare("UPDATE notes SET title=?, body=?, note_date=?, pinned=?, updated_at=?, updated_by=? WHERE id=?")
+    .bind(m.title, m.body, m.date, m.pinned, now(), c.user.id, row.id).run();
+  return json((await loadNotes(c.env, row.couple_id, row.id))[0]);
+}
+async function noteDelete(c: Ctx): Promise<Response> {
+  const row = await noteOwned(c);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM note_items WHERE note_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(row.id),
+  ]);
+  return json({ ok: true });
+}
+async function noteItemPost(c: Ctx): Promise<Response> {
+  const row = await noteOwned(c);
+  const b = await readJson(c.req);
+  const text = str(b.text, "text", 1, 120);
+  const cnt = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(position), -1) AS p FROM note_items WHERE note_id = ?").bind(row.id).first<{ n: number; p: number }>();
+  if ((cnt?.n ?? 0) >= MAX_ITEMS_PER_NOTE) throw new HttpError(409, `At most ${MAX_ITEMS_PER_NOTE} items per list`);
+  const t = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO note_items (id, note_id, couple_id, text, done, position, done_by, updated_at) VALUES (?,?,?,?,0,?,NULL,?)").bind(uid(), row.id, row.couple_id, text, (cnt?.p ?? -1) + 1, t),
+    c.env.DB.prepare("UPDATE notes SET updated_at = ?, updated_by = ? WHERE id = ?").bind(t, c.user.id, row.id),
+  ]);
+  return json((await loadNotes(c.env, row.couple_id, row.id))[0], 201);
+}
+async function noteItemPut(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const it = await c.env.DB.prepare("SELECT * FROM note_items WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<any>();
+  if (!it) throw new HttpError(404, "Item not found");
+  const b = await readJson(c.req);
+  const text = b.text !== undefined ? str(b.text, "text", 1, 120) : it.text;
+  const done = b.done !== undefined ? (b.done ? 1 : 0) : it.done;
+  const doneBy = done ? (it.done ? it.done_by : c.user.id) : null;
+  const t = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE note_items SET text=?, done=?, done_by=?, updated_at=? WHERE id=?").bind(text, done, doneBy, t, it.id),
+    c.env.DB.prepare("UPDATE notes SET updated_at = ?, updated_by = ? WHERE id = ?").bind(t, c.user.id, it.note_id),
+  ]);
+  return json((await loadNotes(c.env, coupleId, it.note_id))[0]);
+}
+async function noteItemDelete(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  const it = await c.env.DB.prepare("SELECT note_id FROM note_items WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<{ note_id: string }>();
+  if (!it) throw new HttpError(404, "Item not found");
+  const t = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM note_items WHERE id = ?").bind(c.params[0]),
+    c.env.DB.prepare("UPDATE notes SET updated_at = ?, updated_by = ? WHERE id = ?").bind(t, c.user.id, it.note_id),
+  ]);
+  return json((await loadNotes(c.env, coupleId, it.note_id))[0]);
+}
+
+// ------------------------------------------------------------- trips: live-tracked dates ("we're out together")
+// Recording is always opt-in: someone starts a trip, and a phone only records after its owner taps Join / Start.
+// The server keeps running totals per person, so listing trips never has to walk thousands of points.
+const TRIP_MAX_MS = 14 * 3600_000;          // a forgotten trip closes itself
+const TRIP_MAX_POINTS = 6000;               // per person per trip
+const TRIP_BATCH = 120;
+const MAX_TRIPS = 400;
+function haversine(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad, dLon = (bLon - aLon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+function tripJson(r: any, members: any[]) {
+  const end = r.ended_at ?? Math.max(r.started_at, ...members.map((m) => m.last_t ?? 0));
+  return {
+    id: r.id, title: r.title, status: r.status, startedBy: r.started_by, startedAt: r.started_at, endedAt: r.ended_at ?? null,
+    durationMs: Math.max(0, end - r.started_at), distanceM: Math.round(r.distance_m),
+    members: members.map((m) => ({ userId: m.user_id, joinedAt: m.joined_at, leftAt: m.left_at ?? null, distanceM: Math.round(m.distance_m), points: m.points })),
+  };
+}
+async function closeStaleTrips(env: Env, coupleId: string) {
+  const cutoff = now() - TRIP_MAX_MS;
+  await env.DB.prepare(
+    "UPDATE trips SET status = 'done', ended_at = COALESCE((SELECT MAX(last_t) FROM trip_members WHERE trip_id = trips.id), started_at) WHERE couple_id = ? AND status = 'active' AND started_at < ?"
+  ).bind(coupleId, cutoff).run();
+}
+async function loadTrips(env: Env, coupleId: string, onlyId?: string, limit = 60) {
+  const trips = onlyId
+    ? await env.DB.prepare("SELECT * FROM trips WHERE couple_id = ? AND id = ?").bind(coupleId, onlyId).all()
+    : await env.DB.prepare("SELECT * FROM trips WHERE couple_id = ? ORDER BY (status = 'active') DESC, started_at DESC, rowid DESC LIMIT ?").bind(coupleId, limit).all();
+  const ids = (trips.results as any[]).map((t) => t.id);
+  const by: Record<string, any[]> = {};
+  if (ids.length) {
+    const ms = await env.DB.prepare(`SELECT * FROM trip_members WHERE trip_id IN (${ids.map(() => "?").join(",")}) ORDER BY joined_at`).bind(...ids).all();
+    for (const m of ms.results as any[]) (by[m.trip_id] ??= []).push(m);
+  }
+  return (trips.results as any[]).map((t) => tripJson(t, by[t.id] ?? []));
+}
+async function activeTrip(env: Env, coupleId: string) {
+  await closeStaleTrips(env, coupleId);
+  const row = await env.DB.prepare("SELECT id FROM trips WHERE couple_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1").bind(coupleId).first<{ id: string }>();
+  return row ? (await loadTrips(env, coupleId, row.id))[0] : null;
+}
+async function tripList(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  await closeStaleTrips(c.env, coupleId);
+  const trips = await loadTrips(c.env, coupleId);
+  const t = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS trips, COALESCE(SUM(distance_m),0) AS distance, COALESCE(MAX(distance_m),0) AS longest, " +
+    "COALESCE(SUM(COALESCE(ended_at, started_at) - started_at),0) AS ms FROM trips WHERE couple_id = ? AND status = 'done'"
+  ).bind(coupleId).first<any>();
+  return json({
+    active: trips.find((x) => x.status === "active") ?? null,
+    trips: trips.filter((x) => x.status === "done"),
+    totals: { trips: t?.trips ?? 0, distanceM: Math.round(t?.distance ?? 0), longestM: Math.round(t?.longest ?? 0), durationMs: Math.round(t?.ms ?? 0) },
+  });
+}
+async function tripStart(c: Ctx): Promise<Response> {
+  const coupleId = requireCouple(c.user);
+  if (!(await partnerOf(c.env, c.user))) throw new HttpError(409, "Connect with your partner first");
+  if (await activeTrip(c.env, coupleId)) throw new HttpError(409, "A trip is already in progress. Join it or end it first.");
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM trips WHERE couple_id = ?").bind(coupleId).first<{ n: number }>();
+  if ((n?.n ?? 0) >= MAX_TRIPS) throw new HttpError(409, "Too many saved trips. Delete some old ones first.");
+  const b = c.req.headers.get("content-length") === "0" ? {} : await readJson(c.req).catch(() => ({}));
+  const title = (b as any).title ? str((b as any).title, "title", 1, 60) : "Our date";
+  const id = uid(), t = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO trips (id, couple_id, started_by, title, status, started_at, distance_m) VALUES (?,?,?,?, 'active', ?, 0)").bind(id, coupleId, c.user.id, title, t),
+    c.env.DB.prepare("INSERT INTO trip_members (trip_id, user_id, joined_at) VALUES (?,?,?)").bind(id, c.user.id, t),
+  ]);
+  return json((await loadTrips(c.env, coupleId, id))[0], 201);
+}
+async function tripOwned(c: Ctx): Promise<any> {
+  const coupleId = requireCouple(c.user);
+  const row = await c.env.DB.prepare("SELECT * FROM trips WHERE id = ? AND couple_id = ?").bind(c.params[0], coupleId).first<any>();
+  if (!row) throw new HttpError(404, "Trip not found");
+  return row;
+}
+async function tripJoin(c: Ctx): Promise<Response> {
+  const row = await tripOwned(c);
+  if (row.status !== "active") throw new HttpError(409, "This trip is already over");
+  await c.env.DB.prepare("INSERT INTO trip_members (trip_id, user_id, joined_at) VALUES (?,?,?) ON CONFLICT(trip_id, user_id) DO UPDATE SET left_at = NULL")
+    .bind(row.id, c.user.id, now()).run();
+  return json((await loadTrips(c.env, row.couple_id, row.id))[0]);
+}
+async function tripLeave(c: Ctx): Promise<Response> {
+  const row = await tripOwned(c);
+  await c.env.DB.prepare("UPDATE trip_members SET left_at = ? WHERE trip_id = ? AND user_id = ? AND left_at IS NULL").bind(now(), row.id, c.user.id).run();
+  return json((await loadTrips(c.env, row.couple_id, row.id))[0]);
+}
+/** A batch of GPS fixes from one phone. Jitter (< 4 m) and teleports (> 70 m/s) are ignored when adding up the distance. */
+async function tripPoints(c: Ctx): Promise<Response> {
+  const row = await tripOwned(c);
+  if (row.status !== "active") throw new HttpError(409, "This trip is already over");
+  const mem = await c.env.DB.prepare("SELECT * FROM trip_members WHERE trip_id = ? AND user_id = ? AND left_at IS NULL").bind(row.id, c.user.id).first<any>();
+  if (!mem) throw new HttpError(403, "Join the trip first");
+  const b = await readJson(c.req);
+  if (!Array.isArray(b.points) || b.points.length === 0 || b.points.length > TRIP_BATCH) throw new HttpError(400, `points must be 1 to ${TRIP_BATCH} fixes`);
+  const t0 = now();
+  const pts: { t: number; lat: number; lon: number }[] = [];
+  for (const p of b.points) {
+    if (!p || !Number.isInteger(p.t) || typeof p.lat !== "number" || typeof p.lon !== "number" || !isFinite(p.lat) || !isFinite(p.lon) || Math.abs(p.lat) > 90 || Math.abs(p.lon) > 180) continue;
+    if (p.t < row.started_at - 300_000 || p.t > t0 + 300_000) continue;
+    pts.push({ t: p.t, lat: Math.round(p.lat * 1e6) / 1e6, lon: Math.round(p.lon * 1e6) / 1e6 });
+  }
+  pts.sort((a, b2) => a.t - b2.t);
+  if (!pts.length) throw new HttpError(400, "No valid fixes in this batch");
+  if (mem.points + pts.length > TRIP_MAX_POINTS) throw new HttpError(409, "This trip has recorded as much as it can");
+  let { last_t: lastT, last_lat: lastLat, last_lon: lastLon } = mem as { last_t: number | null; last_lat: number | null; last_lon: number | null };
+  let dist = mem.distance_m, added = 0;
+  const stmts = [];
+  for (const p of pts) {
+    if (lastT != null && p.t <= lastT) continue;                      // out of order / duplicate
+    if (lastT != null && lastLat != null && lastLon != null) {
+      const d = haversine(lastLat, lastLon, p.lat, p.lon), dt = Math.max(1, (p.t - lastT) / 1000);
+      if (d >= 4 && d / dt <= 70) dist += d;
+      else if (d < 4) { lastT = p.t; continue; }                       // standing still: keep the point count low
+      else continue;                                                    // GPS jump
+    }
+    stmts.push(c.env.DB.prepare("INSERT OR IGNORE INTO trip_points (trip_id, user_id, t, lat, lon) VALUES (?,?,?,?,?)").bind(row.id, c.user.id, p.t, p.lat, p.lon));
+    lastT = p.t; lastLat = p.lat; lastLon = p.lon; added++;
+  }
+  stmts.push(
+    c.env.DB.prepare("UPDATE trip_members SET distance_m = ?, points = points + ?, last_t = ?, last_lat = ?, last_lon = ? WHERE trip_id = ? AND user_id = ?")
+      .bind(dist, added, lastT, lastLat, lastLon, row.id, c.user.id),
+    c.env.DB.prepare("UPDATE trips SET distance_m = (SELECT MAX(distance_m) FROM trip_members WHERE trip_id = ?1) WHERE id = ?1").bind(row.id),
+  );
+  await c.env.DB.batch(stmts);
+  return json((await loadTrips(c.env, row.couple_id, row.id))[0]);
+}
+async function tripEnd(c: Ctx): Promise<Response> {
+  const row = await tripOwned(c);
+  if (row.status === "active") {
+    await c.env.DB.prepare("UPDATE trips SET status = 'done', ended_at = ? WHERE id = ?").bind(now(), row.id).run();
+    await c.env.DB.prepare("UPDATE trip_members SET left_at = COALESCE(left_at, ?) WHERE trip_id = ?").bind(now(), row.id).run();
+  }
+  return json((await loadTrips(c.env, row.couple_id, row.id))[0]);
+}
+async function tripPut(c: Ctx): Promise<Response> {
+  const row = await tripOwned(c);
+  const b = await readJson(c.req);
+  await c.env.DB.prepare("UPDATE trips SET title = ? WHERE id = ?").bind(str(b.title, "title", 1, 60), row.id).run();
+  return json((await loadTrips(c.env, row.couple_id, row.id))[0]);
+}
+async function tripDelete(c: Ctx): Promise<Response> {
+  const row = await tripOwned(c);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM trip_points WHERE trip_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM trip_members WHERE trip_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM trips WHERE id = ?").bind(row.id),
+  ]);
+  return json({ ok: true });
+}
+/** The route of one trip: at most ~300 points per person, evenly thinned, so it is cheap to draw. */
+async function tripDetail(c: Ctx): Promise<Response> {
+  const row = await tripOwned(c);
+  const trip = (await loadTrips(c.env, row.couple_id, row.id))[0];
+  const paths: { userId: string; points: number[][] }[] = [];
+  for (const m of trip.members) {
+    const { results } = await c.env.DB.prepare("SELECT t, lat, lon FROM trip_points WHERE trip_id = ? AND user_id = ? ORDER BY t").bind(row.id, m.userId).all();
+    const all = results as any[];
+    const step = Math.max(1, Math.ceil(all.length / 300));
+    const pts = all.filter((_, i) => i % step === 0 || i === all.length - 1).map((p) => [p.lat, p.lon, p.t]);
+    paths.push({ userId: m.userId, points: pts });
+  }
+  return json({ trip, paths });
 }
 
 /** Richer numbers for the Stats screen. `tz` = the phone's UTC offset in minutes so days line up with local midnight. */
@@ -911,6 +1319,10 @@ const GAMES: Record<string, { max: number }> = {
   memory: { max: 1500 },  // Memory Match: pairs + time bonus - mistakes
   math: { max: 1000 },    // Math Sprint: correct answers in 45 s
   draw: { max: 3000 },    // Quick Draw: reaction speed over 5 tries
+  seq: { max: 800 },      // Next Number: pattern puzzles in 60 s (+10 right, -5 wrong)
+  code: { max: 1000 },    // Code Breaker: crack a 4-colour code in 8 guesses
+  lights: { max: 1000 }, // Lights Out: switch every light off, fewer moves + faster = more
+  slide: { max: 1000 },   // Slide Puzzle: 3x3 tiles back in order, faster + fewer moves = more
 };
 const MATCH_ROUNDS = [1, 3, 5];
 const MAX_ACTIVE_MATCHES = 6;
@@ -1156,6 +1568,12 @@ async function accountDelete(c: Ctx): Promise<Response> {
   stmts.push(
     c.env.DB.prepare("DELETE FROM reactions WHERE user_id = ? OR (target_type = 'diary' AND target_id IN (SELECT id FROM diary WHERE user_id = ?)) OR (target_type = 'mood' AND target_id IN (SELECT id FROM moods WHERE user_id = ?))").bind(id, id, id),
     c.env.DB.prepare("DELETE FROM diary_images WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM place_images WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM saved_addresses WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM trip_points WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM trip_members WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM note_items WHERE note_id IN (SELECT id FROM notes WHERE created_by = ?)").bind(id),
+    c.env.DB.prepare("DELETE FROM notes WHERE created_by = ?").bind(id),
     c.env.DB.prepare("DELETE FROM diary WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM game_scores WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM moods WHERE user_id = ?").bind(id),
@@ -1204,6 +1622,29 @@ route("PUT", "/places/:id", placePut);
 route("DELETE", "/places/:id", placeDelete);
 route("POST", "/places/:id/visit", placeVisit);
 route("PUT", "/places/:id/review", placeReview);
+route("POST", "/places/:id/images", placeImagePost);
+route("DELETE", "/places/images/:id", placeImageDelete);
+route("GET", "/places/images/:id", placeImageGet);
+route("GET", "/addresses", addressList);
+route("POST", "/addresses", addressPost);
+route("PUT", "/addresses/:id", addressPut);
+route("DELETE", "/addresses/:id", addressDelete);
+route("GET", "/notes", noteList);
+route("POST", "/notes", notePost);
+route("PUT", "/notes/:id", notePut);
+route("DELETE", "/notes/:id", noteDelete);
+route("POST", "/notes/:id/items", noteItemPost);
+route("PUT", "/notes/items/:id", noteItemPut);
+route("DELETE", "/notes/items/:id", noteItemDelete);
+route("GET", "/trips", tripList);
+route("POST", "/trips", tripStart);
+route("GET", "/trips/:id", tripDetail);
+route("PUT", "/trips/:id", tripPut);
+route("DELETE", "/trips/:id", tripDelete);
+route("POST", "/trips/:id/join", tripJoin);
+route("POST", "/trips/:id/leave", tripLeave);
+route("POST", "/trips/:id/points", tripPoints);
+route("POST", "/trips/:id/end", tripEnd);
 route("PUT", "/reactions", reactionPut);
 route("GET", "/games", gamesSummary);
 route("POST", "/games/matches", matchPost);

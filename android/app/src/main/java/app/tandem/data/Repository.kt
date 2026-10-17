@@ -43,6 +43,9 @@ import java.io.IOException
 /** Thrown with a message that is safe to show to the person. */
 class AppException(message: String) : Exception(message)
 
+/** Marks the calendar event that Tandem keeps in sync with the birthday on your page. */
+const val AUTO_BIRTHDAY_NOTE = "Added automatically from the birthday on the profile page"
+
 class Repository(private val context: Context) {
     val prefs = Prefs(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -104,6 +107,9 @@ class Repository(private val context: Context) {
 
     /** Pictures attached to diary notes (only your partner and you can load them; the token is added automatically). */
     fun diaryImageUrl(id: String): String = "${baseUrl.trimEnd('/')}/diary/image/$id"
+
+    /** Pictures attached to places (shared by both of you; the token is added automatically). */
+    fun placeImageUrl(id: String): String = "${baseUrl.trimEnd('/')}/places/images/$id"
 
     // ------------------------------------------------------------ error mapping
     private suspend fun <T> call(block: suspend () -> T): T = try {
@@ -259,7 +265,31 @@ class Repository(private val context: Context) {
 
     suspend fun statsDetail(): StatsDetail = call { api.statsDetail(utcOffsetMinutes()) }
     // ------------------------------------------------------------ personal page
-    suspend fun saveProfileDetails(p: ProfileDetails) { call { api.saveProfileDetails(p) }; refresh() }
+    suspend fun saveProfileDetails(p: ProfileDetails) {
+        call { api.saveProfileDetails(p) }
+        // Your birthday lives in the shared calendar too. A hiccup here must never make saving the page fail.
+        runCatching { syncBirthdayEvent(p.birthday) }
+        refresh()
+    }
+
+    /**
+     * Keeps exactly one yearly "birthday" occasion in the calendar for the birthday on your page: adds it, moves it when the date
+     * changes, and removes it when you clear your birthday. It is recognised by [AUTO_BIRTHDAY_NOTE] in its notes, so a birthday
+     * event you added by hand is never touched.
+     */
+    private suspend fun syncBirthdayEvent(birthday: String) {
+        val me = _state.value?.me ?: return
+        val events = call { api.events() }.events
+        val mine = events.firstOrNull { it.createdBy == me.id && it.category == SpecialCategory.Birthday.key && it.notes.startsWith(AUTO_BIRTHDAY_NOTE) }
+        if (birthday.isBlank()) { if (mine != null) call { api.deleteEvent(mine.id) }; return }
+        val title = "${me.displayName.substringBefore(' ')}'s birthday".take(80)
+        if (mine != null && mine.date == birthday && mine.title == title) return
+        val body = EventBody(title, SpecialCategory.Birthday.emoji, birthday, null, true, AUTO_BIRTHDAY_NOTE, kind = "special", category = SpecialCategory.Birthday.key)
+        call { if (mine == null) api.addEvent(body) else api.updateEvent(mine.id, body) }
+    }
+
+    /** Poster / cover + short info lookup for the "right now" fields (see [MediaLookup]). */
+    suspend fun lookupMedia(kind: String, query: String): List<MediaInfo> = MediaLookup.search(http, kind, query)
 
     // ------------------------------------------------------------ places (Heatmap)
     suspend fun places(): List<Place> = call { api.places() }.places
@@ -268,6 +298,45 @@ class Repository(private val context: Context) {
     suspend fun visitPlace(id: String): Place = call { api.visitPlace(id) }
     suspend fun reviewPlace(id: String, rating: Int?, comment: String): Place = call { api.reviewPlace(id, ReviewBody(rating, comment.trim())) }
     suspend fun deletePlace(id: String) { call { api.deletePlace(id) }; refresh() }
+
+    /** Adds up to [images] pictures to a place. Returns how many failed. */
+    suspend fun addPlaceImages(placeId: String, images: List<Uri>): Int {
+        var failed = 0
+        for (uri in images.take(6)) {
+            try {
+                val bytes = encodePhoto(uri)
+                call { api.uploadPlaceImage(placeId, bytes.toRequestBody("image/jpeg".toMediaType())) }
+            } catch (e: Exception) { failed++ }
+        }
+        return failed
+    }
+    suspend fun deletePlaceImage(id: String) { call { api.deletePlaceImage(id) } }
+
+    // ------------------------------------------------------------ saved addresses
+    suspend fun addresses(): List<SavedAddress> = call { api.addresses() }.addresses
+    suspend fun saveAddress(existingId: String?, b: AddressBody): SavedAddress = call { if (existingId == null) api.addAddress(b) else api.editAddress(existingId, b) }
+    suspend fun deleteAddress(id: String) { call { api.deleteAddress(id) } }
+
+    // ------------------------------------------------------------ notes + checklists
+    suspend fun notes(): List<Note> = call { api.notes() }.notes
+    suspend fun saveNote(existingId: String?, b: NoteBody): Note = call { if (existingId == null) api.addNote(b) else api.editNote(existingId, b) }
+    suspend fun deleteNote(id: String) { call { api.deleteNote(id) } }
+    suspend fun addNoteItem(noteId: String, text: String): Note = call { api.addNoteItem(noteId, NewItemBody(text.trim())) }
+    suspend fun setItemDone(itemId: String, done: Boolean): Note = call { api.setItemDone(itemId, ItemDoneBody(done)) }
+    suspend fun setItemText(itemId: String, text: String): Note = call { api.setItemText(itemId, ItemTextBody(text.trim())) }
+    suspend fun deleteNoteItem(itemId: String): Note = call { api.deleteNoteItem(itemId) }
+
+    // ------------------------------------------------------------ trips (live tracking)
+    suspend fun trips(): TripsResponse = call { api.trips() }
+    suspend fun tripDetail(id: String): TripDetail = call { api.tripDetail(id) }
+    suspend fun startTrip(title: String): Trip = call { api.startTrip(TripStartBody(title.trim().ifBlank { "Our date" })) }.also { refresh() }
+    suspend fun joinTrip(id: String): Trip = call { api.joinTrip(id) }.also { refresh() }
+    suspend fun leaveTrip(id: String): Trip = call { api.leaveTrip(id) }.also { refresh() }
+    suspend fun endTrip(id: String): Trip = call { api.endTrip(id) }.also { refresh() }
+    suspend fun renameTrip(id: String, title: String): Trip = call { api.renameTrip(id, TripTitleBody(title.trim())) }
+    suspend fun deleteTrip(id: String) { call { api.deleteTrip(id) } }
+    /** Called by the tracking service. Doesn't refresh the whole app: it runs every minute or so. */
+    suspend fun sendTripPoints(id: String, fixes: List<FixBody>): Trip = call { api.sendTripPoints(id, FixesBody(fixes)) }
 
     /** Your emoji on a partner's mood ("mood") or diary note ("diary"); null clears it. */
     suspend fun react(type: String, id: String, emoji: String?) { call { api.react(ReactionBody(type, id, emoji)) }; refresh() }

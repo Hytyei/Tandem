@@ -17,6 +17,7 @@ import java.time.format.DateTimeFormatter
 const val CHANNEL_EVENTS = "events"
 const val CHANNEL_PARTNER = "partner"
 const val CHANNEL_UPDATES = "updates"
+const val CHANNEL_TRACKING = "tracking"
 const val EXTRA_TAB = "tab"
 
 fun createNotificationChannels(context: Context) {
@@ -26,6 +27,10 @@ fun createNotificationChannels(context: Context) {
     })
     nm.createNotificationChannel(NotificationChannel(CHANNEL_PARTNER, "Partner activity", NotificationManager.IMPORTANCE_DEFAULT).apply {
         description = "When your partner shares a mood, pins a diary note or adds/changes an event"
+    })
+    nm.createNotificationChannel(NotificationChannel(CHANNEL_TRACKING, "Date tracking", NotificationManager.IMPORTANCE_LOW).apply {
+        description = "Shown while Tandem records where you go on a live-tracked date"
+        setShowBadge(false)
     })
     nm.createNotificationChannel(NotificationChannel(CHANNEL_UPDATES, "App updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
         description = "New versions of Tandem"
@@ -43,6 +48,7 @@ object Notifier {
     private const val ID_EVENT = 1003
     private const val ID_ENDED = 1004
     private const val ID_UPDATE = 1005
+    private const val ID_TRIP = 1006
     private const val ID_TEST = 1099
 
     fun enabled(context: Context) = NotificationManagerCompat.from(context).areNotificationsEnabled()
@@ -103,6 +109,16 @@ object Notifier {
 
         val name = partner.displayName.substringBefore(' ')
         val notes = mutableListOf<Note>()
+
+        // A live-tracked date your partner started that you haven't joined yet: tell you once per trip.
+        val trip = data.trip
+        val tripPrefs = context.getSharedPreferences("tandem_notifier", Context.MODE_PRIVATE)
+        if (trip != null && trip.isActive && trip.startedBy != me && trip.member(me) == null) {
+            if (tripPrefs.getString("trip_noticed", null) != trip.id) {
+                tripPrefs.edit().putString("trip_noticed", trip.id).apply()
+                notes += Note(ID_TRIP, name, "Started a live-tracked date 📍 Open Tandem to join and record it together.", "Heatmap")
+            }
+        }
         val fmt = DateTimeFormatter.ofPattern("EEE, d MMM")
 
         if (prefs.notifyMoods.first()) {

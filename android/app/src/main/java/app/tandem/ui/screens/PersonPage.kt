@@ -12,6 +12,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -96,7 +99,9 @@ fun PersonPage(vm: AppViewModel, mine: Boolean, onBack: () -> Unit) {
                             val next = bd.withYear(today.year).let { if (it.isBefore(today)) it.withYear(today.year + 1) else it }
                             val d = daysUntil(next)
                             InfoRow("🎈", "Next birthday", if (d == 0L) "Today! 🎉" else "in $d day${if (d == 1L) "" else "s"} · turning ${age + (if (next.year > today.year || d > 0) 1 else 0)}")
-                            if (!mine) {
+                            // Birthdays are added to the calendar automatically; the button is only a fallback if the partner's one isn't there yet.
+                            val inCalendar = data.events.any { it.category == SpecialCategory.Birthday.key && parseDate(it.date)?.let { d -> d.monthValue == bd.monthValue && d.dayOfMonth == bd.dayOfMonth } == true }
+                            if (!mine && !inCalendar) {
                                 Spacer(Modifier.height(6.dp))
                                 SoftButton("Add birthday to our calendar", onClick = { vm.addBirthdayToCalendar(first, p.birthday) })
                             }
@@ -140,10 +145,10 @@ fun PersonPage(vm: AppViewModel, mine: Boolean, onBack: () -> Unit) {
                 if (p.hasNow) {
                     SectionHeader("Right now")
                     SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-                        if (p.watching.isNotBlank()) InfoRow("📺", "Watching", p.watching)
-                        if (p.playing.isNotBlank()) InfoRow("🎮", "Playing", p.playing)
-                        if (p.listening.isNotBlank()) InfoRow("🎧", "Listening to", p.listening)
-                        if (p.reading.isNotBlank()) InfoRow("📖", "Reading", p.reading)
+                        NowRow("📺", "Watching", p.watching, p.mediaFor("watching"))
+                        NowRow("🎮", "Playing", p.playing, p.mediaFor("playing"))
+                        NowRow("🎧", "Listening to", p.listening, p.mediaFor("listening"))
+                        NowRow("📖", "Reading", p.reading, p.mediaFor("reading"))
                         if (p.nowAt > 0) Text("updated ${timeAgo(p.nowAt)}", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
@@ -172,6 +177,27 @@ private fun InfoRow(emoji: String, label: String, value: String) {
         Column(Modifier.weight(1f)) {
             Text(label, style = Type.caption, color = c.secondary)
             Text(value, style = Type.body, color = c.label)
+        }
+    }
+}
+
+/** One "right now" line. With a looked-up title it becomes a little card: poster or cover, title, what it is, and a short description. */
+@Composable
+internal fun NowRow(emoji: String, label: String, text: String, info: MediaInfo?) {
+    val c = T.colors
+    if (text.isBlank()) return
+    if (info == null || info.title.isBlank()) { InfoRow(emoji, label, text); return }
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+        if (info.img.isNotBlank()) AsyncImage(
+            model = info.img, contentDescription = info.title, contentScale = ContentScale.Crop,
+            modifier = Modifier.width(72.dp).height(104.dp).clip(RoundedCornerShape(12.dp)).background(c.separator),
+        ) else Box(Modifier.width(72.dp).height(104.dp).clip(RoundedCornerShape(12.dp)).background(c.accent.copy(alpha = .12f)), contentAlignment = Alignment.Center) { Text(emoji, fontSize = 28.sp) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("$emoji  $label", style = Type.caption, color = c.secondary)
+            Text(info.title, style = Type.headline, color = c.label, maxLines = 2)
+            if (info.sub.isNotBlank()) Text(info.sub, style = Type.footnote, color = c.accent, maxLines = 2)
+            if (info.blurb.isNotBlank()) Text(info.blurb, style = Type.footnote, color = c.secondary, maxLines = 4, modifier = Modifier.padding(top = 3.dp))
         }
     }
 }
@@ -213,6 +239,8 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
     var playing by remember { mutableStateOf(current.playing) }
     var listening by remember { mutableStateOf(current.listening) }
     var reading by remember { mutableStateOf(current.reading) }
+    val media = remember { mutableStateMapOf<String, MediaInfo>().apply { putAll(current.media) } }
+    var searchKind by remember { mutableStateOf<String?>(null) }
     var metersOn by remember { mutableStateOf(current.meters.isNotEmpty()) }
     val meters = remember { mutableStateMapOf<String, Int>().apply { putAll(current.meters) } }
     var pickDate by remember { mutableStateOf(false) }
@@ -228,6 +256,32 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
             value, { if (it.length <= max) onChange(it) }, label = { Text(label) }, singleLine = true, shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = fieldColors,
         )
+    }
+
+    /** A "right now" field with a search button that finds the poster / cover and a short description. */
+    @Composable
+    fun nowField(kind: String, label: String, value: String, onChange: (String) -> Unit) {
+        val info = media[kind]?.takeIf { it.title.isNotBlank() }
+        OutlinedTextField(
+            value, { if (it.length <= 60) { onChange(it); if (info != null && it.trim() != info.title) media.remove(kind) } },
+            label = { Text(label) }, singleLine = true, shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = if (info != null) 4.dp else 8.dp), colors = fieldColors,
+            trailingIcon = {
+                Icon(Icons.Filled.Search, "Find poster", tint = if (value.trim().length >= 2) c.accent else c.tertiary,
+                    modifier = Modifier.size(40.dp).pressable(enabled = value.trim().length >= 2) { searchKind = kind }.padding(9.dp))
+            },
+        )
+        if (info != null) Row(
+            Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(c.card).padding(8.dp), verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (info.img.isNotBlank()) AsyncImage(info.img, null, contentScale = ContentScale.Crop, modifier = Modifier.size(width = 36.dp, height = 52.dp).clip(RoundedCornerShape(8.dp)).background(c.separator))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(info.title, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1)
+                if (info.sub.isNotBlank()) Text(info.sub, style = Type.caption, color = c.secondary, maxLines = 1)
+            }
+            Text("Remove", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.secondary, modifier = Modifier.pressable { media.remove(kind) }.padding(8.dp))
+        }
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
@@ -282,10 +336,11 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
             }
 
             Text("Right now", style = Type.headline, color = c.label, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
-            field("📺 Watching", watching, 60) { watching = it }
-            field("🎮 Playing", playing, 60) { playing = it }
-            field("🎧 Listening to", listening, 60) { listening = it }
-            field("📖 Reading", reading, 60) { reading = it }
+            Text("Tap the magnifier to find the poster or cover and a short description. The text you search for goes to Wikipedia, Apple iTunes Search or Open Library, never to the Tandem server.", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(bottom = 8.dp))
+            nowField("watching", "📺 Watching", watching) { watching = it }
+            nowField("playing", "🎮 Playing", playing) { playing = it }
+            nowField("listening", "🎧 Listening to", listening) { listening = it }
+            nowField("reading", "📖 Reading", reading) { reading = it }
 
             Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -317,11 +372,21 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
                         fullName = fullName.trim(), birthday = birthday?.toString() ?: "", colors = colors, hobbies = list,
                         sport = sport.trim(), food = food.trim(), music = music.trim(), loveLanguage = love,
                         watching = watching.trim(), playing = playing.trim(), listening = listening.trim(), reading = reading.trim(),
+                        media = media.filter { (k, v) -> v.title.isNotBlank() && when (k) { "watching" -> watching; "playing" -> playing; "listening" -> listening; "reading" -> reading; else -> "" }.isNotBlank() },
                         meters = if (metersOn) Meter.entries.associate { it.key to (meters[it.key] ?: 0) } else emptyMap(),
                     ),
                     onDismiss,
                 )
             })
+        }
+    }
+
+    searchKind?.let { kind ->
+        val q = when (kind) { "watching" -> watching; "playing" -> playing; "listening" -> listening; else -> reading }.trim()
+        MediaSearchDialog(vm, kind, q, onDismiss = { searchKind = null }) { info ->
+            media[kind] = info
+            when (kind) { "watching" -> watching = info.title.take(60); "playing" -> playing = info.title.take(60); "listening" -> listening = info.title.take(60); else -> reading = info.title.take(60) }
+            searchKind = null
         }
     }
 
@@ -338,4 +403,43 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
             dismissButton = { TextButton(onClick = { pickDate = false }) { Text("Cancel", color = c.secondary) } },
         ) { DatePicker(state = state) }
     }
+}
+
+/** Shows what the lookup found for [query]; picking one fills the field and keeps its poster and description. */
+@Composable
+private fun MediaSearchDialog(vm: AppViewModel, kind: String, query: String, onDismiss: () -> Unit, onPick: (MediaInfo) -> Unit) {
+    val c = T.colors
+    var results by remember { mutableStateOf<List<MediaInfo>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(kind, query) {
+        try { results = vm.lookupMedia(kind, query) } catch (e: AppException) { error = e.message ?: "Couldn't search right now" }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = c.sheet,
+        title = { Text("Results for “$query”") },
+        text = {
+            Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                when {
+                    error != null -> Text(error!!, style = Type.callout, color = c.danger)
+                    results == null -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) }
+                    results!!.isEmpty() -> Text("Nothing found. Try the full title, or keep your own text.", style = Type.callout, color = c.secondary)
+                    else -> results!!.forEach { r ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(c.card).pressable(haptic = false) { onPick(r) }.padding(8.dp), verticalAlignment = Alignment.Top) {
+                            if (r.img.isNotBlank()) AsyncImage(r.img, null, contentScale = ContentScale.Crop, modifier = Modifier.size(width = 48.dp, height = 70.dp).clip(RoundedCornerShape(8.dp)).background(c.separator))
+                            else Box(Modifier.size(width = 48.dp, height = 70.dp).clip(RoundedCornerShape(8.dp)).background(c.accent.copy(alpha = .12f)))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(r.title, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 2)
+                                if (r.sub.isNotBlank()) Text(r.sub, style = Type.caption, color = c.accent, maxLines = 2)
+                                if (r.blurb.isNotBlank()) Text(r.blurb, style = Type.caption, color = c.secondary, maxLines = 3)
+                            }
+                        }
+                    }
+                }
+                Text("Source: ${MediaLookup.sourceName(kind)}", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(top = 8.dp))
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = c.secondary) } },
+    )
 }

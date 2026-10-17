@@ -44,7 +44,6 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
 
     var editProfile by remember { mutableStateOf(false) }
     var pickAnniv by remember { mutableStateOf(false) }
-    var editServer by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -144,8 +143,6 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
             if (upd != null && upd.notes.isNotBlank()) {
                 Text(upd.notes.take(400), style = Type.footnote, color = c.secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             }
-            Divider()
-            ListRow("Server", vm.repo.currentBaseUrl.removePrefix("https://"), onClick = { editServer = true })
         }
 
         Spacer(Modifier.height(20.dp))
@@ -186,17 +183,6 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
             }) { Text("OK", color = c.accent) } },
             dismissButton = { TextButton(onClick = { pickAnniv = false }) { Text("Cancel", color = c.secondary) } },
         ) { DatePicker(state = state) }
-    }
-
-    if (editServer) {
-        var url by remember { mutableStateOf(vm.repo.currentBaseUrl) }
-        AlertDialog(
-            onDismissRequest = { editServer = false }, containerColor = c.sheet,
-            title = { Text("Server address") },
-            text = { OutlinedTextField(url, { url = it }, singleLine = true, shape = RoundedCornerShape(14.dp), label = { Text("Worker URL") }) },
-            confirmButton = { TextButton(onClick = { vm.setServer(url) { editServer = false; vm.refresh(silent = false) } }) { Text("Save", color = c.accent) } },
-            dismissButton = { TextButton(onClick = { editServer = false }) { Text("Cancel", color = c.secondary) } },
-        )
     }
 
     if (confirmRemove) {

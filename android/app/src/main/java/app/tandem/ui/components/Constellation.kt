@@ -54,8 +54,14 @@ private val LINKS = listOf(0 to 1, 1 to 2, 2 to 3, 3 to 4, 4 to 5, 5 to 6, 6 to 
  * an occasional shooting star, and then the number forms out of connected, blinking stars.
  */
 @Composable
-fun ConstellationDays(days: Long, modifier: Modifier = Modifier, height: Dp = 230.dp, caption: String? = null) {
-    val text = days.coerceAtLeast(0).toString()
+fun ConstellationDays(
+    days: Long, modifier: Modifier = Modifier, height: Dp = 230.dp, caption: String? = null,
+    /** true = a rounded night-sky card (Stats). false = a full-bleed sky that fades into the page (Today), no box around it. */
+    framed: Boolean = true,
+    /** false = just the stars (no anniversary set yet). */
+    showNumber: Boolean = true,
+) {
+    val text = if (showNumber) days.coerceAtLeast(0).toString() else ""
     val n = text.length
     val density = LocalDensity.current.density
     val intro = remember(days) { Animatable(0f) }
@@ -72,9 +78,14 @@ fun ConstellationDays(days: Long, modifier: Modifier = Modifier, height: Dp = 23
     val violet = Color(0xFF9C8CFF)
     val gold = Color(0xFFFFD27A)
 
+    // In the full-bleed version the stars sit lower (under the greeting) and the sky fades out into the page at the bottom.
+    fun sy(y: Float) = if (framed) y else .26f + y * .95f
     Box(
-        modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(24.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF0F0A33), Color(0xFF221A60), Color(0xFF3A2470))))
+        modifier.fillMaxWidth().height(height)
+            .then(
+                if (framed) Modifier.clip(RoundedCornerShape(24.dp)).background(Brush.verticalGradient(listOf(Color(0xFF0F0A33), Color(0xFF221A60), Color(0xFF3A2470))))
+                else Modifier.background(Brush.verticalGradient(0f to Color(0xFF0F0A33), .55f to Color(0xFF221A60), .84f to Color(0x993A2470), 1f to Color.Transparent))
+            )
             .semantics { contentDescription = "$days days together" },
     ) {
         Canvas(Modifier.fillMaxWidth().height(height)) {
@@ -110,14 +121,14 @@ fun ConstellationDays(days: Long, modifier: Modifier = Modifier, height: Dp = 23
             LINKS.forEachIndexed { i, (a, b) ->
                 val f = (cp - i).coerceIn(0f, 1f)
                 if (f > 0f) {
-                    val pa = Offset(STARS[a].first * w, STARS[a].second * h); val pb = Offset(STARS[b].first * w, STARS[b].second * h)
+                    val pa = Offset(STARS[a].first * w, sy(STARS[a].second) * h); val pb = Offset(STARS[b].first * w, sy(STARS[b].second) * h)
                     drawLine(lineBrush, pa, Offset(pa.x + (pb.x - pa.x) * f, pa.y + (pb.y - pa.y) * f), 1.3f * density, StrokeCap.Round, alpha = .6f)
                 }
             }
-            STARS.forEachIndexed { i, (sx, sy) ->
+            STARS.forEachIndexed { i, (sx, syRaw) ->
                 val reveal = ((cp - (i - 1)) / 1f).coerceIn(0f, 1f).let { if (i == 0) (p / 0.05f).coerceIn(0f, 1f) else it }
                 if (reveal > 0f) {
-                    val pos = Offset(sx * w, sy * h)
+                    val pos = Offset(sx * w, sy(syRaw) * h)
                     val blink = .5f + .5f * sin(tw * (1 + i % 3) + i * 1.7f)
                     val r = (3.2f + 1.6f * blink) * density * reveal
                     drawCircle(Brush.radialGradient(listOf(gold.copy(alpha = .55f * reveal), Color.Transparent), center = pos, radius = r * 4f), r * 4f, pos)
@@ -136,8 +147,8 @@ fun ConstellationDays(days: Long, modifier: Modifier = Modifier, height: Dp = 23
 
             // the number forms from connected, blinking stars
             val dp = ((p - .38f) / .62f).coerceIn(0f, 1f)
-            if (dp > 0f) {
-                val digitH = min(h * .34f, 86f * density)
+            if (dp > 0f && n > 0) {
+                val digitH = min(h * (if (framed) .34f else .27f), 86f * density)
                 var cell = digitH / 4f
                 val maxW = w * .88f
                 val gapK = 1.1f
@@ -146,7 +157,7 @@ fun ConstellationDays(days: Long, modifier: Modifier = Modifier, height: Dp = 23
                 val gap = gapK * cell
                 val totalW = 2 * cell * n + gap * (n - 1)
                 val left = (w - totalW) / 2f
-                val top = h * .50f
+                val top = h * (if (framed) .50f else .62f)
                 val dh = cell * 4f
                 val center = Offset(w / 2f, top + dh / 2f)
                 drawCircle(

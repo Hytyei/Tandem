@@ -31,11 +31,23 @@ data class ProfileDetails(
     val meters: Map<String, Int> = emptyMap(), // Meter keys -> 0..100
     val nowAt: Long = 0,                       // when "right now" last changed
     val metersAt: Long = 0,
+    val media: Map<String, MediaInfo> = emptyMap(), // "watching"/"playing"/"listening"/"reading" -> poster + short info
 ) {
+    fun mediaFor(kind: String): MediaInfo? = media[kind]?.takeIf { it.title.isNotBlank() }
     val hasNow get() = watching.isNotBlank() || playing.isNotBlank() || listening.isNotBlank() || reading.isNotBlank()
     val isEmpty get() = fullName.isBlank() && birthday.isBlank() && colors.isEmpty() && hobbies.isEmpty() && sport.isBlank() &&
         food.isBlank() && music.isBlank() && loveLanguage.isBlank() && !hasNow && meters.isEmpty()
 }
+
+/** Poster / cover and a short description for a "now watching / playing / listening / reading" title. */
+@Serializable
+data class MediaInfo(
+    val title: String = "",
+    val sub: String = "",      // e.g. "2020 action role-playing video game" or "Artist · Album"
+    val blurb: String = "",    // short description
+    val img: String = "",      // https image on an allow-listed host
+    val src: String = "",      // wikipedia | itunes | openlibrary
+)
 
 @Serializable
 data class CoupleInfo(
@@ -114,6 +126,7 @@ data class SyncResponse(
     val diary: List<DiaryEntry> = emptyList(),
     val events: List<CalendarEvent> = emptyList(),
     val stats: Stats? = null,
+    val trip: Trip? = null,               // the live-tracked date that is in progress, if any
 )
 
 @Serializable data class AuthResponse(val token: String, val user: User)
@@ -189,12 +202,15 @@ data class Place(
     val reviews: List<PlaceReview> = emptyList(),
     val avg: Double? = null,
     val count: Int = 0,
+    val images: List<String> = emptyList(),   // picture ids, fetched from /places/images/{id}
 ) {
     fun reviewOf(userId: String?) = reviews.firstOrNull { it.userId == userId }
 }
 @Serializable data class PlacesResponse(val places: List<Place> = emptyList())
 @Serializable data class PlaceBody(
     val name: String, val category: String, val lat: Double, val lon: Double, val note: String = "", val visitDate: String? = null,
+    /** How many times you have been there (1..999). Always send it when editing; optional (null = 1) when adding. */
+    val visits: Int? = null,
 )
 @Serializable data class ReviewBody(val rating: Int?, val comment: String = "")
 /** One hit from the place-name search. */
@@ -288,3 +304,78 @@ data class GameStats(
 @Serializable data class MatchBody(val game: String, val rounds: Int)
 @Serializable data class ScoreBody(val round: Int, val score: Int)
 @Serializable data class GoalBody(val title: String, val metric: String, val target: Int)
+
+
+// ---- saved addresses (home etc., shown on the Heatmap map)
+@Serializable
+data class SavedAddress(
+    val id: String,
+    val userId: String,
+    val label: String,
+    val kind: String = "home",
+    val address: String = "",
+    val lat: Double,
+    val lon: Double,
+    val updatedAt: Long = 0,
+)
+@Serializable data class AddressesResponse(val addresses: List<SavedAddress> = emptyList())
+@Serializable data class AddressBody(val label: String, val kind: String, val address: String, val lat: Double, val lon: Double)
+
+// ---- shared notes + checklists (Calendar tab)
+@Serializable data class NoteItem(val id: String, val text: String, val done: Boolean = false, val doneBy: String? = null, val position: Int = 0)
+@Serializable
+data class Note(
+    val id: String,
+    val createdBy: String = "",
+    val title: String,
+    val body: String = "",
+    val kind: String = "note",          // note | list
+    val date: String? = null,           // yyyy-MM-dd this note belongs to (optional)
+    val pinned: Boolean = false,
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0,
+    val updatedBy: String? = null,
+    val items: List<NoteItem> = emptyList(),
+) {
+    val isList get() = kind == "list"
+    val doneCount get() = items.count { it.done }
+}
+@Serializable data class NotesResponse(val notes: List<Note> = emptyList())
+/** Used for create AND edit (the server ignores kind/items on edit). */
+@Serializable data class NoteBody(
+    val title: String, val body: String = "", val kind: String = "note", val date: String? = null, val pinned: Boolean = false,
+    val items: List<String> = emptyList(),
+)
+@Serializable data class NewItemBody(val text: String)
+@Serializable data class ItemTextBody(val text: String)
+@Serializable data class ItemDoneBody(val done: Boolean)
+
+// ---- live-tracked trips ("we're on a date")
+@Serializable
+data class TripMember(val userId: String, val joinedAt: Long = 0, val leftAt: Long? = null, val distanceM: Long = 0, val points: Int = 0) {
+    val recording get() = leftAt == null
+}
+@Serializable
+data class Trip(
+    val id: String,
+    val title: String = "Our date",
+    val status: String = "active",       // active | done
+    val startedBy: String = "",
+    val startedAt: Long = 0,
+    val endedAt: Long? = null,
+    val durationMs: Long = 0,
+    val distanceM: Long = 0,             // the longer of the recorded paths
+    val members: List<TripMember> = emptyList(),
+) {
+    val isActive get() = status == "active"
+    fun member(userId: String?) = members.firstOrNull { it.userId == userId }
+}
+@Serializable data class TripTotals(val trips: Int = 0, val distanceM: Long = 0, val longestM: Long = 0, val durationMs: Long = 0)
+@Serializable data class TripsResponse(val active: Trip? = null, val trips: List<Trip> = emptyList(), val totals: TripTotals = TripTotals())
+/** points are [lat, lon, epochMillis] */
+@Serializable data class TripPath(val userId: String, val points: List<List<Double>> = emptyList())
+@Serializable data class TripDetail(val trip: Trip, val paths: List<TripPath> = emptyList())
+@Serializable data class TripStartBody(val title: String)
+@Serializable data class TripTitleBody(val title: String)
+@Serializable data class FixBody(val t: Long, val lat: Double, val lon: Double)
+@Serializable data class FixesBody(val points: List<FixBody>)

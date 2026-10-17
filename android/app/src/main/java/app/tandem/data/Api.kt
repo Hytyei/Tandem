@@ -49,6 +49,32 @@ interface TandemApi {
     @POST("places/{id}/visit") suspend fun visitPlace(@Path("id") id: String): Place
     @PUT("places/{id}/review") suspend fun reviewPlace(@Path("id") id: String, @Body b: ReviewBody): Place
     @DELETE("places/{id}") suspend fun deletePlace(@Path("id") id: String)
+    @POST("places/{id}/images") suspend fun uploadPlaceImage(@Path("id") id: String, @Body body: RequestBody): ImageId
+    @DELETE("places/images/{id}") suspend fun deletePlaceImage(@Path("id") id: String): OkResponse
+
+    @GET("addresses") suspend fun addresses(): AddressesResponse
+    @POST("addresses") suspend fun addAddress(@Body b: AddressBody): SavedAddress
+    @PUT("addresses/{id}") suspend fun editAddress(@Path("id") id: String, @Body b: AddressBody): SavedAddress
+    @DELETE("addresses/{id}") suspend fun deleteAddress(@Path("id") id: String): OkResponse
+
+    @GET("notes") suspend fun notes(): NotesResponse
+    @POST("notes") suspend fun addNote(@Body b: NoteBody): Note
+    @PUT("notes/{id}") suspend fun editNote(@Path("id") id: String, @Body b: NoteBody): Note
+    @DELETE("notes/{id}") suspend fun deleteNote(@Path("id") id: String): OkResponse
+    @POST("notes/{id}/items") suspend fun addNoteItem(@Path("id") id: String, @Body b: NewItemBody): Note
+    @PUT("notes/items/{id}") suspend fun setItemDone(@Path("id") id: String, @Body b: ItemDoneBody): Note
+    @PUT("notes/items/{id}") suspend fun setItemText(@Path("id") id: String, @Body b: ItemTextBody): Note
+    @DELETE("notes/items/{id}") suspend fun deleteNoteItem(@Path("id") id: String): Note
+
+    @GET("trips") suspend fun trips(): TripsResponse
+    @POST("trips") suspend fun startTrip(@Body b: TripStartBody): Trip
+    @GET("trips/{id}") suspend fun tripDetail(@Path("id") id: String): TripDetail
+    @PUT("trips/{id}") suspend fun renameTrip(@Path("id") id: String, @Body b: TripTitleBody): Trip
+    @DELETE("trips/{id}") suspend fun deleteTrip(@Path("id") id: String): OkResponse
+    @POST("trips/{id}/join") suspend fun joinTrip(@Path("id") id: String): Trip
+    @POST("trips/{id}/leave") suspend fun leaveTrip(@Path("id") id: String): Trip
+    @POST("trips/{id}/points") suspend fun sendTripPoints(@Path("id") id: String, @Body b: FixesBody): Trip
+    @POST("trips/{id}/end") suspend fun endTrip(@Path("id") id: String): Trip
 
     @PUT("reactions") suspend fun react(@Body b: ReactionBody): ReactionsResponse
 
@@ -75,11 +101,13 @@ object ApiFactory {
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val token = tokenProvider()
-            val url = chain.request().url
-            val req = if (token != null && url.isHttps && url.host == apiHost()) {
-                chain.request().newBuilder().header("Authorization", "Bearer $token").build()
-            } else chain.request()
-            chain.proceed(req)
+            val orig = chain.request()
+            val url = orig.url
+            val b = orig.newBuilder()
+            // Wikipedia / iTunes / Open Library / map tiles all ask clients to identify themselves.
+            if (orig.header("User-Agent") == null) b.header("User-Agent", Geo.USER_AGENT)
+            if (token != null && url.isHttps && url.host == apiHost()) b.header("Authorization", "Bearer $token")
+            chain.proceed(b.build())
         }
         .build()
 

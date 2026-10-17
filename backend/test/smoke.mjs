@@ -133,9 +133,9 @@ r = await call("GET", "/stats?tz=210", A);
 ok("stats detail", r.status === 200 && r.body.streak >= 1 && r.body.photos === 4 && r.body.moodCounts.length > 0 && r.body.daily.length > 0, r.body);
 
 // security: rate limiting + headers
-r = await call("POST", "/auth/register", null, { username: "zed", password: "secret456" });
-for (let i = 0; i < 8; i++) await call("POST", "/auth/login", null, { username: "zed", password: "nope-nope" });
-r = await call("POST", "/auth/login", null, { username: "zed", password: "secret456" });
+r = await call("POST", "/auth/register", null, { username: "zolt", password: "secret456" });
+for (let i = 0; i < 8; i++) await call("POST", "/auth/login", null, { username: "zolt", password: "nope-nope" });
+r = await call("POST", "/auth/login", null, { username: "zolt", password: "secret456" });
 ok("login locked after repeated failures", r.status === 429, r);
 {
   const raw = await mod.default.fetch(new Request("https://x/health"), env);
@@ -436,6 +436,189 @@ r = await call("DELETE", `/games/goals/${g2}`, I);
 ok("delete goal", r.status === 200, r);
 r = await call("DELETE", `/games/goals/${g2}`, I);
 ok("delete goal twice 404", r.status === 404, r);
+
+
+// ================= update 4 =================
+// ---- visits on create + place pictures
+r = await call("POST", "/places", H, { name: "Old Bridge", category: "sights", lat: 35.1, lon: 51.1, visits: 7 }); const p4 = r.body.id;
+ok("place can start with N earlier visits", r.status === 201 && r.body.visits === 7 && Array.isArray(r.body.images) && r.body.images.length === 0, r);
+r = await call("POST", "/places", H, { name: "Bad visits", category: "other", lat: 1, lon: 1, visits: 0 });
+ok("visits 0 rejected", r.status === 400, r);
+r = await call("POST", "/places", H, { name: "Bad visits", category: "other", lat: 1, lon: 1, visits: 1000 });
+ok("visits 1000 rejected", r.status === 400, r);
+r = await call("POST", "/places", H, { name: "Bad visits", category: "other", lat: 1, lon: 1, visits: 2.5 });
+ok("fractional visits rejected", r.status === 400, r);
+const big = new Uint8Array(500); big[0] = 0xff; big[1] = 0xd8; big[2] = 0xff;
+r = await call("POST", `/places/${p4}/images`, H, null, big);
+ok("add place picture", r.status === 201 && r.body.id, r); const pi1 = r.body.id;
+r = await call("POST", `/places/${p4}/images`, I, null, big);
+ok("partner can add a picture to the shared place", r.status === 201, r); const pi2 = r.body.id;
+r = await call("POST", `/places/${p4}/images`, J, null, big);
+ok("outsider cannot add place pictures", r.status === 409 || r.status === 404, r);
+r = await call("POST", `/places/${p4}/images`, H, null, new Uint8Array(500));
+ok("non-JPEG place picture rejected", r.status === 415, r);
+r = await call("POST", `/places/${p4}/images`, H, null, new Uint8Array(600000).fill(0xff));
+ok("huge place picture rejected", r.status === 413, r.status);
+r = await call("GET", "/places", I);
+ok("place lists its pictures", r.body.places.find((x) => x.id === p4).images.length === 2, r.body.places.find((x) => x.id === p4));
+r = await call("GET", `/places/images/${pi1}`, I);
+ok("partner fetches picture bytes", r.status === 200 && r.body.length === 500, r.status);
+r = await call("GET", `/places/images/${pi1}`, J);
+ok("outsider cannot fetch place picture", r.status === 409 || r.status === 404, r.status);
+for (let k = 0; k < 4; k++) await call("POST", `/places/${p4}/images`, H, null, big);
+r = await call("POST", `/places/${p4}/images`, H, null, big);
+ok("max 6 pictures per place", r.status === 409, r);
+r = await call("DELETE", `/places/images/${pi2}`, H);
+ok("either partner can remove a place picture", r.status === 200, r);
+r = await call("DELETE", `/places/images/${pi2}`, H);
+ok("removing twice 404", r.status === 404, r);
+
+// ---- saved addresses
+r = await call("POST", "/addresses", H, { label: "Nora's home", kind: "home", address: "12 Rose St", lat: 35.7, lon: 51.3 }); const ad1 = r.body.id;
+ok("save address", r.status === 201 && r.body.userId === noraId && r.body.kind === "home", r);
+r = await call("POST", "/addresses", I, { label: "Paul's place", kind: "weird", lat: 35.71, lon: 51.31 });
+ok("unknown kind falls back to home", r.status === 201 && r.body.kind === "home", r); const ad2 = r.body.id;
+r = await call("POST", "/addresses", I, { label: "x", lat: 999, lon: 1 });
+ok("bad coordinates rejected", r.status === 400, r);
+r = await call("GET", "/addresses", I);
+ok("partner sees both addresses", r.body.addresses.length === 2 && r.body.addresses.some((a) => a.id === ad1 && a.userId === noraId), r.body);
+r = await call("GET", "/addresses", J);
+ok("unpaired user can't list addresses", r.status === 409, r);
+r = await call("PUT", `/addresses/${ad1}`, I, { label: "Hacked", lat: 1, lon: 1 });
+ok("can't edit partner's address", r.status === 404, r);
+r = await call("PUT", `/addresses/${ad1}`, H, { label: "Our flat", kind: "home", address: "14 Rose St", lat: 35.7, lon: 51.3 });
+ok("edit own address", r.status === 200 && r.body.label === "Our flat", r);
+r = await call("DELETE", `/addresses/${ad2}`, H);
+ok("can't delete partner's address", r.status === 404, r);
+r = await call("DELETE", `/addresses/${ad2}`, I);
+ok("delete own address", r.status === 200, r);
+
+// ---- shared notes + checklists
+r = await call("POST", "/notes", H, { title: "Trip packing", kind: "list", items: ["Passports", "  Chargers ", "", "Snacks"], date: "2027-03-01" }); const n1 = r.body.id;
+ok("create checklist", r.status === 201 && r.body.kind === "list" && r.body.items.length === 3 && r.body.items[1].text === "Chargers" && r.body.date === "2027-03-01", r);
+r = await call("POST", "/notes", I, { title: "Gift ideas", body: "something handmade", kind: "note", pinned: true }); const n2 = r.body.id;
+ok("create note", r.status === 201 && r.body.pinned === true && r.body.items.length === 0, r);
+r = await call("POST", "/notes", I, { title: "", kind: "note" });
+ok("empty title rejected", r.status === 400, r);
+r = await call("POST", "/notes", I, { title: "x", date: "2027-99-99" });
+ok("bad note date rejected", r.status === 400, r);
+r = await call("GET", "/notes", I);
+ok("partner sees notes, pinned first", r.body.notes.length === 2 && r.body.notes[0].id === n2, r.body.notes.map((n) => n.title));
+const itemId = r.body.notes.find((n) => n.id === n1).items[0].id;
+r = await call("PUT", `/notes/items/${itemId}`, I, { done: true });
+ok("partner ticks an item", r.status === 200 && r.body.items[0].done === true && r.body.items[0].doneBy === paulId, r);
+r = await call("PUT", `/notes/items/${itemId}`, H, { done: true });
+ok("ticking again keeps who did it", r.body.items[0].doneBy === paulId, r.body.items[0]);
+r = await call("PUT", `/notes/items/${itemId}`, H, { done: false });
+ok("untick", r.body.items[0].done === false && r.body.items[0].doneBy === null, r.body.items[0]);
+r = await call("POST", `/notes/${n1}/items`, I, { text: "Sunscreen" });
+ok("add item", r.status === 201 && r.body.items.length === 4 && r.body.items[3].text === "Sunscreen", r);
+const lastItem = r.body.items[3].id;
+r = await call("DELETE", `/notes/items/${lastItem}`, H);
+ok("delete item", r.status === 200 && r.body.items.length === 3, r);
+r = await call("PUT", `/notes/${n1}`, H, { title: "Packing (final)" });
+ok("rename note keeps items", r.status === 200 && r.body.title === "Packing (final)" && r.body.items.length === 3, r);
+r = await call("PUT", `/notes/${n1}`, J, { title: "x" });
+ok("outsider can't edit notes", r.status === 409 || r.status === 404, r);
+r = await call("DELETE", `/notes/${n2}`, H);
+ok("either partner deletes a note", r.status === 200, r);
+r = await call("GET", "/notes", H);
+ok("note gone", r.body.notes.length === 1, r.body.notes);
+
+// ---- trips (live tracking)
+r = await call("POST", "/trips", J, { title: "nope" });
+ok("unpaired can't start a trip", r.status === 409, r);
+r = await call("POST", "/trips", H, { title: "Sunset walk" }); const tr1 = r.body.id; const t0 = r.body.startedAt;
+ok("start trip", r.status === 201 && r.body.status === "active" && r.body.members.length === 1 && r.body.startedBy === noraId, r);
+r = await call("POST", "/trips", I, {});
+ok("only one active trip", r.status === 409, r);
+r = await call("GET", "/sync", I);
+ok("sync carries the active trip", r.body.trip && r.body.trip.id === tr1 && r.body.trip.members.length === 1, r.body.trip);
+r = await call("POST", `/trips/${tr1}/points`, I, { points: [{ t: t0 + 1000, lat: 35.7, lon: 51.4 }] });
+ok("must join before sending points", r.status === 403, r);
+r = await call("POST", `/trips/${tr1}/join`, I);
+ok("partner joins", r.status === 200 && r.body.members.length === 2, r);
+const deg = 1 / 111195; // ~1 m of latitude
+r = await call("POST", `/trips/${tr1}/points`, H, { points: [
+  { t: t0 + 1000, lat: 35.7, lon: 51.4 },
+  { t: t0 + 6000, lat: 35.7 + 100 * deg, lon: 51.4 },          // +100 m
+  { t: t0 + 11000, lat: 35.7 + 100.5 * deg, lon: 51.4 },       // jitter: ignored
+  { t: t0 + 16000, lat: 35.7 + 300 * deg, lon: 51.4 },         // +200 m
+  { t: t0 + 17000, lat: 36.7, lon: 51.4 },                     // teleport: ignored
+  { t: t0 + 99999999999, lat: 35.7, lon: 51.4 },               // far future: ignored
+] });
+const hm = r.body.members.find((m) => m.userId === noraId);
+ok("distance adds up and ignores jitter/teleports", r.status === 200 && Math.abs(hm.distanceM - 300) <= 3 && hm.points === 3 && Math.abs(r.body.distanceM - 300) <= 3, r.body);
+r = await call("POST", `/trips/${tr1}/points`, I, { points: [{ t: t0 + 2000, lat: 35.7, lon: 51.4 }, { t: t0 + 12000, lat: 35.7 + 250 * deg, lon: 51.4 }] });
+ok("partner's own path is tracked separately; trip distance is the longer one", r.status === 200 && Math.abs(r.body.distanceM - 300) <= 3 && Math.abs(r.body.members.find((m) => m.userId === paulId).distanceM - 250) <= 3, r.body);
+r = await call("POST", `/trips/${tr1}/points`, H, { points: [] });
+ok("empty batch rejected", r.status === 400, r);
+r = await call("POST", `/trips/${tr1}/points`, H, { points: [{ t: t0 + 2000, lat: 999, lon: 0 }] });
+ok("all-invalid batch rejected", r.status === 400, r);
+r = await call("GET", `/trips/${tr1}`, I);
+ok("trip detail has a path per person", r.status === 200 && r.body.paths.length === 2 && r.body.paths.find((p) => p.userId === noraId).points.length === 3, r.body.paths);
+r = await call("POST", `/trips/${tr1}/end`, I);
+ok("either partner ends the trip", r.status === 200 && r.body.status === "done" && r.body.endedAt >= t0, r);
+r = await call("POST", `/trips/${tr1}/points`, H, { points: [{ t: t0 + 20000, lat: 35.7, lon: 51.4 }] });
+ok("no points after the end", r.status === 409, r);
+r = await call("GET", "/trips", H);
+ok("trip list + totals", r.status === 200 && r.body.active === null && r.body.trips.length === 1 && r.body.totals.trips === 1 && Math.abs(r.body.totals.distanceM - 300) <= 3 && Math.abs(r.body.totals.longestM - 300) <= 3, r.body);
+r = await call("PUT", `/trips/${tr1}`, I, { title: "Sunset walk 🌇" });
+ok("rename trip", r.status === 200 && r.body.title === "Sunset walk 🌇", r);
+r = await call("GET", "/sync", H);
+ok("sync has no trip when none is active", r.body.trip === null, r.body.trip);
+r = await call("POST", "/trips", I, {}); const tr2 = r.body.id;
+ok("a new trip can start after one ends", r.status === 201, r);
+r = await call("POST", `/trips/${tr2}/leave`, I);
+ok("leave stops your recording", r.status === 200 && r.body.members[0].leftAt > 0, r);
+r = await call("POST", `/trips/${tr2}/points`, I, { points: [{ t: Date.now(), lat: 35.7, lon: 51.4 }] });
+ok("left members can't send points", r.status === 403, r);
+r = await call("DELETE", `/trips/${tr2}`, H);
+ok("delete trip", r.status === 200, r);
+r = await call("GET", `/trips/${tr2}`, H);
+ok("deleted trip is gone", r.status === 404, r);
+r = await call("GET", `/trips/${tr1}`, J);
+ok("outsider can't read a trip", r.status === 409 || r.status === 404, r.status);
+
+// ---- profile media info (poster / cover)
+r = await call("PUT", "/me/profile", H, { watching: "Arcane", playing: "Cyberpunk 2077", media: {
+  watching: { title: "Arcane", blurb: "Animated series", img: "https://upload.wikimedia.org/wikipedia/en/thumb/a/a2/x.jpg/330px-x.jpg", src: "wikipedia" },
+  playing: { title: "Cyberpunk 2077", blurb: "Open-world RPG", img: "https://evil.example.com/x.jpg", src: "wikipedia" },
+  listening: { title: "Ghost song", img: "https://is1-ssl.mzstatic.com/image/x/600x600bb.jpg" },
+  reading: "nonsense" } });
+ok("media stored next to its title only", r.status === 200 && r.body.profile.media.watching.title === "Arcane" && r.body.profile.media.watching.img.startsWith("https://upload.wikimedia.org/") && !r.body.profile.media.listening, r.body.profile?.media ?? r.body);
+ok("media image from an unknown host is dropped", r.body.profile.media.playing.img === "", r.body.profile.media.playing);
+r = await call("PUT", "/me/profile", H, { watching: "", playing: "Cyberpunk 2077", media: { watching: { title: "Arcane", img: "https://upload.wikimedia.org/a.jpg" } } });
+ok("clearing a title clears its media", r.status === 200 && !r.body.profile.media.watching, r.body.profile?.media);
+r = await call("PUT", "/me/profile", H, { media: { playing: { title: "x".repeat(500) } }, playing: "x" });
+ok("overlong media text rejected", r.status === 400, r);
+
+// ---- new IQ minigames
+for (const g of ["seq", "code", "lights", "slide"]) {
+  r = await call("POST", "/games/matches", H, { game: g, rounds: 1 });
+  ok(`${g}: match can be created`, r.status === 201 && r.body.game === g, r);
+  const mid = r.body.id;
+  const cap = { seq: 800, code: 1000, lights: 1000, slide: 1000 }[g];
+  r = await call("PUT", `/games/matches/${mid}/score`, H, { round: 1, score: cap + 1 });
+  ok(`${g}: score above the cap rejected`, r.status === 400, r);
+  r = await call("PUT", `/games/matches/${mid}/score`, H, { round: 1, score: cap });
+  ok(`${g}: top score accepted`, r.status === 200, r);
+  await call("DELETE", `/games/matches/${mid}`, H);
+}
+
+// ---- account deletion cleans the new tables
+sqlite.exec("DELETE FROM auth_attempts"); // the register rate limit is per IP
+const tmp = await call("POST", "/auth/register", null, { username: "zeke", password: "secret000", displayName: "Zed" }); const Z = tmp.body.token;
+const tmp2 = await call("POST", "/auth/register", null, { username: "yuki", password: "secret111", displayName: "Yan" }); const Y = tmp2.body.token;
+r = await call("POST", "/couple", Z); await call("POST", "/couple/join", Y, { code: r.body.inviteCode });
+await call("POST", "/addresses", Z, { label: "home", lat: 1, lon: 1 });
+await call("POST", "/notes", Z, { title: "n", kind: "list", items: ["a"] });
+r = await call("POST", "/trips", Z, {}); const trz = r.body.id;
+await call("POST", `/trips/${trz}/points`, Z, { points: [{ t: Date.now(), lat: 1, lon: 1 }] });
+r = await call("DELETE", "/me", Z, { password: "secret000" });
+ok("delete account with update-4 data", r.status === 200, r);
+r = await call("GET", "/addresses", Y);
+ok("deleted user's addresses are gone", r.status === 409 || r.body.addresses.length === 0, r.body);
 
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
 process.exit(fails ? 1 : 0);

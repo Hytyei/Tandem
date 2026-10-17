@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import app.tandem.AppViewModel
 import app.tandem.R
 import app.tandem.data.*
@@ -72,54 +73,49 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
     val pull = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
     PullToRefreshBox(isRefreshing = vm.refreshing, onRefresh = { vm.refresh(silent = false) }, state = pull) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 130.dp)) {
-            LargeTitle("${greeting()}, ${me.displayName.substringBefore(' ')}", subtitle = LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM")))
+            val days = daysTogether(data.couple.anniversary)
+            val st = data.stats ?: Stats()
+            val first = me.displayName.substringBefore(' ')
+
+            // ---------- Our sky: full-bleed, no box. Days together drawn as a constellation behind the greeting. Tap for Stats.
+            Box(Modifier.fillMaxWidth()) {
+                ConstellationDays(
+                    days ?: 0L, Modifier.fillMaxWidth(), height = 470.dp,
+                    caption = if (days == null) null else if (days == 1L) "day together" else "days together",
+                    framed = false, showNumber = days != null,
+                )
+                Column(Modifier.statusBarsPadding().padding(horizontal = 20.dp).padding(top = 18.dp)) {
+                    Text(LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM")).uppercase(), style = Type.caption.copy(letterSpacing = 0.6.sp), color = Color.White.copy(alpha = .7f))
+                    Text("${greeting()}, $first", style = Type.largeTitle, color = Color.White)
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).pressable(onClick = openStats).padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Avatar(me, 28.dp, ring = c.me)
+                        Box(Modifier.offset(x = (-8).dp)) { Avatar(partner, 28.dp, ring = c.partner) }
+                        Spacer(Modifier.width(2.dp))
+                        Text("$first & ${partner?.displayName?.substringBefore(' ') ?: "…"}", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 1)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Stats  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = Color(0xFFFFB5C5))
+                    }
+                }
+                if (days == null) Text(
+                    "Set your anniversary in Profile to start counting days together", style = Type.callout, color = Color.White.copy(alpha = .85f),
+                    textAlign = TextAlign.Center, modifier = Modifier.align(Alignment.Center).padding(horizontal = 36.dp).padding(top = 70.dp),
+                )
+            }
 
             vm.update?.let { u -> UpdateBanner(u.version, vm.updateProgress, onInstall = { vm.installUpdate() }) }
 
-            // ---------- Our numbers: days together drawn as a node graph + three flat icon stats. Tap for the full page.
-            val days = daysTogether(data.couple.anniversary)
-            val st = data.stats ?: Stats()
-            SoftCard(
-                Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(0).pressable(onClick = openStats),
-                shape = RoundedCornerShape(30.dp), padding = 18.dp,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(me, 34.dp, ring = c.me)
-                    Box(Modifier.offset(x = (-8).dp)) { Avatar(partner, 34.dp, ring = c.partner) }
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "${me.displayName.substringBefore(' ')} & ${partner?.displayName?.substringBefore(' ') ?: "…"}",
-                        style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f), maxLines = 1,
-                    )
-                    Text("Stats  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
-                }
-                Spacer(Modifier.height(14.dp))
-                if (days != null) {
-                    ConstellationDays(days, Modifier.fillMaxWidth(), height = 230.dp, caption = if (days == 1L) "day together" else "days together")
-                } else {
-                    Text("Set your anniversary in Profile to start counting days together", style = Type.callout, color = c.secondary)
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MiniStat(Modifier.weight(1f), Icons.Filled.EmojiEmotions, st.moods.toLong(), "moods", c.accent)
-                    MiniStat(Modifier.weight(1f), Icons.Filled.Edit, st.diary.toLong(), "notes", c.me)
-                    MiniStat(Modifier.weight(1f), Icons.Filled.CalendarMonth, st.activeDays.toLong(), "active days", c.special)
-                }
+            Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(0), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MiniStat(Modifier.weight(1f), Icons.Filled.EmojiEmotions, st.moods.toLong(), "moods", c.accent)
+                MiniStat(Modifier.weight(1f), Icons.Filled.Edit, st.diary.toLong(), "notes", c.me)
+                MiniStat(Modifier.weight(1f), Icons.Filled.CalendarMonth, st.activeDays.toLong(), "active days", c.special)
             }
 
-            // ---------- Right now
+            // ---------- Mood shares
             SectionHeader("Right now")
-            if (partner != null) Row(
-                Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.card)
-                    .pressable(onClick = openPartnerPage).padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Avatar(partner, 30.dp, ring = c.partner)
-                Spacer(Modifier.width(10.dp))
-                val now = partner.profile.let { p -> listOf(p.playing.takeIf { it.isNotBlank() }?.let { "🎮 $it" }, p.watching.takeIf { it.isNotBlank() }?.let { "📺 $it" }, p.listening.takeIf { it.isNotBlank() }?.let { "🎧 $it" }, p.reading.takeIf { it.isNotBlank() }?.let { "📖 $it" }).firstOrNull { it != null } }
-                Text(now ?: "${partner.displayName.substringBefore(' ')}'s page", style = Type.callout, color = c.label, modifier = Modifier.weight(1f), maxLines = 1)
-                Text("Open  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
-            }
             Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val myMood = data.latestMoods[me.id]
                 val theirMood = partner?.let { data.latestMoods[it.id] }
@@ -139,6 +135,12 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
             Spacer(Modifier.height(14.dp))
             Box(Modifier.padding(horizontal = 16.dp).staggerIn(6)) {
                 PrimaryButton("Share your mood", onClick = { showSheet = true })
+            }
+
+            // ---------- About your partner: what they're into right now + today's meters (from their page). Tap for the whole page.
+            if (partner != null) {
+                Spacer(Modifier.height(18.dp))
+                PartnerSnapshot(partner, openPartnerPage)
             }
 
             // ---------- Next event
@@ -254,39 +256,76 @@ private fun NextEventCard(e: CalendarEvent, date: LocalDate, onClick: () -> Unit
 @Composable
 fun MoodSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val c = T.colors
-    var mood by remember { mutableStateOf<Mood?>(null) }
     var activity by remember { mutableStateOf<Activity?>(null) }
+    var mood by remember { mutableStateOf<Mood?>(null) }
     var note by remember { mutableStateOf("") }
+    var choosing by remember { mutableStateOf(true) }   // the activity grid is open until one is picked, then it folds into one row
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
-        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
-            // Live preview of what the partner will see
-            val previewRes = activity?.art ?: mood?.art
-            Box(Modifier.fillMaxWidth().height(132.dp), contentAlignment = Alignment.Center) {
-                AnimatedContent(previewRes, label = "preview", transitionSpec = {
-                    (fadeIn(tween(200)) + scaleIn(spring(0.5f, Spring.StiffnessMedium), initialScale = .5f)) togetherWith (fadeOut(tween(100)) + scaleOut(targetScale = 1.2f))
-                }) { res ->
-                    if (res != null) Image(painterResource(res), null, Modifier.height(124.dp).aspectRatio(4f / 3f).clip(RoundedCornerShape(24.dp)), contentScale = ContentScale.Crop)
-                    else Text("How are you?", style = Type.title, color = c.tertiary)
+        Column(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
+            // Only this part scrolls (and only vertically); the Share button below always stays in reach.
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                // Live preview of what the partner will see
+                val previewRes = activity?.art ?: mood?.art
+                Box(Modifier.fillMaxWidth().height(112.dp), contentAlignment = Alignment.Center) {
+                    AnimatedContent(previewRes, label = "preview", transitionSpec = {
+                        (fadeIn(tween(200)) + scaleIn(spring(0.5f, Spring.StiffnessMedium), initialScale = .5f)) togetherWith (fadeOut(tween(100)) + scaleOut(targetScale = 1.2f))
+                    }) { res ->
+                        if (res != null) Image(painterResource(res), null, Modifier.height(106.dp).aspectRatio(4f / 3f).clip(RoundedCornerShape(22.dp)), contentScale = ContentScale.Crop)
+                        else Text("What are you up to?", style = Type.title, color = c.tertiary)
+                    }
+                }
+
+                // ---- 1. activity (required, comes first)
+                StepTitle(1, "What are you up to?", done = activity != null)
+                AnimatedContent(choosing || activity == null, label = "activityStep") { open ->
+                    if (open) ActivityPicker(activity) { activity = it; choosing = false }
+                    else activity?.let { a ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(a.tint.copy(alpha = .14f)).pressable { choosing = true }.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Image(painterResource(a.art), null, Modifier.width(76.dp).aspectRatio(4f / 3f).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
+                            Spacer(Modifier.width(12.dp))
+                            Text(a.label, style = Type.headline, color = c.label, modifier = Modifier.weight(1f))
+                            Text("Change", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.accent, modifier = Modifier.padding(end = 8.dp))
+                        }
+                    }
+                }
+
+                // ---- 2. mood (appears once an activity is chosen)
+                AnimatedVisibility(activity != null && !choosing, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                    Column {
+                        StepTitle(2, "How are you feeling?", done = mood != null)
+                        TileGrid(Mood.entries, columns = 4, selected = mood, onSelect = { mood = if (mood == it) null else it }, art = { it.art }, label = { it.label }, tint = { it.tint })
+                        Spacer(Modifier.height(14.dp))
+                        OutlinedTextField(
+                            note, { if (it.length <= 140) note = it }, placeholder = { Text("Add a note for your partner… (optional)", color = c.tertiary) },
+                            shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(), maxLines = 3,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.accent, unfocusedBorderColor = c.separator, focusedTextColor = c.label, unfocusedTextColor = c.label, cursorColor = c.accent),
+                        )
+                    }
                 }
             }
-
-            Text("Mood", style = Type.headline, color = c.label, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
-            TileGrid(Mood.entries, columns = 4, selected = mood, onSelect = { mood = if (mood == it) null else it }, art = { it.art }, label = { it.label }, tint = { it.tint })
-
-            Text("What are you up to?  (optional)", style = Type.headline, color = c.label, modifier = Modifier.padding(start = 8.dp, top = 18.dp, bottom = 8.dp))
-            ActivityStrip(activity) { activity = if (activity == it) null else it }
-
-            Spacer(Modifier.height(14.dp))
-            OutlinedTextField(
-                note, { if (it.length <= 140) note = it }, placeholder = { Text("Add a note for your partner…", color = c.tertiary) },
-                shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(), maxLines = 3,
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.accent, unfocusedBorderColor = c.separator, focusedTextColor = c.label, unfocusedTextColor = c.label, cursorColor = c.accent),
+            Spacer(Modifier.height(12.dp))
+            PrimaryButton(
+                when { activity == null -> "Pick what you're up to"; mood == null -> "Now pick how you feel"; else -> "Share" },
+                onClick = { vm.shareMood(mood!!, activity, note, onDismiss) }, enabled = mood != null && activity != null, loading = vm.busy,
             )
-            Spacer(Modifier.height(16.dp))
-            PrimaryButton("Share", onClick = { vm.shareMood(mood!!, activity, note, onDismiss) }, enabled = mood != null, loading = vm.busy)
         }
+    }
+}
+
+@Composable
+private fun StepTitle(n: Int, text: String, done: Boolean) {
+    val c = T.colors
+    Row(Modifier.padding(start = 4.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(24.dp).clip(RoundedCornerShape(50)).background(if (done) c.accent else c.accentSoft), contentAlignment = Alignment.Center) {
+            Text(if (done) "✓" else "$n", color = if (done) Color.White else c.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(text, style = Type.headline, color = c.label)
     }
 }
 
@@ -319,25 +358,93 @@ private fun <E> TileGrid(
     }
 }
 
-/** The activity artworks as a swipeable row of little posters (they are wide paintings, so they get room). */
+/** All activities as a tidy grid grouped by theme: everything is visible by scrolling down, nothing hides sideways. */
 @Composable
-private fun ActivityStrip(selected: Activity?, onSelect: (Activity) -> Unit) {
+private fun ActivityPicker(selected: Activity?, onSelect: (Activity) -> Unit) {
     val c = T.colors
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Activity.entries.forEach { a ->
-            val on = a == selected
-            val scale by animateFloatAsState(if (on) 1f else .96f, spring(0.5f, Spring.StiffnessMediumLow), label = "poster")
-            Box(
-                Modifier.width(148.dp).aspectRatio(4f / 3f).scale(scale).clip(RoundedCornerShape(22.dp))
-                    .border(if (on) 3.dp else 0.dp, if (on) Color.White else Color.Transparent, RoundedCornerShape(22.dp))
-                    .pressable { onSelect(a) },
-            ) {
-                Image(painterResource(a.art), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x00120A3A), Color(0xB3120A3A)), startY = 60f)))
-                Text(a.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 1,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 12.dp, vertical = 9.dp))
-                if (on) Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(22.dp).clip(RoundedCornerShape(50)).background(c.accent), contentAlignment = Alignment.Center) {
-                    Text("✓", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ACTIVITY_GROUPS.forEach { (group, list) ->
+            Text(group.uppercase(), style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+            list.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { a ->
+                        val on = a == selected
+                        val scale by animateFloatAsState(if (on) 1f else .97f, spring(0.5f, Spring.StiffnessMediumLow), label = "poster")
+                        Box(
+                            Modifier.weight(1f).aspectRatio(4f / 3f).scale(scale).clip(RoundedCornerShape(16.dp))
+                                .border(if (on) 3.dp else 0.dp, if (on) c.accent else Color.Transparent, RoundedCornerShape(16.dp))
+                                .pressable { onSelect(a) },
+                        ) {
+                            Image(painterResource(a.art), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x00120A3A), Color(0xB3120A3A)), startY = 40f)))
+                            Text(a.label, style = Type.caption.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp), color = Color.White, maxLines = 1,
+                                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 6.dp))
+                        }
+                    }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+// ================================================================== about your partner (home)
+@Composable
+private fun PartnerSnapshot(partner: User, onOpen: () -> Unit) {
+    val c = T.colors
+    val p = partner.profile
+    val name = partner.displayName.substringBefore(' ')
+    val now = listOf(
+        Triple(MediaLookup.WATCHING, "📺" to "Watching", p.watching), Triple(MediaLookup.PLAYING, "🎮" to "Playing", p.playing),
+        Triple(MediaLookup.LISTENING, "🎧" to "Listening to", p.listening), Triple(MediaLookup.READING, "📖" to "Reading", p.reading),
+    ).filter { it.third.isNotBlank() }
+    val meters = Meter.entries.filter { it.key in p.meters }
+    SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().pressable(onClick = onOpen)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(partner, 34.dp, ring = c.partner)
+            Spacer(Modifier.width(10.dp))
+            Text("About $name", style = Type.headline, color = c.label, modifier = Modifier.weight(1f), maxLines = 1)
+            Text("Open  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+        }
+        if (now.isEmpty() && meters.isEmpty()) {
+            Text("$name hasn't shared what they're into yet. Open their page to see the rest.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 10.dp))
+        }
+        if (now.isNotEmpty()) {
+            Text("RIGHT NOW", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+            now.forEach { (kind, label, title) ->
+                val m = p.mediaFor(kind)
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (m != null && m.img.isNotBlank()) {
+                        AsyncImage(
+                            model = m.img, contentDescription = m.title, contentScale = ContentScale.Crop,
+                            modifier = Modifier.width(46.dp).height(64.dp).clip(RoundedCornerShape(10.dp)).background(c.separator),
+                        )
+                    } else Box(Modifier.width(46.dp).height(46.dp).clip(RoundedCornerShape(14.dp)).background(c.accentSoft), contentAlignment = Alignment.Center) { Text(label.first, fontSize = 22.sp) }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${label.first}  ${label.second}", style = Type.caption, color = c.secondary)
+                        Text(m?.title?.ifBlank { null } ?: title, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val extra = m?.sub?.takeIf { it.isNotBlank() } ?: m?.blurb?.takeIf { it.isNotBlank() }
+                        if (extra != null) Text(extra, style = Type.caption, color = c.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        if (meters.isNotEmpty()) {
+            Text("TODAY'S METERS", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
+            meters.forEach { m ->
+                val v = p.meters[m.key] ?: 0
+                Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(m.emoji, fontSize = 16.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(m.label, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f))
+                        Text("$v% · ${m.caption(v)}", style = Type.caption, color = m.tint, maxLines = 1)
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)).background(m.tint.copy(alpha = .16f))) {
+                        Box(Modifier.fillMaxWidth((v / 100f).coerceIn(0.02f, 1f)).fillMaxHeight().clip(RoundedCornerShape(50)).background(Brush.horizontalGradient(listOf(m.tint.copy(alpha = .65f), m.tint))))
+                    }
                 }
             }
         }

@@ -45,6 +45,13 @@ enum class Activity(val key: String, val label: String, @DrawableRes val art: In
     }
 }
 
+/** The activities grouped for the mood sheet, so 18 posters are easy to scan instead of one endless row. */
+val ACTIVITY_GROUPS: List<Pair<String, List<Activity>>> = listOf(
+    "At home" to listOf(Activity.Gaming, Activity.Tv, Activity.Music, Activity.Eating, Activity.Sleeping, Activity.Hair, Activity.Nails),
+    "Work & study" to listOf(Activity.Working, Activity.Coding, Activity.Studying),
+    "Out & about" to listOf(Activity.Football, Activity.Cycling, Activity.Hiking, Activity.Camping, Activity.Roadtrip, Activity.Stargazing, Activity.Photography, Activity.Partying),
+)
+
 /** Kinds of special days (birthdays, Valentine's Day, first date, ...). Keys must match the backend. */
 enum class SpecialCategory(val key: String, val label: String, val emoji: String) {
     Birthday("birthday", "Birthday", "🎂"),
@@ -131,6 +138,19 @@ enum class PlaceCategory(val key: String, val label: String, val emoji: String, 
     }
 }
 
+/** Kinds of saved addresses on the map. Keys must match the backend (ADDRESS_KINDS). */
+enum class AddressKind(val key: String, val label: String, val emoji: String) {
+    Home("home", "Home", "🏠"),
+    Work("work", "Work", "💼"),
+    Family("family", "Family", "👨‍👩‍👧"),
+    Friends("friends", "Friends", "🧑‍🤝‍🧑"),
+    Other("other", "Other", "📌");
+
+    companion object {
+        fun from(key: String?): AddressKind = entries.firstOrNull { it.key == key } ?: Home
+    }
+}
+
 /** Favourite colours on a personal page. */
 enum class ProfileColor(val key: String, val label: String, val color: Color) {
     Red("red", "Red", Color(0xFFE5384F)), Orange("orange", "Orange", Color(0xFFF59E0B)), Yellow("yellow", "Yellow", Color(0xFFFFD43B)),
@@ -187,11 +207,26 @@ fun zodiacOf(month: Int, day: Int): String = when {
 val REACTION_EMOJIS = listOf("😂", "🤣", "😭", "🥲", "😐", "🫠", "😑", "🤔", "🐥", "🥹", "🥺", "🔥", "🥳", "📿")
 
 /** The minigames. Keys and score caps must match the backend (GAMES). */
-enum class MiniGame(val key: String, val label: String, val emoji: String, val tint: Color, val blurb: String, val rules: String, val unit: String) {
+enum class MiniGame(
+    val key: String, val label: String, val emoji: String, val tint: Color, val blurb: String, val rules: String, val unit: String,
+    /** Brain teasers (IQ / problem solving) are listed apart from the quick reflex games. */
+    val brain: Boolean = false,
+    val doneLabel: String = "Time!",
+) {
     Heart("heart", "Heart Catch", "💗", Color(0xFFF2476F), "30 seconds · tap every heart", "Hearts pop up all over the screen. Tap as many as you can in 30 seconds. Missed taps cost nothing, but hearts vanish fast.", "hearts"),
     Memory("memory", "Memory Match", "🧠", Color(0xFF6A5CF0), "60 seconds · match the pairs", "Flip two cards to find a pair. Pairs, time left and fewer mistakes all add up to your score.", "pts"),
     Sums("math", "Math Sprint", "➗", Color(0xFF14B8A6), "45 seconds · quick sums", "Answer as many sums as you can in 45 seconds. Right answers score, wrong ones cost you.", "pts"),
-    Draw("draw", "Quick Draw", "⚡", Color(0xFFF59E0B), "5 tries · wait, then tap", "Wait for the screen to turn gold, then tap as fast as you can. Tap too early and that try scores zero. Five tries.", "pts");
+    Draw("draw", "Quick Draw", "⚡", Color(0xFFF59E0B), "5 tries · wait, then tap", "Wait for the screen to turn gold, then tap as fast as you can. Tap too early and that try scores zero. Five tries.", "pts"),
+
+    // ---- brain teasers: both of you get the very same puzzle (the seed), so it is a fair fight
+    Sequence("seq", "Next Number", "🔢", Color(0xFF3B82F6), "60 seconds · spot the pattern",
+        "Each puzzle is a row of numbers with one missing at the end. Work out the rule and pick the number that comes next. Right answers score 10, wrong ones cost 5. The puzzles get trickier as you go.", "pts", brain = true),
+    Code("code", "Code Breaker", "🔐", Color(0xFF8B5CF6), "8 guesses · crack the colour code",
+        "A secret code of 4 colours is hiding (colours can repeat). Guess it: after each guess you learn how many colours are right and in the right spot, and how many are right but in the wrong spot. Crack it in fewer guesses and less time for a higher score.", "pts", brain = true, doneLabel = "Round over"),
+    Lights("lights", "Lights Out", "💡", Color(0xFFF5B301), "90 seconds · switch every light off",
+        "Tapping a light flips it and its four neighbours. Turn every light off. Fewer taps and a faster finish score more. Not solved in time? You still get points for each light you switched off.", "pts", brain = true, doneLabel = "Round over"),
+    Slide("slide", "Slide Puzzle", "🧩", Color(0xFF14B8A6), "2 minutes · tiles back in order",
+        "Slide the tiles into the empty space until 1 to 8 are in order. Finish sooner and in fewer moves for a higher score. Not solved in time? You still get points for each tile in the right place.", "pts", brain = true, doneLabel = "Round over");
 
     companion object {
         fun from(key: String?): MiniGame? = entries.firstOrNull { it.key == key }

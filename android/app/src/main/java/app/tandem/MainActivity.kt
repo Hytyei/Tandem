@@ -42,15 +42,17 @@ import app.tandem.ui.theme.T
 import app.tandem.ui.theme.TandemTheme
 import app.tandem.ui.theme.Type
 import kotlinx.coroutines.delay
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.painterResource
 
-enum class AppTab(val label: String, val icon: ImageVector) {
-    Today("Today", Icons.Filled.Favorite),
-    Timeline("Moods", Icons.Filled.Timeline),
-    Diary("Diary", Icons.Filled.MenuBook),
-    Calendar("Calendar", Icons.Filled.CalendarMonth),
-    Heatmap("Heatmap", Icons.Filled.Map),
-    Play("Play", Icons.Filled.SportsEsports),
-    Profile("Profile", Icons.Filled.Person),
+enum class AppTab(val label: String, @DrawableRes val icon: Int) {
+    Today("Today", R.drawable.ic_tab_home),
+    Timeline("Moods", R.drawable.ic_tab_moods),
+    Diary("Diary", R.drawable.ic_tab_diary),
+    Calendar("Calendar", R.drawable.ic_tab_calendar),
+    Heatmap("Heatmap", R.drawable.ic_tab_heatmap),
+    Play("Play", R.drawable.ic_tab_play),
+    Profile("Profile", R.drawable.ic_tab_profile),
 }
 
 class MainActivity : ComponentActivity() {
@@ -250,7 +252,7 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box {
-                    Icon(t.icon, contentDescription = t.label, tint = tint, modifier = Modifier.size(22.dp))
+                    Icon(painterResource(t.icon), contentDescription = t.label, tint = tint, modifier = Modifier.size(23.dp))
                     if (badge == t) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).clip(RoundedCornerShape(50)).background(c.accent)
                         .border(1.5.dp, c.sheet, RoundedCornerShape(50)))
                 }
