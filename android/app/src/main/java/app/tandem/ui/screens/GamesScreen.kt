@@ -407,12 +407,11 @@ private fun StatsTab(stats: GameStats, me: User, partner: User) {
 private fun NewMatchSheet(vm: AppViewModel, onDismiss: () -> Unit, onStarted: (Match) -> Unit) {
     val c = T.colors
     var game by remember { mutableStateOf(MiniGame.Heart) }
-    var rounds by remember { mutableIntStateOf(1) }   // index into 1,3,5
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
             Text("New match", style = Type.title, color = c.label)
-            Text("You each play the same timed round, one after the other. Higher score wins the round.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
+            Text("You each play the same round, one after the other. The higher score wins.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
             MiniGame.entries.forEach { gm ->
                 if (gm == MiniGame.entries.first() || gm == MiniGame.entries.first { it.brain })
                     Text(if (gm.brain) "BRAIN TEASERS" else "QUICK REFLEXES", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
@@ -431,10 +430,9 @@ private fun NewMatchSheet(vm: AppViewModel, onDismiss: () -> Unit, onStarted: (M
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Segmented(listOf("1 round", "Best of 3", "Best of 5"), rounds, { rounds = it })
             Spacer(Modifier.height(16.dp))
-            PrimaryButton("Start and play round 1", onClick = { vm.startMatch(game, listOf(1, 3, 5)[rounds], onStarted) }, loading = vm.busy)
+            // every new match is a single round (older best-of-3/5 matches that are still running play out as before)
+            PrimaryButton("Start and play", onClick = { vm.startMatch(game, 1, onStarted) }, loading = vm.busy)
         }
     }
 }

@@ -5,9 +5,17 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.3.1", title = "Update 4.1 · Single-round games & period tracker", date = "2026-10-18",
+        items = listOf(
+            "Minigames are now a single round each: pick a game and play. Matches that were already running as best-of-3 or best-of-5 finish as before.",
+            "New Cycle tab in Calendar: a period tracker with start/end logging, a month view, flow and symptoms per day, and estimates for your next period and fertile window that learn from your own dates.",
+            "Your cycle is private by default. Turn on sharing in Cycle settings if you want your partner to see it (they can't change it).",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.3.0", title = "Update 4 · Live dates, notes & brain teasers", date = "2026-10-17",
         items = listOf(
-            "Heatmap: with the heat overlay on, the map turns into a quiet, label-free city so the glow is what you see. The overlay is stronger and warmer where you go most.",
+            "Heatmap: with the heat overlay on, the map turns into a quiet, flattened city so the glow is what you see. The overlay is stronger and warmer where you go most.",
             "Places remember how many times you've been before: enter a number when adding or editing.",
             "Add pictures to any place, and see them in its details.",
             "Saved addresses: pin your home (and your partner's) on the map, so you always know where it is.",

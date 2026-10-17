@@ -1570,6 +1570,9 @@ async function accountDelete(c: Ctx): Promise<Response> {
     c.env.DB.prepare("DELETE FROM diary_images WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM place_images WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM saved_addresses WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM period_logs WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM period_days WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM period_settings WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM trip_points WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM trip_members WHERE user_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM note_items WHERE note_id IN (SELECT id FROM notes WHERE created_by = ?)").bind(id),
@@ -1582,6 +1585,128 @@ async function accountDelete(c: Ctx): Promise<Response> {
   );
   await c.env.DB.batch(stmts);
   return json({ ok: true });
+}
+
+
+// ------------------------------------------------------------- period tracker (Calendar tab)
+// Everyone logs their own cycle. The partner only gets to see it when the owner turns "share" on.
+const PERIOD_SYMPTOMS = ["cramps", "headache", "backache", "bloating", "tender", "tired", "moody", "cravings", "acne", "nausea", "spotting", "sleepless"];
+const MAX_PERIODS = 240;
+const dayMs = 86400000;
+const dayNum = (d: string) => Math.floor(Date.parse(d + "T00:00:00Z") / dayMs);
+function periodSettingsJson(r: any) {
+  return { cycleLength: r?.cycle_length ?? 28, periodLength: r?.period_length ?? 5, shared: !!r?.shared };
+}
+async function loadPeriod(env: Env, userId: string) {
+  const s = await env.DB.prepare("SELECT * FROM period_settings WHERE user_id = ?").bind(userId).first<any>();
+  const logs = await env.DB.prepare("SELECT * FROM period_logs WHERE user_id = ? ORDER BY start_date DESC LIMIT ?").bind(userId, MAX_PERIODS).all();
+  const since = isoDay(now() - 400 * dayMs);
+  const days = await env.DB.prepare("SELECT * FROM period_days WHERE user_id = ? AND day >= ? ORDER BY day DESC").bind(userId, since).all();
+  return {
+    settings: periodSettingsJson(s),
+    periods: (logs.results as any[]).map((r) => ({ id: r.id, startDate: r.start_date, endDate: r.end_date ?? null, note: r.note })),
+    days: (days.results as any[]).map((r) => ({ date: r.day, flow: r.flow ?? null, symptoms: r.symptoms ? String(r.symptoms).split(",") : [], note: r.note })),
+  };
+}
+async function periodGet(c: Ctx): Promise<Response> {
+  const mine = await loadPeriod(c.env, c.user.id);
+  let partner: Awaited<ReturnType<typeof loadPeriod>> | null = null;
+  const p = await partnerOf(c.env, c.user);
+  if (p) {
+    const theirs = await loadPeriod(c.env, p.id);
+    if (theirs.settings.shared) partner = theirs;
+  }
+  return json({ mine, partner });
+}
+async function periodSettingsPut(c: Ctx): Promise<Response> {
+  const b = await readJson<any>(c.req);
+  const cur = periodSettingsJson(await c.env.DB.prepare("SELECT * FROM period_settings WHERE user_id = ?").bind(c.user.id).first<any>());
+  const cycle = b.cycleLength === undefined ? cur.cycleLength : b.cycleLength;
+  const len = b.periodLength === undefined ? cur.periodLength : b.periodLength;
+  if (!Number.isInteger(cycle) || cycle < 20 || cycle > 45) throw new HttpError(400, "cycleLength must be 20 to 45 days");
+  if (!Number.isInteger(len) || len < 2 || len > 10) throw new HttpError(400, "periodLength must be 2 to 10 days");
+  const shared = b.shared === undefined ? cur.shared : !!b.shared;
+  await c.env.DB.prepare(
+    "INSERT INTO period_settings (user_id, cycle_length, period_length, shared, updated_at) VALUES (?,?,?,?,?) " +
+    "ON CONFLICT(user_id) DO UPDATE SET cycle_length=excluded.cycle_length, period_length=excluded.period_length, shared=excluded.shared, updated_at=excluded.updated_at",
+  ).bind(c.user.id, cycle, len, shared ? 1 : 0, now()).run();
+  return json({ cycleLength: cycle, periodLength: len, shared });
+}
+function readPeriod(b: any) {
+  if (!isDate(b.startDate)) throw new HttpError(400, "startDate must be YYYY-MM-DD");
+  const today = isoDay(now() + 14 * 3600000);        // a little slack for time zones ahead of UTC
+  if (b.startDate > today || b.startDate < "2000-01-01") throw new HttpError(400, "startDate can't be in the future");
+  let end: string | null = null;
+  if (b.endDate != null && b.endDate !== "") {
+    if (!isDate(b.endDate)) throw new HttpError(400, "endDate must be YYYY-MM-DD");
+    if (b.endDate < b.startDate) throw new HttpError(400, "The period can't end before it starts");
+    if (dayNum(b.endDate) - dayNum(b.startDate) > 20) throw new HttpError(400, "A period can last up to 21 days");
+    if (b.endDate > today) throw new HttpError(400, "endDate can't be in the future");
+    end = b.endDate;
+  }
+  return { start: b.startDate as string, end, note: b.note == null ? "" : str(b.note, "note", 0, 300) };
+}
+async function periodOverlap(env: Env, userId: string, start: string, end: string | null, exceptId: string | null) {
+  // an open period counts as a few days long for the check
+  const { results } = await env.DB.prepare("SELECT id, start_date, end_date FROM period_logs WHERE user_id = ?").bind(userId).all();
+  const s = dayNum(start), e = end ? dayNum(end) : s;
+  for (const r of results as any[]) {
+    if (r.id === exceptId) continue;
+    const rs = dayNum(r.start_date), re = r.end_date ? dayNum(r.end_date) : rs;
+    if (s <= re && rs <= e) throw new HttpError(409, "That overlaps another period you logged");
+  }
+}
+async function periodPost(c: Ctx): Promise<Response> {
+  const p = readPeriod(await readJson(c.req));
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM period_logs WHERE user_id = ?").bind(c.user.id).first<{ n: number }>();
+  if ((n?.n ?? 0) >= MAX_PERIODS) throw new HttpError(409, "That's a lot of history; please delete some old entries first");
+  await periodOverlap(c.env, c.user.id, p.start, p.end, null);
+  const id = uid(), t = now();
+  await c.env.DB.prepare("INSERT INTO period_logs (id, user_id, start_date, end_date, note, created_at, updated_at) VALUES (?,?,?,?,?,?,?)")
+    .bind(id, c.user.id, p.start, p.end, p.note, t, t).run();
+  return json({ id, startDate: p.start, endDate: p.end, note: p.note }, 201);
+}
+async function periodPut(c: Ctx): Promise<Response> {
+  const p = readPeriod(await readJson(c.req));
+  await periodOverlap(c.env, c.user.id, p.start, p.end, c.params[0]);
+  const r = await c.env.DB.prepare("UPDATE period_logs SET start_date=?, end_date=?, note=?, updated_at=? WHERE id=? AND user_id=?")
+    .bind(p.start, p.end, p.note, now(), c.params[0], c.user.id).run();
+  if (!r.meta.changes) throw new HttpError(404, "Period not found");
+  return json({ id: c.params[0], startDate: p.start, endDate: p.end, note: p.note });
+}
+async function periodDelete(c: Ctx): Promise<Response> {
+  const r = await c.env.DB.prepare("DELETE FROM period_logs WHERE id = ? AND user_id = ?").bind(c.params[0], c.user.id).run();
+  if (!r.meta.changes) throw new HttpError(404, "Period not found");
+  return json({ ok: true });
+}
+/** PUT /period/days/:date { flow: 1-3 | null, symptoms: string[], note } — an empty log removes the day. */
+async function periodDayPut(c: Ctx): Promise<Response> {
+  const day = c.params[0];
+  if (!isDate(day) || day < "2000-01-01" || day > isoDay(now() + 14 * 3600000)) throw new HttpError(400, "That date isn't valid");
+  const b = await readJson<any>(c.req);
+  let flow: number | null = null;
+  if (b.flow != null) {
+    if (!Number.isInteger(b.flow) || b.flow < 1 || b.flow > 3) throw new HttpError(400, "flow must be 1 to 3");
+    flow = b.flow;
+  }
+  const symptoms: string[] = [];
+  if (b.symptoms != null) {
+    if (!Array.isArray(b.symptoms) || b.symptoms.length > 12) throw new HttpError(400, "symptoms must be a short list");
+    for (const sy of b.symptoms) {
+      if (typeof sy !== "string" || !PERIOD_SYMPTOMS.includes(sy)) throw new HttpError(400, "Unknown symptom");
+      if (!symptoms.includes(sy)) symptoms.push(sy);
+    }
+  }
+  const note = b.note == null ? "" : str(b.note, "note", 0, 300);
+  if (flow == null && symptoms.length === 0 && !note) {
+    await c.env.DB.prepare("DELETE FROM period_days WHERE user_id = ? AND day = ?").bind(c.user.id, day).run();
+    return json({ date: day, flow: null, symptoms: [], note: "" });
+  }
+  await c.env.DB.prepare(
+    "INSERT INTO period_days (user_id, day, flow, symptoms, note, updated_at) VALUES (?,?,?,?,?,?) " +
+    "ON CONFLICT(user_id, day) DO UPDATE SET flow=excluded.flow, symptoms=excluded.symptoms, note=excluded.note, updated_at=excluded.updated_at",
+  ).bind(c.user.id, day, flow, symptoms.join(","), note, now()).run();
+  return json({ date: day, flow, symptoms, note });
 }
 
 // ------------------------------------------------------------- router
@@ -1629,6 +1754,12 @@ route("GET", "/addresses", addressList);
 route("POST", "/addresses", addressPost);
 route("PUT", "/addresses/:id", addressPut);
 route("DELETE", "/addresses/:id", addressDelete);
+route("GET", "/period", periodGet);
+route("PUT", "/period/settings", periodSettingsPut);
+route("PUT", "/period/days/:date", periodDayPut);
+route("POST", "/period", periodPost);
+route("PUT", "/period/:id", periodPut);
+route("DELETE", "/period/:id", periodDelete);
 route("GET", "/notes", noteList);
 route("POST", "/notes", notePost);
 route("PUT", "/notes/:id", notePut);

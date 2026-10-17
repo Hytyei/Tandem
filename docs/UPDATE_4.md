@@ -18,7 +18,7 @@ Contents: minimal heatmap map, visit counts, place photos, saved addresses, live
 - Profile `media` map (validated), brain-teaser game keys `seq`, `code`, `lights`, `slide`.
 
 ## Privacy notes
-Location is read only while a live date runs. Routes and saved addresses are visible to the couple only. Media lookup contacts Wikipedia, iTunes Search and Open Library; the minimal map uses CARTO tiles.
+Location is read only while a live date runs. Routes and saved addresses are visible to the couple only. Media lookup contacts Wikipedia, iTunes Search and Open Library. The minimal map look is a colour filter on the OpenStreetMap tiles (no extra map provider).
 
 ## Test
 - `cd backend && npm test` and `tsc` clean.

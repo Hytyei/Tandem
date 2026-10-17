@@ -606,6 +606,46 @@ for (const g of ["seq", "code", "lights", "slide"]) {
   await call("DELETE", `/games/matches/${mid}`, H);
 }
 
+// ---- period tracker
+{
+  const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  r = await call("GET", "/period", H);
+  ok("period: empty to start", r.status === 200 && r.body.mine.periods.length === 0 && r.body.mine.settings.cycleLength === 28 && r.body.partner === null, r.body);
+  r = await call("POST", "/period", H, { startDate: day(-3) });
+  ok("period: future start rejected", r.status === 400, r);
+  r = await call("POST", "/period", H, { startDate: day(40), endDate: day(36), note: "first" }); const p1 = r.body.id;
+  ok("period: log a past period", r.status === 201 && p1, r);
+  r = await call("POST", "/period", H, { startDate: day(38) });
+  ok("period: overlap rejected", r.status === 409, r);
+  r = await call("POST", "/period", H, { startDate: day(12) }); const p2 = r.body.id;
+  ok("period: open period ok", r.status === 201 && r.body.endDate === null, r);
+  r = await call("PUT", `/period/${p2}`, H, { startDate: day(12), endDate: day(8) });
+  ok("period: end it", r.status === 200 && r.body.endDate === day(8), r);
+  r = await call("PUT", `/period/${p2}`, H, { startDate: day(12), endDate: day(14) });
+  ok("period: end before start rejected", r.status === 400, r);
+  r = await call("PUT", `/period/${p2}`, I, { startDate: day(12) });
+  ok("period: others can't edit it", r.status === 404, r);
+  r = await call("PUT", `/period/days/${day(11)}`, H, { flow: 2, symptoms: ["cramps", "tired"], note: "ouch" });
+  ok("period: log a day", r.status === 200 && r.body.flow === 2 && r.body.symptoms.length === 2, r);
+  r = await call("PUT", `/period/days/${day(11)}`, H, { flow: 5 });
+  ok("period: bad flow rejected", r.status === 400, r);
+  r = await call("PUT", `/period/days/${day(10)}`, H, { symptoms: ["telepathy"] });
+  ok("period: unknown symptom rejected", r.status === 400, r);
+  r = await call("PUT", "/period/settings", H, { cycleLength: 50 });
+  ok("period: bad cycle length rejected", r.status === 400, r);
+  r = await call("GET", "/period", I);
+  ok("period: partner sees nothing while private", r.status === 200 && r.body.partner === null, r.body);
+  r = await call("PUT", "/period/settings", H, { cycleLength: 30, shared: true });
+  ok("period: settings saved", r.status === 200 && r.body.cycleLength === 30 && r.body.periodLength === 5 && r.body.shared === true, r);
+  r = await call("GET", "/period", I);
+  ok("period: partner sees it once shared", r.body.partner && r.body.partner.periods.length === 2 && r.body.partner.days.length === 1, r.body);
+  r = await call("PUT", `/period/days/${day(11)}`, H, {});
+  r = await call("GET", "/period", H);
+  ok("period: empty day log removes it", r.body.mine.days.length === 0, r.body);
+  r = await call("DELETE", `/period/${p1}`, H);
+  ok("period: delete", r.status === 200, r);
+}
+
 // ---- account deletion cleans the new tables
 sqlite.exec("DELETE FROM auth_attempts"); // the register rate limit is per IP
 const tmp = await call("POST", "/auth/register", null, { username: "zeke", password: "secret000", displayName: "Zed" }); const Z = tmp.body.token;
@@ -613,6 +653,7 @@ const tmp2 = await call("POST", "/auth/register", null, { username: "yuki", pass
 r = await call("POST", "/couple", Z); await call("POST", "/couple/join", Y, { code: r.body.inviteCode });
 await call("POST", "/addresses", Z, { label: "home", lat: 1, lon: 1 });
 await call("POST", "/notes", Z, { title: "n", kind: "list", items: ["a"] });
+await call("POST", "/period", Z, { startDate: "2026-01-02" });
 r = await call("POST", "/trips", Z, {}); const trz = r.body.id;
 await call("POST", `/trips/${trz}/points`, Z, { points: [{ t: Date.now(), lat: 1, lon: 1 }] });
 r = await call("DELETE", "/me", Z, { password: "secret000" });

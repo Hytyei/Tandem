@@ -191,7 +191,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
                     Modifier.weight(1f).fillMaxHeight().pressable(haptic = false) { onSelect(i) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(label, style = Type.callout.copy(fontWeight = if (i == selected) FontWeight.SemiBold else FontWeight.Medium),
+                    Text(label, style = (if (options.size >= 5) Type.footnote else Type.callout).copy(fontWeight = if (i == selected) FontWeight.SemiBold else FontWeight.Medium),
                         color = if (i == selected) c.label else c.secondary, maxLines = 1, softWrap = false)
                 }
             }

@@ -76,15 +76,11 @@ import kotlin.math.sqrt
  * and never sends anything but the tile address. Follows the OSM tile policy: a real User-Agent, a small number of parallel
  * requests, and caching. The Tandem login token is never attached (it only goes to the Tandem server host).
  */
-/** Which map pictures to draw. [Minimal] (label-free, quiet CARTO basemaps) is used while the heat overlay is on. */
+/** Which map pictures to draw. Only OpenStreetMap; the quiet heat-overlay look is a colour filter applied while drawing. */
 internal enum class TileStyle(val dir: String) {
-    Osm("osm-tiles"), MinimalLight("carto-light"), MinimalDark("carto-dark");
+    Osm("osm-tiles");
 
-    fun url(z: Int, x: Int, y: Int): String = when (this) {
-        Osm -> "https://tile.openstreetmap.org/$z/$x/$y.png"
-        MinimalLight -> "https://${"abcd"[(x + y) and 3]}.basemaps.cartocdn.com/light_nolabels/$z/$x/$y@2x.png"
-        MinimalDark -> "https://${"abcd"[(x + y) and 3]}.basemaps.cartocdn.com/dark_nolabels/$z/$x/$y@2x.png"
-    }
+    fun url(z: Int, x: Int, y: Int): String = "https://tile.openstreetmap.org/$z/$x/$y.png"
 }
 
 private class TileStore(cacheRoot: File, private val http: OkHttpClient) {
@@ -236,12 +232,13 @@ fun PlacesMap(
     camera.k = (density / 1.5f).coerceIn(1f, 2f)
     val dark = c.isDark
     // With the heat overlay on, the city is drawn quietly (no labels, soft colours, a veil) so the glow is what you read.
-    val minimal = heat && !store.minimalDown
-    val tileStyle = when { !minimal -> TileStyle.Osm; dark -> TileStyle.MinimalDark; else -> TileStyle.MinimalLight }
+    // The quiet look is made on the phone from the regular OpenStreetMap tiles (no third-party tile key needed).
+    val minimal = heat
+    val tileStyle = TileStyle.Osm
     val tileFilter = remember(dark, minimal) {
         ColorFilter.colorMatrix(ColorMatrix(if (minimal) (if (dark) DARK_MINIMAL else LIGHT_MINIMAL) else if (dark) DARK_TILE else LIGHT_TILE))
     }
-    val veil = if (!minimal) Color.Transparent else if (dark) Color(0xFF1D1850).copy(alpha = .38f) else Color(0xFFE9E1F5).copy(alpha = .42f)
+    val veil = if (!minimal) Color.Transparent else if (dark) Color(0xFF1D1850).copy(alpha = .30f) else Color(0xFFE9E1F5).copy(alpha = .48f)
     val label = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER } }
     val currentPlaces by rememberUpdatedState(places)
     val currentAddresses by rememberUpdatedState(addresses)
@@ -317,7 +314,7 @@ fun PlacesMap(
             drawAddresses(camera, w, addresses, meId, selectedAddressId, density, label, c.sheet, c.accent, c.me, c.partner, c.label)
         }
         Text(
-            if (minimal) "© OpenStreetMap contributors © CARTO" else "© OpenStreetMap contributors", style = Type.caption.copy(fontSize = 10.sp), color = c.secondary,
+            "© OpenStreetMap contributors", style = Type.caption.copy(fontSize = 10.sp), color = c.secondary,
             modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
                 .background(c.sheet.copy(alpha = .75f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
         )
@@ -484,17 +481,18 @@ private val DARK_TILE = floatArrayOf(
     0f, 0f, 0f, 1f, 0f,
 )
 
-// Minimal-city looks for the heat overlay. The CARTO "no labels" basemaps are already quiet; these only pull them into the app's colours.
+// Minimal-city looks for the heat overlay: the regular tiles are flattened to one soft tone (low contrast, no colour), so streets and
+// labels only whisper and the glow is what you read.
 private val LIGHT_MINIMAL = floatArrayOf(
-    .90f, 0f, 0f, 0f, 6f,
-    0f, .87f, 0f, 0f, 4f,
-    0f, 0f, .98f, 0f, 14f,
+    .120f, .235f, .046f, 0f, 152f,
+    .120f, .235f, .046f, 0f, 147f,
+    .120f, .235f, .046f, 0f, 163f,
     0f, 0f, 0f, 1f, 0f,
 )
 private val DARK_MINIMAL = floatArrayOf(
-    .85f, .05f, 0f, 0f, 10f,
-    0f, .70f, .05f, 0f, 8f,
-    .05f, .05f, 1.35f, 0f, 38f,
+    -.090f, -.176f, -.034f, 0f, 104f,
+    -.090f, -.176f, -.034f, 0f, 102f,
+    -.090f, -.176f, -.034f, 0f, 138f,
     0f, 0f, 0f, 1f, 0f,
 )
 

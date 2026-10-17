@@ -183,6 +183,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun deleteAddress(id: String) = busyRun { repo.deleteAddress(id); addresses = addresses.orEmpty().filter { it.id != id } }
 
+    // ---- period tracker (reloads the whole thing after each change: it is small, and the partner's view stays right)
+    var period by mutableStateOf<PeriodResponse?>(null); private set
+    fun loadPeriod() {
+        viewModelScope.launch { try { period = repo.period() } catch (e: AppException) { if (period == null) toast(e.message ?: "Couldn't load the cycle tracker") } }
+    }
+    private fun periodChange(done: () -> Unit = {}, block: suspend () -> Unit) = busyRun(done) { block(); period = repo.period() }
+    fun savePeriod(existingId: String?, b: PeriodBody, done: () -> Unit = {}) = periodChange(done) { repo.savePeriod(existingId, b) }
+    fun deletePeriod(id: String, done: () -> Unit = {}) = periodChange(done) { repo.deletePeriod(id) }
+    fun savePeriodDay(date: String, b: PeriodDayBody, done: () -> Unit = {}) = periodChange(done) { repo.savePeriodDay(date, b) }
+    fun savePeriodSettings(b: PeriodSettingsBody, done: () -> Unit = {}) = periodChange(done) { repo.savePeriodSettings(b) }
+
     // ---- shared notes + checklists
     var notes by mutableStateOf<List<Note>?>(null); private set
     fun loadNotes() {
@@ -353,7 +364,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             state.map { it?.couple?.partner?.id }.distinctUntilChanged().collect {
                 places = null; memories = null; stats = null; games = null
-                addresses = null; notes = null; trips = null; tripDetail = null
+                addresses = null; notes = null; period = null; trips = null; tripDetail = null
             }
         }
     }

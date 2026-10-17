@@ -317,6 +317,13 @@ class Repository(private val context: Context) {
     suspend fun saveAddress(existingId: String?, b: AddressBody): SavedAddress = call { if (existingId == null) api.addAddress(b) else api.editAddress(existingId, b) }
     suspend fun deleteAddress(id: String) { call { api.deleteAddress(id) } }
 
+    // ------------------------------------------------------------ period tracker
+    suspend fun period(): PeriodResponse = call { api.period() }
+    suspend fun savePeriodSettings(b: PeriodSettingsBody): PeriodSettings = call { api.periodSettings(b) }
+    suspend fun savePeriod(existingId: String?, b: PeriodBody): PeriodEntry = call { if (existingId == null) api.addPeriod(b) else api.editPeriod(existingId, b) }
+    suspend fun deletePeriod(id: String) { call { api.deletePeriod(id) } }
+    suspend fun savePeriodDay(date: String, b: PeriodDayBody): PeriodDay = call { api.periodDay(date, b) }
+
     // ------------------------------------------------------------ notes + checklists
     suspend fun notes(): List<Note> = call { api.notes() }.notes
     suspend fun saveNote(existingId: String?, b: NoteBody): Note = call { if (existingId == null) api.addNote(b) else api.editNote(existingId, b) }

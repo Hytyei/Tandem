@@ -57,6 +57,12 @@ interface TandemApi {
     @PUT("addresses/{id}") suspend fun editAddress(@Path("id") id: String, @Body b: AddressBody): SavedAddress
     @DELETE("addresses/{id}") suspend fun deleteAddress(@Path("id") id: String): OkResponse
 
+    @GET("period") suspend fun period(): PeriodResponse
+    @PUT("period/settings") suspend fun periodSettings(@Body b: PeriodSettingsBody): PeriodSettings
+    @POST("period") suspend fun addPeriod(@Body b: PeriodBody): PeriodEntry
+    @PUT("period/{id}") suspend fun editPeriod(@Path("id") id: String, @Body b: PeriodBody): PeriodEntry
+    @DELETE("period/{id}") suspend fun deletePeriod(@Path("id") id: String): OkResponse
+    @PUT("period/days/{date}") suspend fun periodDay(@Path("date") date: String, @Body b: PeriodDayBody): PeriodDay
     @GET("notes") suspend fun notes(): NotesResponse
     @POST("notes") suspend fun addNote(@Body b: NoteBody): Note
     @PUT("notes/{id}") suspend fun editNote(@Path("id") id: String, @Body b: NoteBody): Note

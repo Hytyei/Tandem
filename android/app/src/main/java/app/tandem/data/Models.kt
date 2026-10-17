@@ -379,3 +379,13 @@ data class Trip(
 @Serializable data class TripTitleBody(val title: String)
 @Serializable data class FixBody(val t: Long, val lat: Double, val lon: Double)
 @Serializable data class FixesBody(val points: List<FixBody>)
+
+// ---- period tracker (Calendar tab). Everyone logs their own; the partner only sees it when sharing is on.
+@Serializable data class PeriodSettings(val cycleLength: Int = 28, val periodLength: Int = 5, val shared: Boolean = false)
+@Serializable data class PeriodEntry(val id: String, val startDate: String, val endDate: String? = null, val note: String = "")
+@Serializable data class PeriodDay(val date: String, val flow: Int? = null, val symptoms: List<String> = emptyList(), val note: String = "")
+@Serializable data class PeriodData(val settings: PeriodSettings = PeriodSettings(), val periods: List<PeriodEntry> = emptyList(), val days: List<PeriodDay> = emptyList())
+@Serializable data class PeriodResponse(val mine: PeriodData = PeriodData(), val partner: PeriodData? = null)
+@Serializable data class PeriodBody(val startDate: String, val endDate: String? = null, val note: String = "")
+@Serializable data class PeriodSettingsBody(val cycleLength: Int, val periodLength: Int, val shared: Boolean)
+@Serializable data class PeriodDayBody(val flow: Int? = null, val symptoms: List<String> = emptyList(), val note: String = "")
