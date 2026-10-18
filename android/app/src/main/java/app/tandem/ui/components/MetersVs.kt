@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -103,7 +104,8 @@ private fun MeterVsRow(m: Meter, me: User, partner: User) {
 private fun HalfBar(modifier: Modifier, value: Int?, color: Color, fromRight: Boolean) {
     val c = T.colors
     val f by animateFloatAsState(((value ?: 0) / 100f).coerceIn(0f, 1f), tween(900), label = "vsBar")
-    val shape = if (fromRight) RoundedCornerShape(topStart = 50, bottomStart = 50, topEnd = 4, bottomEnd = 4) else RoundedCornerShape(topEnd = 50, bottomEnd = 50, topStart = 4, bottomStart = 4)
+    val shape = if (fromRight) RoundedCornerShape(topStartPercent = 50, bottomStartPercent = 50, topEndPercent = 8, bottomEndPercent = 8)
+    else RoundedCornerShape(topEndPercent = 50, bottomEndPercent = 50, topStartPercent = 8, bottomStartPercent = 8)
     Box(modifier.fillMaxHeight().clip(shape).background(color.copy(alpha = .16f))) {
         if (value != null) Box(
             Modifier.fillMaxHeight().fillMaxWidth(f.coerceAtLeast(0.03f)).align(if (fromRight) Alignment.CenterEnd else Alignment.CenterStart)
