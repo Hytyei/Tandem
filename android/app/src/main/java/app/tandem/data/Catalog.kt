@@ -212,6 +212,8 @@ enum class MiniGame(
     /** Brain teasers (IQ / problem solving) are listed apart from the quick reflex games. */
     val brain: Boolean = false,
     val doneLabel: String = "Time!",
+    /** No longer offered for new matches, but matches already running with it can still be finished. */
+    val retired: Boolean = false,
 ) {
     Heart("heart", "Heart Catch", "💗", Color(0xFFF2476F), "30 seconds · tap every heart", "Hearts pop up all over the screen. Tap as many as you can in 30 seconds. Missed taps cost nothing, but hearts vanish fast.", "hearts"),
     Memory("memory", "Memory Match", "🧠", Color(0xFF6A5CF0), "60 seconds · match the pairs", "Flip two cards to find a pair. Pairs, time left and fewer mistakes all add up to your score.", "pts"),
@@ -219,16 +221,35 @@ enum class MiniGame(
     Draw("draw", "Quick Draw", "⚡", Color(0xFFF59E0B), "5 tries · wait, then tap", "Wait for the screen to turn gold, then tap as fast as you can. Tap too early and that try scores zero. Five tries.", "pts"),
 
     // ---- brain teasers: both of you get the very same puzzle (the seed), so it is a fair fight
-    Sequence("seq", "Next Number", "🔢", Color(0xFF3B82F6), "60 seconds · spot the pattern",
-        "Each puzzle is a row of numbers with one missing at the end. Work out the rule and pick the number that comes next. Right answers score 10, wrong ones cost 5. The puzzles get trickier as you go.", "pts", brain = true),
-    Code("code", "Code Breaker", "🔐", Color(0xFF8B5CF6), "8 guesses · crack the colour code",
-        "A secret code of 4 colours is hiding (colours can repeat). Guess it: after each guess you learn how many colours are right and in the right spot, and how many are right but in the wrong spot. Crack it in fewer guesses and less time for a higher score.", "pts", brain = true, doneLabel = "Round over"),
+    Odd("odd", "Odd One Out", "👀", Color(0xFFEC4899), "45 seconds · spot the different one",
+        "A grid of look-alike emoji hides one that is different. Tap it! Every right answer scores and a streak earns bonus points. The grid grows and the look-alikes get closer as you go. A wrong tap costs a few points.", "pts", brain = true),
+    Target("target", "Make the Target", "🎯", Color(0xFF3B82F6), "60 seconds · add up to the number",
+        "Tap the tiles that add up exactly to the target number. Every puzzle can be solved. Solve as many as you can in 60 seconds, and skip any that feel stuck.", "pts", brain = true),
+    Sequence("seq", "Next Number", "🔢", Color(0xFF6A5CF0), "60 seconds · spot the pattern",
+        "Each puzzle is a row of numbers with one missing at the end. Work out the rule and pick the number that comes next. Right answers score 10 (a streak adds bonus), wrong ones cost 3. It starts easy and gets trickier.", "pts", brain = true),
+    Echo("echo", "Echo", "🎵", Color(0xFF14B8A6), "watch the lights · repeat the pattern",
+        "Four pads light up in a pattern. Watch carefully, then tap them in the same order. Each round adds one more. You have two lives: a mistake shows the pattern again, and the second mistake ends the game. Longer patterns score more.", "pts", brain = true, doneLabel = "Game over"),
+    Code("code", "Code Breaker", "🔐", Color(0xFF8B5CF6), "10 guesses · crack the colour code",
+        "A secret code of 4 different colours (out of 5) is hiding. Guess it: after each guess you learn how many are the right colour in the right spot (●) and how many are right but in the wrong spot (○). Crack it in fewer guesses and less time for a higher score.", "pts", brain = true, doneLabel = "Round over"),
+
+    // retired (too fiddly): only kept so matches that were already started can be finished
     Lights("lights", "Lights Out", "💡", Color(0xFFF5B301), "90 seconds · switch every light off",
-        "Tapping a light flips it and its four neighbours. Turn every light off. Fewer taps and a faster finish score more. Not solved in time? You still get points for each light you switched off.", "pts", brain = true, doneLabel = "Round over"),
+        "Tapping a light flips it and its four neighbours. Turn every light off. Fewer taps and a faster finish score more. Not solved in time? You still get points for each light you switched off.", "pts", brain = true, doneLabel = "Round over", retired = true),
     Slide("slide", "Slide Puzzle", "🧩", Color(0xFF14B8A6), "2 minutes · tiles back in order",
-        "Slide the tiles into the empty space until 1 to 8 are in order. Finish sooner and in fewer moves for a higher score. Not solved in time? You still get points for each tile in the right place.", "pts", brain = true, doneLabel = "Round over");
+        "Slide the tiles into the empty space until 1 to 8 are in order. Finish sooner and in fewer moves for a higher score. Not solved in time? You still get points for each tile in the right place.", "pts", brain = true, doneLabel = "Round over", retired = true);
 
     companion object {
         fun from(key: String?): MiniGame? = entries.firstOrNull { it.key == key }
+        /** What can be picked for a new match, and what is listed in scores and stats. */
+        val playable: List<MiniGame> get() = entries.filter { !it.retired }
     }
+}
+
+/** The "right now" slots of a personal page. [key] matches the profile field and the media-lookup kind. */
+enum class NowKind(val key: String, val emoji: String, val label: String, val short: String, val hint: String) {
+    Series("watching", "📺", "Watching a series", "Series", "TV series"),
+    Movie("movie", "🎬", "Watching a movie", "Movie", "Movie"),
+    Playing("playing", "🎮", "Playing", "Game", "Game"),
+    Reading("reading", "📖", "Reading", "Book", "Book"),
+    Obsessed("listening", "🎧", "Obsessed with", "Track", "Song / track");
 }

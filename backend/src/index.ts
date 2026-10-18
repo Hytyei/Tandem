@@ -150,8 +150,14 @@ const optStr = (v: unknown, field: string, max: number): string => {
   return t;
 };
 // Poster / cover lookups happen on the phone (Wikipedia, iTunes, Open Library). Only these image hosts are accepted back.
-const MEDIA_KINDS = ["watching", "playing", "listening", "reading"];
-const MEDIA_HOSTS = [/^upload\.wikimedia\.org$/, /^is\d*-ssl\.mzstatic\.com$/, /^is\d*\.mzstatic\.com$/, /^covers\.openlibrary\.org$/];
+// watching = a series, movie = a film, playing = a game, reading = a book, listening = the track they're obsessed with
+const MEDIA_KINDS = ["watching", "movie", "playing", "listening", "reading"];
+const MEDIA_HOSTS = [
+  /^upload\.wikimedia\.org$/, /^is\d*-ssl\.mzstatic\.com$/, /^is\d*\.mzstatic\.com$/, /^covers\.openlibrary\.org$/,
+  /^static\.tvmaze\.com$/, /^m\.media-amazon\.com$/, /^([a-z0-9-]+\.)*steamstatic\.com$/, /^([a-z0-9-]+\.)*dzcdn\.net$/,
+  /^books\.google\.com$/, /^books\.googleusercontent\.com$/,
+];
+const MEDIA_SOURCES = ["wikipedia", "itunes", "openlibrary", "tvmaze", "imdb", "steam", "deezer", "googlebooks"];
 function cleanMedia(raw: unknown, p: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!raw || typeof raw !== "object") return out;
@@ -165,7 +171,7 @@ function cleanMedia(raw: unknown, p: Record<string, unknown>): Record<string, un
         if (u.protocol === "https:" && MEDIA_HOSTS.some((re) => re.test(u.hostname))) img = u.toString();
       } catch { /* not a URL: ignore */ }
     }
-    const src = ["wikipedia", "itunes", "openlibrary"].includes(m.src) ? m.src : "";
+    const src = MEDIA_SOURCES.includes(m.src) ? m.src : "";
     out[k] = { title: optStr(m.title, "media title", 80), blurb: optStr(m.blurb, "media blurb", 260), sub: optStr(m.sub, "media sub", 80), img, src };
   }
   return out;
@@ -194,15 +200,17 @@ function cleanProfile(b: any, prevRaw: string | null | undefined): Record<string
     fullName: optStr(b.fullName, "fullName", 60), birthday, colors, hobbies,
     sport: optStr(b.sport, "sport", 40), food: optStr(b.food, "food", 40), music: optStr(b.music, "music", 40),
     loveLanguage: LOVE_LANGUAGES.includes(b.loveLanguage) ? b.loveLanguage : "",
-    watching: optStr(b.watching, "watching", 60), playing: optStr(b.playing, "playing", 60),
+    watching: optStr(b.watching, "watching", 60), movie: optStr(b.movie, "movie", 60), playing: optStr(b.playing, "playing", 60),
     listening: optStr(b.listening, "listening", 60), reading: optStr(b.reading, "reading", 60),
     meters,
   };
   p.media = cleanMedia(b.media, p);
-  const nowChanged = ["watching", "playing", "listening", "reading"].some((k) => (prev[k] ?? "") !== p[k]);
+  const nowChanged = ["watching", "movie", "playing", "listening", "reading"].some((k) => (prev[k] ?? "") !== p[k]);
   p.nowAt = nowChanged ? now() : (prev.nowAt ?? 0);
   const metersChanged = JSON.stringify(prev.meters ?? {}) !== JSON.stringify(meters);
   p.metersAt = metersChanged ? now() : (prev.metersAt ?? 0);
+  // "last time": when the meters change, the values they had until now are kept so the app can show up / down arrows
+  p.prevMeters = metersChanged ? (prev.meters ?? {}) : (prev.prevMeters ?? {});
   return p;
 }
 
@@ -1322,7 +1330,10 @@ const GAMES: Record<string, { max: number }> = {
   seq: { max: 800 },      // Next Number: pattern puzzles in 60 s (+10 right, -5 wrong)
   code: { max: 1000 },    // Code Breaker: crack a 4-colour code in 8 guesses
   lights: { max: 1000 }, // Lights Out: switch every light off, fewer moves + faster = more
-  slide: { max: 1000 },   // Slide Puzzle: 3x3 tiles back in order, faster + fewer moves = more
+  slide: { max: 1000 },   // Slide Puzzle: 3x3 tiles back in order, faster + fewer moves = more (retired in the app; kept so running matches finish)
+  odd: { max: 1000 },     // Odd One Out: spot the different emoji, 45 s
+  target: { max: 1000 },  // Make the Target: tap numbers that add up to the target, 60 s
+  echo: { max: 1000 },    // Echo: repeat the growing light pattern, 2 lives
 };
 const MATCH_ROUNDS = [1, 3, 5];
 const MAX_ACTIVE_MATCHES = 6;
@@ -1589,13 +1600,14 @@ async function accountDelete(c: Ctx): Promise<Response> {
 
 
 // ------------------------------------------------------------- period tracker (Calendar tab)
-// Everyone logs their own cycle. The partner only gets to see it when the owner turns "share" on.
+// Everyone logs their own cycle; both partners can see each other's (only the owner can change it).
 const PERIOD_SYMPTOMS = ["cramps", "headache", "backache", "bloating", "tender", "tired", "moody", "cravings", "acne", "nausea", "spotting", "sleepless"];
 const MAX_PERIODS = 240;
 const dayMs = 86400000;
 const dayNum = (d: string) => Math.floor(Date.parse(d + "T00:00:00Z") / dayMs);
 function periodSettingsJson(r: any) {
-  return { cycleLength: r?.cycle_length ?? 28, periodLength: r?.period_length ?? 5, shared: !!r?.shared };
+  // Cycle data is always visible to both partners; the old "shared" switch is gone (the field stays for older app versions).
+  return { cycleLength: r?.cycle_length ?? 28, periodLength: r?.period_length ?? 5, shared: true };
 }
 async function loadPeriod(env: Env, userId: string) {
   const s = await env.DB.prepare("SELECT * FROM period_settings WHERE user_id = ?").bind(userId).first<any>();
@@ -1614,7 +1626,7 @@ async function periodGet(c: Ctx): Promise<Response> {
   const p = await partnerOf(c.env, c.user);
   if (p) {
     const theirs = await loadPeriod(c.env, p.id);
-    if (theirs.settings.shared) partner = theirs;
+    partner = theirs;
   }
   return json({ mine, partner });
 }
@@ -1625,7 +1637,7 @@ async function periodSettingsPut(c: Ctx): Promise<Response> {
   const len = b.periodLength === undefined ? cur.periodLength : b.periodLength;
   if (!Number.isInteger(cycle) || cycle < 20 || cycle > 45) throw new HttpError(400, "cycleLength must be 20 to 45 days");
   if (!Number.isInteger(len) || len < 2 || len > 10) throw new HttpError(400, "periodLength must be 2 to 10 days");
-  const shared = b.shared === undefined ? cur.shared : !!b.shared;
+  const shared = true;
   await c.env.DB.prepare(
     "INSERT INTO period_settings (user_id, cycle_length, period_length, shared, updated_at) VALUES (?,?,?,?,?) " +
     "ON CONFLICT(user_id) DO UPDATE SET cycle_length=excluded.cycle_length, period_length=excluded.period_length, shared=excluded.shared, updated_at=excluded.updated_at",

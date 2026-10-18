@@ -54,7 +54,7 @@ fun rememberCycleUi() = remember { CycleUi() }
 private fun d(s: String?): LocalDate? = s?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 private val shortDay = DateTimeFormatter.ofPattern("EEE, d MMM")
 
-/** The "Cycle" part of the Calendar tab: your period tracker, and your partner's if they chose to share it. */
+/** The "Cycle" part of the Calendar tab: your period tracker, and your partner's too (both of you can see both). */
 fun LazyListScope.cycleSection(vm: AppViewModel, data: SyncResponse, ui: CycleUi) {
     val resp = vm.period
     if (resp == null) {
@@ -114,14 +114,14 @@ fun LazyListScope.cycleSection(vm: AppViewModel, data: SyncResponse, ui: CycleUi
     if (!viewing) item {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SoftButton("Add a past period", onClick = { ui.addingPeriod = true }, modifier = Modifier.fillMaxWidth())
-            SoftButton("Cycle settings and sharing", onClick = { ui.settings = true }, modifier = Modifier.fillMaxWidth())
+            SoftButton("Cycle settings", onClick = { ui.settings = true }, modifier = Modifier.fillMaxWidth())
         }
     } else if (partnerData != null) item {
-        Text("$ownerName chose to share this with you. Only they can change it.", style = Type.footnote, color = T.colors.secondary,
+        Text("This is $ownerName's cycle. Only they can change it.", style = Type.footnote, color = T.colors.secondary,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), textAlign = TextAlign.Center)
     }
-    if (!viewing && partner != null && partnerData == null) item {
-        Text("${partner.displayName.substringBefore(' ')} hasn't shared their cycle with you.", style = Type.footnote, color = T.colors.secondary,
+    if (!viewing && partner != null) item {
+        Text("${partner.displayName.substringBefore(' ')} can see your cycle too. Use the switch at the top to see theirs.", style = Type.footnote, color = T.colors.secondary,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp).fillMaxWidth(), textAlign = TextAlign.Center)
     }
     item {
@@ -293,7 +293,7 @@ private fun DayLogSheet(vm: AppViewModel, day: LocalDate, onDismiss: () -> Unit)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
         Column(Modifier.verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
             Text(day.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = Type.title, color = c.label)
-            Text("How is today? Only you see this unless you chose to share your cycle.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
+            Text("How is today? Your partner can see this too.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
             Text("FLOW", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary)
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -410,10 +410,8 @@ private fun DateRow(label: String, value: String, onClick: () -> Unit) {
 private fun CycleSettingsSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val c = T.colors
     val cur = vm.period?.mine?.settings ?: PeriodSettings()
-    val partnerName = vm.state.collectAsState().value?.couple?.partner?.displayName?.substringBefore(' ') ?: "your partner"
     var cycle by remember { mutableIntStateOf(cur.cycleLength) }
     var length by remember { mutableIntStateOf(cur.periodLength) }
-    var shared by remember { mutableStateOf(cur.shared) }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
@@ -422,16 +420,8 @@ private fun CycleSettingsSheet(vm: AppViewModel, onDismiss: () -> Unit) {
             Stepper("Cycle length", "$cycle days", { if (cycle > 20) cycle-- }, { if (cycle < 45) cycle++ })
             Spacer(Modifier.height(8.dp))
             Stepper("Period length", "$length days", { if (length > 2) length-- }, { if (length < 10) length++ })
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.card).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Share with $partnerName", style = Type.body, color = c.label)
-                    Text(if (shared) "$partnerName can see your cycle, flow and symptoms." else "Private: only you can see it.", style = Type.caption, color = c.secondary)
-                }
-                Switch(shared, { shared = it }, colors = SwitchDefaults.colors(checkedTrackColor = c.accent))
-            }
             Spacer(Modifier.height(16.dp))
-            PrimaryButton("Save", onClick = { vm.savePeriodSettings(PeriodSettingsBody(cycle, length, shared), onDismiss) }, loading = vm.busy)
+            PrimaryButton("Save", onClick = { vm.savePeriodSettings(PeriodSettingsBody(cycle, length), onDismiss) }, loading = vm.busy)
         }
     }
 }

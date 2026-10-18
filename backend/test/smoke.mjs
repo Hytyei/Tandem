@@ -593,12 +593,24 @@ ok("clearing a title clears its media", r.status === 200 && !r.body.profile.medi
 r = await call("PUT", "/me/profile", H, { media: { playing: { title: "x".repeat(500) } }, playing: "x" });
 ok("overlong media text rejected", r.status === 400, r);
 
+r = await call("PUT", "/me/profile", H, { movie: "Inception", watching: "Severance", listening: "Blinding Lights", reading: "Dune", media: {
+  movie: { title: "Inception", sub: "2010 · Film", blurb: "Leonardo DiCaprio", img: "https://m.media-amazon.com/images/M/x._V1_UY450_.jpg", src: "imdb" },
+  watching: { title: "Severance", img: "https://static.tvmaze.com/uploads/images/medium_portrait/548/1371406.jpg", src: "tvmaze" },
+  listening: { title: "Blinding Lights", img: "https://cdn-images.dzcdn.net/images/cover/abc/500x500-000000-80-0-0.jpg", src: "deezer" },
+  reading: { title: "Dune", img: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1", src: "googlebooks" } } });
+ok("new media hosts accepted (imdb, tvmaze, deezer, google books)", r.status === 200 && r.body.profile.movie === "Inception" && r.body.profile.media.movie.img.startsWith("https://m.media-amazon.com/") &&
+  r.body.profile.media.watching.img.startsWith("https://static.tvmaze.com/") && r.body.profile.media.listening.img.includes("dzcdn.net") && r.body.profile.media.reading.img.startsWith("https://books.google.com/") && r.body.profile.media.movie.src === "imdb", r.body.profile?.media ?? r.body);
+r = await call("PUT", "/me/profile", H, { playing: "Cyberpunk 2077", media: { playing: { title: "Cyberpunk 2077", img: "https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/library_600x900.jpg", src: "steam" } } });
+ok("steam image accepted", r.status === 200 && r.body.profile.media.playing.img.includes("steamstatic.com") && r.body.profile.media.playing.src === "steam", r.body.profile?.media);
+r = await call("PUT", "/me/profile", H, { movie: "x", media: { movie: { title: "x", img: "https://steamstatic.com.evil.example/x.jpg" } } });
+ok("look-alike host rejected", r.status === 200 && r.body.profile.media.movie.img === "", r.body.profile?.media);
+
 // ---- new IQ minigames
-for (const g of ["seq", "code", "lights", "slide"]) {
+for (const g of ["seq", "code", "lights", "slide", "odd", "target", "echo"]) {
   r = await call("POST", "/games/matches", H, { game: g, rounds: 1 });
   ok(`${g}: match can be created`, r.status === 201 && r.body.game === g, r);
   const mid = r.body.id;
-  const cap = { seq: 800, code: 1000, lights: 1000, slide: 1000 }[g];
+  const cap = { seq: 800, code: 1000, lights: 1000, slide: 1000, odd: 1000, target: 1000, echo: 1000 }[g];
   r = await call("PUT", `/games/matches/${mid}/score`, H, { round: 1, score: cap + 1 });
   ok(`${g}: score above the cap rejected`, r.status === 400, r);
   r = await call("PUT", `/games/matches/${mid}/score`, H, { round: 1, score: cap });
@@ -606,11 +618,22 @@ for (const g of ["seq", "code", "lights", "slide"]) {
   await call("DELETE", `/games/matches/${mid}`, H);
 }
 
+// ---- meters keep the previous values ("last time")
+{
+  const base = { fullName: "N" };
+  r = await call("PUT", "/me/profile", H, { ...base, meters: { spicy: 40, hunger: 10 } });
+  ok("meters: first save has no previous", r.status === 200 && r.body.profile.prevMeters && Object.keys(r.body.profile.prevMeters).length === 0, r.body);
+  r = await call("PUT", "/me/profile", H, { ...base, meters: { spicy: 70, hunger: 10 } });
+  ok("meters: previous values kept", r.body.profile.prevMeters.spicy === 40 && r.body.profile.meters.spicy === 70, r.body);
+  r = await call("PUT", "/me/profile", H, { ...base, fullName: "N2", meters: { spicy: 70, hunger: 10 } });
+  ok("meters: unchanged save keeps the same previous values", r.body.profile.prevMeters.spicy === 40, r.body);
+}
+
 // ---- period tracker
 {
   const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   r = await call("GET", "/period", H);
-  ok("period: empty to start", r.status === 200 && r.body.mine.periods.length === 0 && r.body.mine.settings.cycleLength === 28 && r.body.partner === null, r.body);
+  ok("period: empty to start", r.status === 200 && r.body.mine.periods.length === 0 && r.body.mine.settings.cycleLength === 28 && r.body.partner && r.body.partner.periods.length === 0, r.body);
   r = await call("POST", "/period", H, { startDate: day(-3) });
   ok("period: future start rejected", r.status === 400, r);
   r = await call("POST", "/period", H, { startDate: day(40), endDate: day(36), note: "first" }); const p1 = r.body.id;
@@ -634,11 +657,13 @@ for (const g of ["seq", "code", "lights", "slide"]) {
   r = await call("PUT", "/period/settings", H, { cycleLength: 50 });
   ok("period: bad cycle length rejected", r.status === 400, r);
   r = await call("GET", "/period", I);
-  ok("period: partner sees nothing while private", r.status === 200 && r.body.partner === null, r.body);
-  r = await call("PUT", "/period/settings", H, { cycleLength: 30, shared: true });
-  ok("period: settings saved", r.status === 200 && r.body.cycleLength === 30 && r.body.periodLength === 5 && r.body.shared === true, r);
+  ok("period: partner sees it by default", r.status === 200 && r.body.partner && r.body.partner.periods.length === 2 && r.body.partner.days.length === 1, r.body);
+  r = await call("PUT", "/period/settings", H, { cycleLength: 30, shared: false });
+  ok("period: settings saved (sharing can't be switched off)", r.status === 200 && r.body.cycleLength === 30 && r.body.periodLength === 5 && r.body.shared === true, r);
   r = await call("GET", "/period", I);
-  ok("period: partner sees it once shared", r.body.partner && r.body.partner.periods.length === 2 && r.body.partner.days.length === 1, r.body);
+  ok("period: still visible after that", r.body.partner && r.body.partner.settings.cycleLength === 30, r.body);
+  r = await call("PUT", `/period/${p2}`, I, { startDate: day(12) });
+  ok("period: partner can't edit it", r.status === 404, r);
   r = await call("PUT", `/period/days/${day(11)}`, H, {});
   r = await call("GET", "/period", H);
   ok("period: empty day log removes it", r.body.mine.days.length === 0, r.body);

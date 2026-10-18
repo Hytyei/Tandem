@@ -145,10 +145,7 @@ fun PersonPage(vm: AppViewModel, mine: Boolean, onBack: () -> Unit) {
                 if (p.hasNow) {
                     SectionHeader("Right now")
                     SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-                        NowRow("📺", "Watching", p.watching, p.mediaFor("watching"))
-                        NowRow("🎮", "Playing", p.playing, p.mediaFor("playing"))
-                        NowRow("🎧", "Listening to", p.listening, p.mediaFor("listening"))
-                        NowRow("📖", "Reading", p.reading, p.mediaFor("reading"))
+                        NowKind.entries.forEach { k -> NowRow(k.emoji, k.label, p.nowText(k.key), p.mediaFor(k.key)) }
                         if (p.nowAt > 0) Text("updated ${timeAgo(p.nowAt)}", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
@@ -158,7 +155,7 @@ fun PersonPage(vm: AppViewModel, mine: Boolean, onBack: () -> Unit) {
                 if (shown.isNotEmpty()) {
                     SectionHeader("Today's meters")
                     SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-                        shown.forEach { m -> MeterBar(m, p.meters[m.key] ?: 0) }
+                        shown.forEach { m -> MeterBar(m, p.meters[m.key] ?: 0, p.prevMeters[m.key]?.let { prev -> (p.meters[m.key] ?: 0) - prev } ?: 0, "${m.key}-${p.metersAt}") }
                         if (p.metersAt > 0) Text("updated ${timeAgo(p.metersAt)}", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
@@ -203,7 +200,7 @@ internal fun NowRow(emoji: String, label: String, text: String, info: MediaInfo?
 }
 
 @Composable
-private fun MeterBar(m: Meter, value: Int) {
+private fun MeterBar(m: Meter, value: Int, delta: Int = 0, flashKey: Any = m.key) {
     val c = T.colors
     val f by animateFloatAsState(value / 100f, tween(900), label = "meter")
     Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
@@ -211,6 +208,8 @@ private fun MeterBar(m: Meter, value: Int) {
             Text(m.emoji, fontSize = 18.sp)
             Spacer(Modifier.width(8.dp))
             Text(m.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f))
+            DeltaBadge(delta, flashKey)
+            Spacer(Modifier.width(6.dp))
             Text("$value%", style = Type.callout.copy(fontWeight = FontWeight.Bold), color = m.tint)
         }
         Spacer(Modifier.height(6.dp))
@@ -235,12 +234,7 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
     var food by remember { mutableStateOf(current.food) }
     var music by remember { mutableStateOf(current.music) }
     var love by remember { mutableStateOf(current.loveLanguage) }
-    var watching by remember { mutableStateOf(current.watching) }
-    var playing by remember { mutableStateOf(current.playing) }
-    var listening by remember { mutableStateOf(current.listening) }
-    var reading by remember { mutableStateOf(current.reading) }
-    val media = remember { mutableStateMapOf<String, MediaInfo>().apply { putAll(current.media) } }
-    var searchKind by remember { mutableStateOf<String?>(null) }
+    val now = remember { NowDraft(current) }
     var metersOn by remember { mutableStateOf(current.meters.isNotEmpty()) }
     val meters = remember { mutableStateMapOf<String, Int>().apply { putAll(current.meters) } }
     var pickDate by remember { mutableStateOf(false) }
@@ -256,32 +250,6 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
             value, { if (it.length <= max) onChange(it) }, label = { Text(label) }, singleLine = true, shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = fieldColors,
         )
-    }
-
-    /** A "right now" field with a search button that finds the poster / cover and a short description. */
-    @Composable
-    fun nowField(kind: String, label: String, value: String, onChange: (String) -> Unit) {
-        val info = media[kind]?.takeIf { it.title.isNotBlank() }
-        OutlinedTextField(
-            value, { if (it.length <= 60) { onChange(it); if (info != null && it.trim() != info.title) media.remove(kind) } },
-            label = { Text(label) }, singleLine = true, shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(bottom = if (info != null) 4.dp else 8.dp), colors = fieldColors,
-            trailingIcon = {
-                Icon(Icons.Filled.Search, "Find poster", tint = if (value.trim().length >= 2) c.accent else c.tertiary,
-                    modifier = Modifier.size(40.dp).pressable(enabled = value.trim().length >= 2) { searchKind = kind }.padding(9.dp))
-            },
-        )
-        if (info != null) Row(
-            Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(c.card).padding(8.dp), verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (info.img.isNotBlank()) AsyncImage(info.img, null, contentScale = ContentScale.Crop, modifier = Modifier.size(width = 36.dp, height = 52.dp).clip(RoundedCornerShape(8.dp)).background(c.separator))
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(info.title, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1)
-                if (info.sub.isNotBlank()) Text(info.sub, style = Type.caption, color = c.secondary, maxLines = 1)
-            }
-            Text("Remove", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.secondary, modifier = Modifier.pressable { media.remove(kind) }.padding(8.dp))
-        }
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
@@ -336,11 +304,7 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
             }
 
             Text("Right now", style = Type.headline, color = c.label, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
-            Text("Tap the magnifier to find the poster or cover and a short description. The text you search for goes to Wikipedia, Apple iTunes Search or Open Library, never to the Tandem server.", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(bottom = 8.dp))
-            nowField("watching", "📺 Watching", watching) { watching = it }
-            nowField("playing", "🎮 Playing", playing) { playing = it }
-            nowField("listening", "🎧 Listening to", listening) { listening = it }
-            nowField("reading", "📖 Reading", reading) { reading = it }
+            NowFields(now)
 
             Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -368,11 +332,9 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
             PrimaryButton("Save", loading = vm.busy, onClick = {
                 val list = hobbies.split(',', '\n').map { it.trim().take(24) }.filter { it.isNotEmpty() }.distinct().take(8)
                 vm.saveProfileDetails(
-                    current.copy(
+                    now.applyTo(current).copy(
                         fullName = fullName.trim(), birthday = birthday?.toString() ?: "", colors = colors, hobbies = list,
                         sport = sport.trim(), food = food.trim(), music = music.trim(), loveLanguage = love,
-                        watching = watching.trim(), playing = playing.trim(), listening = listening.trim(), reading = reading.trim(),
-                        media = media.filter { (k, v) -> v.title.isNotBlank() && when (k) { "watching" -> watching; "playing" -> playing; "listening" -> listening; "reading" -> reading; else -> "" }.isNotBlank() },
                         meters = if (metersOn) Meter.entries.associate { it.key to (meters[it.key] ?: 0) } else emptyMap(),
                     ),
                     onDismiss,
@@ -381,14 +343,7 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
         }
     }
 
-    searchKind?.let { kind ->
-        val q = when (kind) { "watching" -> watching; "playing" -> playing; "listening" -> listening; else -> reading }.trim()
-        MediaSearchDialog(vm, kind, q, onDismiss = { searchKind = null }) { info ->
-            media[kind] = info
-            when (kind) { "watching" -> watching = info.title.take(60); "playing" -> playing = info.title.take(60); "listening" -> listening = info.title.take(60); else -> reading = info.title.take(60) }
-            searchKind = null
-        }
-    }
+    NowSearchHost(vm, now)
 
     if (pickDate) {
         val todayUtc = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
@@ -407,7 +362,7 @@ private fun EditPageSheet(vm: AppViewModel, current: ProfileDetails, onDismiss: 
 
 /** Shows what the lookup found for [query]; picking one fills the field and keeps its poster and description. */
 @Composable
-private fun MediaSearchDialog(vm: AppViewModel, kind: String, query: String, onDismiss: () -> Unit, onPick: (MediaInfo) -> Unit) {
+internal fun MediaSearchDialog(vm: AppViewModel, kind: String, query: String, onDismiss: () -> Unit, onPick: (MediaInfo) -> Unit) {
     val c = T.colors
     var results by remember { mutableStateOf<List<MediaInfo>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }

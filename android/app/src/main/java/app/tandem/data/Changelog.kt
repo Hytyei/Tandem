@@ -5,6 +5,26 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.3.3", title = "Update 4.3 · Right now, head to head", date = "2026-10-19",
+        items = listOf(
+            "Right now has five slots: watching a series, watching a movie, playing, reading, and obsessed with (a track).",
+            "Today shows what each of you is into side by side, with posters and covers, and your meters head to head.",
+            "Edit what you're into (and your meters) straight from Today with \"Edit mine\".",
+            "Better lookups, with no account needed: TVmaze and IMDb for series and movies, Steam for games, Google Books for books, Deezer for tracks (Wikipedia is no longer the main source).",
+        ),
+    ),
+    ReleaseNotes(
+        version = "1.3.2", title = "Update 4.2 · Friendlier brain games & meters vs.", date = "2026-10-19",
+        items = listOf(
+            "New brain games that are easy to start and fun to get good at: Odd One Out, Make the Target and Echo.",
+            "Code Breaker is gentler: 5 colours, no repeated colours in the code, and 10 guesses.",
+            "Next Number: fixed the freeze on the countdown. It also starts easier, wrong answers cost less, and streaks earn bonus points.",
+            "Lights Out and Slide Puzzle are gone from the game list (matches already started can still be finished).",
+            "Today: the meters now show both of you head to head, with a green ▲ or red ▼ flash for how much each changed since last time. The same arrows show on personal pages.",
+            "Cycle is now simply visible to both of you: the privacy switch is gone.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.3.1", title = "Update 4.1 · Single-round games & period tracker", date = "2026-10-18",
         items = listOf(
             "Minigames are now a single round each: pick a game and play. Matches that were already running as best-of-3 or best-of-5 finish as before.",

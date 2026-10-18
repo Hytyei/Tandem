@@ -24,17 +24,25 @@ data class ProfileDetails(
     val food: String = "",
     val music: String = "",
     val loveLanguage: String = "",             // LoveLanguage key
-    val watching: String = "",
+    val watching: String = "",                 // a TV series
+    val movie: String = "",                    // a film
     val playing: String = "",
     val listening: String = "",
     val reading: String = "",
     val meters: Map<String, Int> = emptyMap(), // Meter keys -> 0..100
     val nowAt: Long = 0,                       // when "right now" last changed
     val metersAt: Long = 0,
+    val prevMeters: Map<String, Int> = emptyMap(),  // the values the meters had before the last change ("last time")
     val media: Map<String, MediaInfo> = emptyMap(), // "watching"/"playing"/"listening"/"reading" -> poster + short info
 ) {
     fun mediaFor(kind: String): MediaInfo? = media[kind]?.takeIf { it.title.isNotBlank() }
-    val hasNow get() = watching.isNotBlank() || playing.isNotBlank() || listening.isNotBlank() || reading.isNotBlank()
+    /** The "right now" text for a [NowKind] key: watching (series), movie, playing, listening (the track they're obsessed with), reading. */
+    fun nowText(kind: String): String = when (kind) { "watching" -> watching; "movie" -> movie; "playing" -> playing; "listening" -> listening; "reading" -> reading; else -> "" }
+    fun withNowText(kind: String, v: String): ProfileDetails = when (kind) {
+        "watching" -> copy(watching = v); "movie" -> copy(movie = v); "playing" -> copy(playing = v)
+        "listening" -> copy(listening = v); "reading" -> copy(reading = v); else -> this
+    }
+    val hasNow get() = watching.isNotBlank() || movie.isNotBlank() || playing.isNotBlank() || listening.isNotBlank() || reading.isNotBlank()
     val isEmpty get() = fullName.isBlank() && birthday.isBlank() && colors.isEmpty() && hobbies.isEmpty() && sport.isBlank() &&
         food.isBlank() && music.isBlank() && loveLanguage.isBlank() && !hasNow && meters.isEmpty()
 }
@@ -387,5 +395,5 @@ data class Trip(
 @Serializable data class PeriodData(val settings: PeriodSettings = PeriodSettings(), val periods: List<PeriodEntry> = emptyList(), val days: List<PeriodDay> = emptyList())
 @Serializable data class PeriodResponse(val mine: PeriodData = PeriodData(), val partner: PeriodData? = null)
 @Serializable data class PeriodBody(val startDate: String, val endDate: String? = null, val note: String = "")
-@Serializable data class PeriodSettingsBody(val cycleLength: Int, val periodLength: Int, val shared: Boolean)
+@Serializable data class PeriodSettingsBody(val cycleLength: Int, val periodLength: Int)
 @Serializable data class PeriodDayBody(val flow: Int? = null, val symptoms: List<String> = emptyList(), val note: String = "")

@@ -141,10 +141,11 @@ fun GamesScreen(vm: AppViewModel) {
             }
             // ---------- High scores
             1 -> {
-                items(MiniGame.entries.size) { i ->
-                    val game = MiniGame.entries[i]
+                val playable = MiniGame.playable
+                items(playable.size) { i ->
+                    val game = playable[i]
                     Column {
-                    if (i == 0 || MiniGame.entries[i - 1].brain != game.brain) SectionHeader(if (game.brain) "Brain teasers" else "Quick reflexes")
+                    if (i == 0 || playable[i - 1].brain != game.brain) SectionHeader(if (game.brain) "Brain teasers" else "Quick reflexes")
                     val mine = stats.bests.firstOrNull { it.game == game.key && it.userId == me.id }
                     val theirs = stats.bests.firstOrNull { it.game == game.key && it.userId == partner.id }
                     val highs = stats.highs.filter { it.game == game.key }
@@ -381,7 +382,7 @@ private fun StatsTab(stats: GameStats, me: User, partner: User) {
             StatRow("current streak", "${my.streak}", "${th.streak}")
             StatRow("best streak", "${my.bestStreak}", "${th.bestStreak}")
         }
-        MiniGame.entries.forEach { game ->
+        MiniGame.playable.forEach { game ->
             val mb = stats.bests.firstOrNull { it.game == game.key && it.userId == me.id }
             val tb = stats.bests.firstOrNull { it.game == game.key && it.userId == partner.id }
             val mw = stats.gameWins.firstOrNull { it.game == game.key && it.userId == me.id }?.n ?: 0
@@ -412,8 +413,8 @@ private fun NewMatchSheet(vm: AppViewModel, onDismiss: () -> Unit, onStarted: (M
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
             Text("New match", style = Type.title, color = c.label)
             Text("You each play the same round, one after the other. The higher score wins.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
-            MiniGame.entries.forEach { gm ->
-                if (gm == MiniGame.entries.first() || gm == MiniGame.entries.first { it.brain })
+            MiniGame.playable.forEach { gm ->
+                if (gm == MiniGame.playable.first() || gm == MiniGame.playable.first { it.brain })
                     Text(if (gm.brain) "BRAIN TEASERS" else "QUICK REFLEXES", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
                 val on = gm == game
                 val shape = RoundedCornerShape(20.dp)

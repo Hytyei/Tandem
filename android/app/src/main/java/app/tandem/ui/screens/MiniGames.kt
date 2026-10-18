@@ -36,6 +36,7 @@ import app.tandem.ui.components.pressable
 import app.tandem.ui.theme.T
 import app.tandem.ui.theme.Type
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 /** Where a round is: read the rules, 3-2-1, play, then send the score. */
@@ -95,6 +96,9 @@ fun RoundRunnerDialog(
                         MiniGame.Sums -> MathGame(seed, finish)
                         MiniGame.Draw -> QuickDrawGame(seed, finish)
                         MiniGame.Sequence -> SequenceGame(seed, finish)
+                        MiniGame.Odd -> OddOneOutGame(seed, finish)
+                        MiniGame.Target -> TargetGame(seed, finish)
+                        MiniGame.Echo -> EchoGame(seed, finish)
                         MiniGame.Code -> CodeBreakerGame(seed, finish)
                         MiniGame.Lights -> LightsOutGame(seed, finish)
                         MiniGame.Slide -> SlidePuzzleGame(seed, finish)
@@ -401,29 +405,30 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
 // ------------------------------------------------------------------ Next Number
 private class SeqPuzzle(val shown: List<Int>, val options: List<Int>, val answerIdx: Int)
 
+/** 60 puzzles from the seed. Every number stays positive and small, and the wrong answers are always findable. */
 private fun makeSequences(seed: Long): List<SeqPuzzle> {
     val rnd = Random(seed)
     return List(60) { n ->
         // later puzzles draw from the harder rules
-        val kind = rnd.nextInt(if (n < 4) 3 else if (n < 10) 6 else 9)
+        val kind = rnd.nextInt(if (n < 5) 3 else if (n < 12) 6 else 8)
         val seq: List<Int> = when (kind) {
-            0 -> { val a = rnd.nextInt(1, 20); val d = rnd.nextInt(2, 9); List(6) { a + d * it } }
-            1 -> { val a = rnd.nextInt(1, 5); val r = rnd.nextInt(2, 4); List(6) { var v = a; repeat(it) { v *= r }; v } }
-            2 -> { val a = rnd.nextInt(30, 90); val d = rnd.nextInt(3, 10); List(6) { a - d * it } }
-            3 -> { val o = rnd.nextInt(1, 6); List(6) { (it + o) * (it + o) } }
-            4 -> { val a = rnd.nextInt(1, 6); val b = rnd.nextInt(1, 6); val l = mutableListOf(a, b); while (l.size < 6) l += l[l.size - 1] + l[l.size - 2]; l }
-            5 -> { val a = rnd.nextInt(1, 10); val d1 = rnd.nextInt(2, 6); val d2 = rnd.nextInt(1, 5); val l = mutableListOf(a); for (i in 1 until 6) l += l.last() + if (i % 2 == 1) d1 else -d2; l }
-            6 -> { val a = rnd.nextInt(1, 8); var d = rnd.nextInt(1, 4); val st = rnd.nextInt(1, 3); val l = mutableListOf(a); for (i in 1 until 6) { l += l.last() + d; d += st }; l }
-            7 -> { val a = rnd.nextInt(2, 9); val m = rnd.nextInt(2, 4); val k = rnd.nextInt(1, 6); val l = mutableListOf(a); for (i in 1 until 6) l += l.last() * m - k; l }
-            else -> { val o = rnd.nextInt(1, 5); List(6) { val x = it + o; x * x * x } }
+            0 -> { val a = rnd.nextInt(1, 20); val d = rnd.nextInt(2, 8); List(6) { a + d * it } }
+            1 -> { val a = rnd.nextInt(1, 5); List(6) { a shl it } }                                       // doubling
+            2 -> { val d = rnd.nextInt(2, 8); val a = d * 5 + rnd.nextInt(3, 20); List(6) { a - d * it } }  // counting down, stays positive
+            3 -> { val o = rnd.nextInt(1, 6); List(6) { (it + o) * (it + o) } }                           // squares
+            4 -> { val l = mutableListOf(rnd.nextInt(1, 5), rnd.nextInt(1, 5)); while (l.size < 6) l += l[l.size - 1] + l[l.size - 2]; l } // add the last two
+            5 -> { val a = rnd.nextInt(8, 16); val d1 = rnd.nextInt(3, 7); val d2 = rnd.nextInt(1, 3); val l = mutableListOf(a); for (i in 1 until 6) l += l.last() + if (i % 2 == 1) d1 else -d2; l }
+            6 -> { val l = mutableListOf(rnd.nextInt(1, 8)); var d = rnd.nextInt(1, 4); val st = rnd.nextInt(1, 3); for (i in 1 until 6) { l += l.last() + d; d += st }; l }
+            else -> { val l = mutableListOf(rnd.nextInt(3, 10)); val k = rnd.nextInt(1, 4); for (i in 1 until 6) l += l.last() * 2 - k; l }   // double, then take a little away
         }
         val answer = seq[5]
-        val opts = mutableSetOf(answer)
-        while (opts.size < 4) {
-            val d = answer + (rnd.nextInt(1, 9) * if (rnd.nextBoolean()) 1 else -1)
-            if (d > 0 && d != answer) opts += d
-        }
-        val list = opts.toList().shuffled(rnd)
+        // believable wrong answers first (carrying on at the same step, off-by-one, off-by-two), then plain neighbours as a fallback
+        val pool = listOf(seq[4] + (seq[4] - seq[3]), answer + 1, answer - 1, answer + 2, answer - 2, answer + 10, answer * 2, answer + 3, answer - 3, answer + 4, answer + 5, answer + 6)
+            .filter { it > 0 && it != answer }.distinct().shuffled(rnd).take(3)
+        val opts = (pool + answer).distinct().toMutableList()
+        var pad = answer + 7
+        while (opts.size < 4) { if (pad !in opts) opts += pad; pad++ }      // always ends: pad only goes up
+        val list = opts.shuffled(rnd)
         SeqPuzzle(seq.take(5), list, list.indexOf(answer))
     }
 }
@@ -433,10 +438,10 @@ private fun SequenceGame(seed: Long, onDone: (Int) -> Unit) {
     val total = 60_000L
     val puzzles = remember(seed) { makeSequences(seed) }
     var idx by remember { mutableIntStateOf(0) }
-    var right by remember { mutableIntStateOf(0) }
-    var wrong by remember { mutableIntStateOf(0) }
+    var points by remember { mutableIntStateOf(0) }
+    var streak by remember { mutableIntStateOf(0) }
     var last by remember { mutableStateOf<Boolean?>(null) }
-    fun score() = (right * 10 - wrong * 5).coerceIn(0, 800)
+    fun score() = points.coerceIn(0, 800)
     val elapsed = rememberClock(true, total) { onDone(score()) }
     val c = T.colors
     val pz = puzzles[idx.coerceAtMost(puzzles.lastIndex)]
@@ -450,7 +455,7 @@ private fun SequenceGame(seed: Long, onDone: (Int) -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), textAlign = TextAlign.Center,
         )
         Text(
-            when (last) { true -> "✓ Yes"; false -> "✗ Not that one"; null -> " " },
+            when { last == true && streak >= 3 -> "✓ $streak in a row!"; last == true -> "✓ Yes"; last == false -> "✗ Not that one"; else -> " " },
             style = Type.headline, color = if (last == true) c.accent else c.danger, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center,
         )
         Spacer(Modifier.weight(1f))
@@ -463,7 +468,8 @@ private fun SequenceGame(seed: Long, onDone: (Int) -> Unit) {
                             Modifier.weight(1f).height(84.dp).clip(RoundedCornerShape(22.dp)).background(c.cardRaised)
                                 .border(1.dp, c.separator, RoundedCornerShape(22.dp))
                                 .pressable(haptic = false) {
-                                    if (optIdx == pz.answerIdx) { right++; last = true } else { wrong++; last = false }
+                                    if (optIdx == pz.answerIdx) { points += 10 + minOf(streak, 5) * 2; streak++; last = true }
+                                    else { points = (points - 3).coerceAtLeast(0); streak = 0; last = false }
                                     idx++
                                 },
                             contentAlignment = Alignment.Center,
@@ -476,21 +482,21 @@ private fun SequenceGame(seed: Long, onDone: (Int) -> Unit) {
 }
 
 // ------------------------------------------------------------------ Code Breaker
-private val CODE_COLORS = listOf(Color(0xFFF2476F), Color(0xFFF59E0B), Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFF8B5CF6), Color(0xFF14B8A6))
+private val CODE_COLORS = listOf(Color(0xFFF2476F), Color(0xFFF59E0B), Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFF8B5CF6))
 
 private class CodeGuess(val pegs: List<Int>, val exact: Int, val near: Int)
 
 @Composable
 private fun CodeBreakerGame(seed: Long, onDone: (Int) -> Unit) {
     val total = 150_000L
-    val maxGuesses = 8
-    val secret = remember(seed) { val r = Random(seed); List(4) { r.nextInt(CODE_COLORS.size) } }
+    val maxGuesses = 10
+    val secret = remember(seed) { CODE_COLORS.indices.toList().shuffled(Random(seed)).take(4) }   // 4 different colours out of 5
     var current by remember { mutableStateOf(listOf<Int>()) }
     var guesses by remember { mutableStateOf(listOf<CodeGuess>()) }
     var finished by remember { mutableStateOf(false) }
     fun scoreFor(leftMs: Long, solved: Boolean): Int {
         val best = guesses.maxOfOrNull { it.exact } ?: 0
-        return if (solved) (400 + (maxGuesses - guesses.size) * 50 + (leftMs / 1000) * 1.5).toInt().coerceAtMost(1000) else best * 40
+        return if (solved) (400 + (maxGuesses - guesses.size) * 40 + (leftMs / 1000) * 1.5).toInt().coerceAtMost(1000) else best * 40
     }
     val elapsed = rememberClock(!finished, total) { finished = true; onDone(scoreFor(0, false)) }
     val c = T.colors
@@ -525,7 +531,7 @@ private fun CodeBreakerGame(seed: Long, onDone: (Int) -> Unit) {
                 val g = guesses.getOrNull(row)
                 Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("${row + 1}", style = Type.caption, color = c.secondary, modifier = Modifier.width(16.dp))
-                    repeat(4) { k -> Peg(g?.pegs?.get(k), 34) }
+                    repeat(4) { k -> Peg(g?.pegs?.get(k), 30) }
                     Spacer(Modifier.weight(1f))
                     if (g != null) Text("● ${g.exact}   ○ ${g.near}", style = Type.headline, color = c.label)
                 }
@@ -676,6 +682,204 @@ private fun SlidePuzzleGame(seed: Long, onDone: (Int) -> Unit) {
             }
         }
         Text("Slide the tiles into order: 1 2 3 / 4 5 6 / 7 8", style = Type.callout, color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+// ------------------------------------------------------------------ Odd One Out
+private val ODD_PAIRS = listOf(          // from easy to close look-alikes
+    "🐶" to "🐱", "🍎" to "🍅", "🌞" to "🌝", "🙂" to "🙃", "😀" to "😃", "😄" to "😆", "🕐" to "🕑", "🔷" to "🔹", "🥰" to "😍", "🌗" to "🌓",
+)
+
+@Composable
+private fun OddOneOutGame(seed: Long, onDone: (Int) -> Unit) {
+    val total = 45_000L
+    var level by remember { mutableIntStateOf(0) }          // puzzles solved so far; the next puzzle depends only on this, so both of you see the same ones
+    var points by remember { mutableIntStateOf(0) }
+    var streak by remember { mutableIntStateOf(0) }
+    var wrongCell by remember { mutableStateOf<Int?>(null) }
+    val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
+    val c = T.colors
+    val size = if (level < 3) 3 else if (level < 7) 4 else 5
+    val puzzle = remember(level, seed) {
+        val r = Random(seed * 31 + level)
+        val pair = ODD_PAIRS[(level / 2).coerceAtMost(ODD_PAIRS.lastIndex)]
+        val flip = r.nextBoolean()
+        Triple(if (flip) pair.first else pair.second, if (flip) pair.second else pair.first, r.nextInt(size * size))   // common, odd, odd position
+    }
+    LaunchedEffect(wrongCell) { if (wrongCell != null) { delay(350); wrongCell = null } }
+    Column(Modifier.fillMaxSize()) {
+        Hud(total - elapsed, total, "${points.coerceAtLeast(0)} pts" + if (streak >= 2) " · 🔥$streak" else "")
+        Spacer(Modifier.weight(1f))
+        Text("Tap the one that's different", style = Type.callout, color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(size) { y ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    repeat(size) { x ->
+                        val i = y * size + x
+                        val bad = wrongCell == i
+                        Box(
+                            Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(16.dp))
+                                .background(if (bad) c.danger.copy(alpha = .25f) else c.cardRaised)
+                                .border(1.dp, if (bad) c.danger else c.separator, RoundedCornerShape(16.dp))
+                                .pressable(haptic = false) {
+                                    if (i == puzzle.third) { points += 10 + minOf(streak, 5) * 2; streak++; level++ }
+                                    else { points = (points - 3).coerceAtLeast(0); streak = 0; wrongCell = i }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(if (i == puzzle.third) puzzle.second else puzzle.first, fontSize = if (size >= 5) 26.sp else 32.sp) }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+// ------------------------------------------------------------------ Make the Target
+private class TargetPuzzle(val numbers: List<Int>, val target: Int)
+
+private fun makeTarget(seed: Long, idx: Int): TargetPuzzle {
+    val r = Random(seed * 131 + idx)
+    val maxN = (12 + idx).coerceAtMost(30)
+    val numbers = (1..maxN).shuffled(r).take(6)
+    val k = if (idx < 4) 2 else if (idx < 10) 3 else 3 + r.nextInt(2)
+    val picks = numbers.indices.shuffled(r).take(k)
+    return TargetPuzzle(numbers, picks.sumOf { numbers[it] })        // built from the tiles, so it can always be solved
+}
+
+@Composable
+private fun TargetGame(seed: Long, onDone: (Int) -> Unit) {
+    val total = 60_000L
+    var idx by remember { mutableIntStateOf(0) }
+    var points by remember { mutableIntStateOf(0) }
+    var streak by remember { mutableIntStateOf(0) }
+    var picked by remember { mutableStateOf(setOf<Int>()) }
+    var flash by remember { mutableStateOf<Boolean?>(null) }      // true = solved, false = went over
+    val puzzle = remember(idx, seed) { makeTarget(seed, idx) }
+    val sum = picked.sumOf { puzzle.numbers[it] }
+    val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
+    val c = T.colors
+    LaunchedEffect(sum, idx) {
+        if (picked.isEmpty()) { flash = null; return@LaunchedEffect }
+        if (sum == puzzle.target) {
+            flash = true; delay(350)
+            points += 25 + minOf(streak, 5) * 3; streak++; idx++; picked = emptySet(); flash = null
+        } else if (sum > puzzle.target) {
+            flash = false; delay(500)
+            picked = emptySet(); flash = null
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Hud(total - elapsed, total, "$points pts" + if (streak >= 2) " · 🔥$streak" else "")
+        Spacer(Modifier.weight(1f))
+        Text("Make", style = Type.callout, color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Text("🎯 ${puzzle.target}", style = Type.numberHuge.copy(fontSize = 64.sp), color = c.label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Text(
+            when (flash) { true -> "✓ Got it!"; false -> "Too much, try again"; null -> if (picked.isEmpty()) "Tap tiles that add up to it" else picked.joinToString(" + ") { "${puzzle.numbers[it]}" } + " = $sum" },
+            style = Type.headline, color = when (flash) { true -> c.accent; false -> c.danger; null -> c.secondary },
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp), textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(18.dp))
+        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            puzzle.numbers.indices.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { i ->
+                        val on = i in picked
+                        Box(
+                            Modifier.weight(1f).height(86.dp).clip(RoundedCornerShape(22.dp))
+                                .background(if (on) c.accent else c.cardRaised)
+                                .border(1.dp, if (on) c.accent else c.separator, RoundedCornerShape(22.dp))
+                                .pressable(haptic = false) { if (flash == null) picked = if (on) picked - i else picked + i },
+                            contentAlignment = Alignment.Center,
+                        ) { Text("${puzzle.numbers[i]}", style = Type.title.copy(fontSize = 32.sp), color = if (on) Color.White else c.label) }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(onClick = { picked = emptySet() }, modifier = Modifier.weight(1f)) { Text("Clear", color = c.secondary) }
+            TextButton(onClick = { streak = 0; idx++; picked = emptySet() }, modifier = Modifier.weight(1f)) { Text("Skip this one", color = c.secondary) }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ Echo
+private val ECHO_COLORS = listOf(Color(0xFFF2476F), Color(0xFF3B82F6), Color(0xFF22C55E), Color(0xFFF5B301))
+
+@Composable
+private fun EchoGame(seed: Long, onDone: (Int) -> Unit) {
+    val maxLen = 14
+    val full = remember(seed) { val r = Random(seed); List(maxLen) { r.nextInt(4) } }     // the first round plays 3 steps, each next round one more
+    var length by remember { mutableIntStateOf(3) }
+    var lives by remember { mutableIntStateOf(2) }
+    var score by remember { mutableIntStateOf(0) }
+    var replay by remember { mutableIntStateOf(0) }
+    var lit by remember { mutableStateOf<Int?>(null) }
+    var accepting by remember { mutableStateOf(false) }
+    var inputIdx by remember { mutableIntStateOf(0) }
+    var message by remember { mutableStateOf("Watch…") }
+    var finished by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val c = T.colors
+    val up by rememberUpdatedState(onDone)
+
+    // play the pattern whenever a new round (or a repeat after a mistake) begins
+    LaunchedEffect(length, replay) {
+        accepting = false; inputIdx = 0; message = "Watch…"
+        delay(700)
+        for (k in 0 until length) { lit = full[k]; delay(480); lit = null; delay(220) }
+        message = "Your turn"; accepting = true
+    }
+
+    fun finish() { if (!finished) { finished = true; up(score.coerceIn(0, 1000)) } }
+    fun tap(pad: Int) {
+        if (!accepting || finished) return
+        scope.launch { lit = pad; delay(160); lit = null }
+        if (pad == full[inputIdx]) {
+            inputIdx++
+            if (inputIdx == length) {
+                accepting = false
+                score += length * 10
+                scope.launch {
+                    message = "✓ Nice!"; delay(800)
+                    if (length >= maxLen) finish() else length++
+                }
+            }
+        } else {
+            accepting = false
+            lives--
+            scope.launch {
+                if (lives <= 0) { message = "✗ That's the end"; delay(900); finish() }
+                else { message = "✗ Oops, watch again"; delay(900); replay++ }
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Pattern of ${length}", style = Type.headline, color = c.label, modifier = Modifier.weight(1f))
+            Text("❤️".repeat(lives.coerceAtLeast(0)) + "  $score pts", style = Type.headline, color = c.accent)
+        }
+        Spacer(Modifier.weight(1f))
+        Text(message, style = Type.title, color = c.label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Spacer(Modifier.height(20.dp))
+        Column(Modifier.padding(horizontal = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            (0..3).chunked(2).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    row.forEach { pad ->
+                        val on = lit == pad
+                        Box(
+                            Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(28.dp))
+                                .background(ECHO_COLORS[pad].copy(alpha = if (on) 1f else 0.38f))
+                                .border(if (on) 4.dp else 0.dp, Color.White.copy(alpha = .9f), RoundedCornerShape(28.dp))
+                                .clickable(remember { MutableInteractionSource() }, indication = null) { tap(pad) },
+                        )
+                    }
+                }
+            }
+        }
         Spacer(Modifier.weight(1f))
     }
 }

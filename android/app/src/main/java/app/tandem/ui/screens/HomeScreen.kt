@@ -65,6 +65,7 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
     val me = data.me
     val partner = data.couple.partner
     var showSheet by rememberSaveable { mutableStateOf(false) }
+    var showQuickEdit by rememberSaveable { mutableStateOf(false) }
 
     // Re-render "x min ago" labels every minute.
     var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -140,7 +141,7 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
             // ---------- About your partner: what they're into right now + today's meters (from their page). Tap for the whole page.
             if (partner != null) {
                 Spacer(Modifier.height(18.dp))
-                PartnerSnapshot(partner, openPartnerPage)
+                PartnerSnapshot(me, partner, openPartnerPage, onEdit = { showQuickEdit = true })
             }
 
             // ---------- Next event
@@ -153,6 +154,7 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
     }
 
     if (showSheet) MoodSheet(vm, onDismiss = { showSheet = false })
+    if (showQuickEdit) QuickEditSheet(vm, data.me.profile, onDismiss = { showQuickEdit = false })
 }
 
 @Composable
@@ -388,65 +390,69 @@ private fun ActivityPicker(selected: Activity?, onSelect: (Activity) -> Unit) {
     }
 }
 
-// ================================================================== about your partner (home)
+// ================================================================== you vs your partner (home)
+/** What each of you is into right now and today's meters, head to head. Tap the card for their page, or "Edit mine" to update yours. */
 @Composable
-private fun PartnerSnapshot(partner: User, onOpen: () -> Unit) {
+private fun PartnerSnapshot(me: User, partner: User, onOpen: () -> Unit, onEdit: () -> Unit) {
     val c = T.colors
-    val p = partner.profile
     val name = partner.displayName.substringBefore(' ')
-    val now = listOf(
-        Triple(MediaLookup.WATCHING, "📺" to "Watching", p.watching), Triple(MediaLookup.PLAYING, "🎮" to "Playing", p.playing),
-        Triple(MediaLookup.LISTENING, "🎧" to "Listening to", p.listening), Triple(MediaLookup.READING, "📖" to "Reading", p.reading),
-    ).filter { it.third.isNotBlank() }
-    val meters = Meter.entries.filter { it.key in p.meters }
+    val kinds = NowKind.entries.filter { me.profile.nowText(it.key).isNotBlank() || partner.profile.nowText(it.key).isNotBlank() }
+    val hasMeters = Meter.entries.any { it.key in me.profile.meters || it.key in partner.profile.meters }
     SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().pressable(onClick = onOpen)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(partner, 34.dp, ring = c.partner)
             Spacer(Modifier.width(10.dp))
-            Text("About $name", style = Type.headline, color = c.label, modifier = Modifier.weight(1f), maxLines = 1)
-            Text("Open  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+            Text("You vs $name", style = Type.headline, color = c.label, modifier = Modifier.weight(1f), maxLines = 1)
+            Text("Their page  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
         }
-        if (now.isEmpty() && meters.isEmpty()) {
-            Text("$name hasn't shared what they're into yet. Open their page to see the rest.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 10.dp))
+        if (kinds.isEmpty() && !hasMeters) {
+            Text("Nothing here yet. Add what you're watching, playing, reading or listening to, and your meters, and $name sees it right here.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 10.dp))
         }
-        if (now.isNotEmpty()) {
-            Text("RIGHT NOW", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
-            now.forEach { (kind, label, title) ->
-                val m = p.mediaFor(kind)
-                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (m != null && m.img.isNotBlank()) {
-                        AsyncImage(
-                            model = m.img, contentDescription = m.title, contentScale = ContentScale.Crop,
-                            modifier = Modifier.width(46.dp).height(64.dp).clip(RoundedCornerShape(10.dp)).background(c.separator),
-                        )
-                    } else Box(Modifier.width(46.dp).height(46.dp).clip(RoundedCornerShape(14.dp)).background(c.accentSoft), contentAlignment = Alignment.Center) { Text(label.first, fontSize = 22.sp) }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("${label.first}  ${label.second}", style = Type.caption, color = c.secondary)
-                        Text(m?.title?.ifBlank { null } ?: title, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val extra = m?.sub?.takeIf { it.isNotBlank() } ?: m?.blurb?.takeIf { it.isNotBlank() }
-                        if (extra != null) Text(extra, style = Type.caption, color = c.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
-        if (meters.isNotEmpty()) {
-            Text("TODAY'S METERS", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
-            meters.forEach { m ->
-                val v = p.meters[m.key] ?: 0
-                Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(m.emoji, fontSize = 16.sp)
-                        Spacer(Modifier.width(8.dp))
-                        Text(m.label, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f))
-                        Text("$v% · ${m.caption(v)}", style = Type.caption, color = m.tint, maxLines = 1)
-                    }
+        if (kinds.isNotEmpty()) {
+            Text("RIGHT NOW", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
+            kinds.forEach { k ->
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Text("${k.emoji}  ${k.label}", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                     Spacer(Modifier.height(5.dp))
-                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)).background(m.tint.copy(alpha = .16f))) {
-                        Box(Modifier.fillMaxWidth((v / 100f).coerceIn(0.02f, 1f)).fillMaxHeight().clip(RoundedCornerShape(50)).background(Brush.horizontalGradient(listOf(m.tint.copy(alpha = .65f), m.tint))))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NowCard(Modifier.weight(1f), me, k, c.me, mine = true, onAdd = onEdit)
+                        NowCard(Modifier.weight(1f), partner, k, c.partner, mine = false, onAdd = onOpen)
                     }
                 }
             }
+        }
+        if (hasMeters) {
+            Text("METERS", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
+            MetersVs(me, partner)
+        }
+        Spacer(Modifier.height(12.dp))
+        SoftButton("Edit mine", onClick = onEdit, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/** One person's pick for one slot: poster or cover, title, what it is. Empty slots invite you to add yours. */
+@Composable
+private fun NowCard(modifier: Modifier, user: User, kind: NowKind, tone: androidx.compose.ui.graphics.Color, mine: Boolean, onAdd: () -> Unit) {
+    val c = T.colors
+    val text = user.profile.nowText(kind.key)
+    val info = user.profile.mediaFor(kind.key)
+    val shape = RoundedCornerShape(16.dp)
+    if (text.isBlank()) {
+        Box(modifier.heightIn(min = 70.dp).clip(shape).background(c.separator.copy(alpha = .08f)).let { if (mine) it.pressable(haptic = false, onClick = onAdd) else it }, contentAlignment = Alignment.Center) {
+            Text(if (mine) "+ Add yours" else "–", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = if (mine) c.accent else c.tertiary)
+        }
+        return
+    }
+    Row(modifier.heightIn(min = 70.dp).clip(shape).background(tone.copy(alpha = .10f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (info != null && info.img.isNotBlank()) AsyncImage(
+            model = info.img, contentDescription = info.title, contentScale = ContentScale.Crop,
+            modifier = Modifier.width(42.dp).height(60.dp).clip(RoundedCornerShape(8.dp)).background(c.separator),
+        ) else Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(tone.copy(alpha = .18f)), contentAlignment = Alignment.Center) { Text(kind.emoji, fontSize = 20.sp) }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(info?.title?.ifBlank { null } ?: text, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val sub = info?.sub?.takeIf { it.isNotBlank() }
+            if (sub != null) Text(sub, style = Type.caption.copy(fontSize = 11.sp), color = c.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
