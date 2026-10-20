@@ -1,5 +1,6 @@
 package app.tandem.ui.components
 
+import app.tandem.ui.theme.LocalNight
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -72,8 +73,10 @@ fun ConstellationDays(
     val shoot by t.animateFloat(0f, 1f, infiniteRepeatable(tween(11000, easing = LinearEasing), RepeatMode.Restart), label = "shoot")
 
     val dust = remember { val r = Random(11); List(80) { Dust(r.nextFloat(), r.nextFloat(), .5f + r.nextFloat() * 1.1f, r.nextFloat() * 6.28f, 1 + r.nextInt(3)) } }
+    val nightStars = remember { val r = Random(29); List(55) { Dust(r.nextFloat(), r.nextFloat(), .4f + r.nextFloat() * .9f, r.nextFloat() * 6.28f, 1 + r.nextInt(3)) } }
     val sparkles = remember { val r = Random(5); List(7) { Dust(.06f + r.nextFloat() * .88f, .06f + r.nextFloat() * .55f, 4f + r.nextFloat() * 4f, r.nextFloat() * 6.28f, 1 + r.nextInt(2)) } }
 
+    val night = LocalNight.current
     val pink = Color(0xFFFF8FA3)
     val violet = Color(0xFF9C8CFF)
     val gold = Color(0xFFFFD27A)
@@ -83,8 +86,8 @@ fun ConstellationDays(
     Box(
         modifier.fillMaxWidth().height(height)
             .then(
-                if (framed) Modifier.clip(RoundedCornerShape(24.dp)).background(Brush.verticalGradient(listOf(Color(0xFF0F0A33), Color(0xFF221A60), Color(0xFF3A2470))))
-                else Modifier.background(Brush.verticalGradient(0f to Color(0xFF0F0A33), .55f to Color(0xFF221A60), .84f to Color(0x993A2470), 1f to Color.Transparent))
+                if (framed) Modifier.clip(RoundedCornerShape(24.dp)).background(Brush.verticalGradient(listOf(Color(0xFF0F0A33).deeper(night), Color(0xFF221A60).deeper(night), Color(0xFF3A2470).deeper(night, .5f))))
+                else Modifier.background(Brush.verticalGradient(0f to Color(0xFF0F0A33).deeper(night), .55f to Color(0xFF221A60).deeper(night), .84f to Color(0x993A2470).deeper(night, .5f), 1f to Color.Transparent))
             )
             .semantics { contentDescription = "$days days together" },
     ) {
@@ -95,14 +98,26 @@ fun ConstellationDays(
 
             // warm horizon glow
             drawCircle(
-                Brush.radialGradient(listOf(Color(0xFFFFB59A).copy(alpha = .22f * appear), Color.Transparent), center = Offset(w / 2, h * 1.05f), radius = w * .7f),
+                Brush.radialGradient(listOf(Color(0xFFFFB59A).copy(alpha = (.22f - .14f * night) * appear), Color.Transparent), center = Offset(w / 2, h * 1.05f), radius = w * .7f),
                 radius = w * .7f, center = Offset(w / 2, h * 1.05f),
             )
 
-            // background dust
+            // background dust (brighter and bigger on a night sky)
             for (s in dust) {
                 val a = (.25f + .75f * (.5f + .5f * sin(tw * s.speed + s.phase))) * appear
-                drawCircle(Color.White.copy(alpha = a * .85f), s.r * density, Offset(s.x * w, s.y * h))
+                drawCircle(Color.White.copy(alpha = (a * (.85f + .15f * night)).coerceAtMost(1f)), s.r * density * (1f + .35f * night), Offset(s.x * w, s.y * h))
+            }
+            // night extras: a hazy moon glow and a few more far-away stars
+            if (night > 0f) {
+                val moon = Offset(w * .82f, h * (if (framed) .2f else .16f))
+                val mr = 15f * density
+                drawCircle(Brush.radialGradient(listOf(Color(0xFFE9E4FF).copy(alpha = .30f * night * appear), Color.Transparent), center = moon, radius = mr * 4.2f), mr * 4.2f, moon)
+                drawCircle(Color(0xFFF4F0FF).copy(alpha = .92f * night * appear), mr, moon)
+                drawCircle(Color(0xFF221A60).copy(alpha = .95f * night * appear), mr * .86f, Offset(moon.x + mr * .5f, moon.y - mr * .22f))
+                for (s in nightStars) {
+                    val a = (.2f + .8f * (.5f + .5f * sin(tw * s.speed + s.phase))) * appear * night
+                    drawCircle(Color(0xFFDCD6FF).copy(alpha = a * .8f), s.r * density, Offset(s.x * w, s.y * h * .85f))
+                }
             }
             // bigger blinking sparkles
             for (s in sparkles) {
@@ -210,3 +225,5 @@ fun ConstellationDays(
         )
     }
 }
+
+private fun Color.deeper(n: Float, k: Float = .45f): Color = if (n <= 0f) this else androidx.compose.ui.graphics.lerp(this, Color(0xFF05031A).copy(alpha = alpha), k * n)

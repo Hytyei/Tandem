@@ -51,7 +51,7 @@ private fun one(d: Double) = "%.1f".format(d)
 
 /** The Heatmap tab: a map of the places you've been, glowing where you go most, plus rankings by your two reviews. */
 @Composable
-fun HeatmapScreen(vm: AppViewModel) {
+fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -112,6 +112,7 @@ fun HeatmapScreen(vm: AppViewModel) {
                 ) { Icon(Icons.Filled.Add, "Add a place", tint = Color.White) }
             })
         }
+        item { switcher() }
 
         // ---------- the map
         item {

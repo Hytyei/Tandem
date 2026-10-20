@@ -7,6 +7,14 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.lerp
+import kotlinx.coroutines.delay
+import java.util.Calendar
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -62,6 +70,35 @@ val DarkColors = TandemColors(
 
 val LocalTandem = staticCompositionLocalOf { LightColors }
 
+/** 0 = daytime, 1 = deep night, from the phone's clock: dusk 19:00-21:00, night until 05:00, dawn 05:00-07:00. */
+val LocalNight = staticCompositionLocalOf { 0f }
+
+fun nightFactor(hour: Int, minute: Int): Float {
+    val t = hour + minute / 60f
+    return when {
+        t >= 21f || t < 5f -> 1f
+        t >= 19f -> (t - 19f) / 2f
+        t < 7f -> (7f - t) / 2f
+        else -> 0f
+    }
+}
+
+private fun Color.deeper(to: Color, f: Float): Color = if (f <= 0f) this else lerp(this, to.copy(alpha = alpha), f)
+
+/** The same palette, only a little darker and cooler. At night everything keeps its look; it just dims toward a deep indigo. */
+fun TandemColors.atNight(n: Float): TandemColors {
+    if (n <= 0f) return this
+    val deep = Color(0xFF070418)
+    return if (isDark) copy(
+        background = background.deeper(deep, .55f * n), sheet = sheet.deeper(deep, .35f * n),
+        sky = sky.map { it.deeper(deep, .5f * n) }, glow = glow.deeper(Color(0xFF6A4FB0), .5f * n),
+    ) else copy(
+        background = background.deeper(Color(0xFF2A2352), .30f * n), sheet = sheet.deeper(Color(0xFF2A2352), .26f * n),
+        card = card.deeper(Color(0xFFCFC6EE), .30f * n), cardRaised = cardRaised.deeper(Color(0xFFCFC6EE), .26f * n),
+        sky = sky.map { it.deeper(Color(0xFF2A2352), .34f * n) }, glow = glow.deeper(Color(0xFF8A6FD0), .45f * n),
+    )
+}
+
 object T {
     val colors: TandemColors @Composable get() = LocalTandem.current
 }
@@ -82,7 +119,14 @@ object Type {
 
 @Composable
 fun TandemTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    val c = if (dark) DarkColors else LightColors
+    var night by remember { mutableFloatStateOf(Calendar.getInstance().let { nightFactor(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            night = Calendar.getInstance().let { nightFactor(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+        }
+    }
+    val c = (if (dark) DarkColors else LightColors).atNight(night)
     val scheme = if (dark) darkColorScheme(
         primary = c.accent, onPrimary = Color.White, background = c.background, onBackground = c.label,
         surface = c.sheet, onSurface = c.label, surfaceVariant = c.sheet, onSurfaceVariant = c.secondary,
@@ -92,7 +136,7 @@ fun TandemTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -
         surface = c.sheet, onSurface = c.label, surfaceVariant = c.sheet, onSurfaceVariant = c.secondary,
         surfaceContainerHigh = c.sheet, surfaceContainerHighest = c.sheet, outline = c.separator,
     )
-    CompositionLocalProvider(LocalTandem provides c) {
+    CompositionLocalProvider(LocalTandem provides c, LocalNight provides night) {
         MaterialTheme(
             colorScheme = scheme,
             typography = Typography(bodyLarge = Type.body, bodyMedium = Type.callout, titleLarge = Type.title, labelLarge = Type.headline),

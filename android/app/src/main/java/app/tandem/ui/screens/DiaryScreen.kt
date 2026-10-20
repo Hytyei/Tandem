@@ -56,7 +56,7 @@ import java.time.format.DateTimeFormatter
 
 /** The diary as a social-style feed: newest day first, each note a post with the author, date, pictures and text. */
 @Composable
-fun DiaryScreen(vm: AppViewModel) {
+fun DiaryScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -68,6 +68,7 @@ fun DiaryScreen(vm: AppViewModel) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 150.dp)) {
             item { LargeTitle("Diary", subtitle = "Our feed") }
+        item { switcher() }
 
             // "What's on your mind?" composer card
             item {

@@ -46,7 +46,7 @@ private fun dayLabel(d: LocalDate): String {
 }
 
 @Composable
-fun TimelineScreen(vm: AppViewModel) {
+fun TimelineScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -68,6 +68,7 @@ fun TimelineScreen(vm: AppViewModel) {
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 130.dp)) {
         item { LargeTitle("Mood timeline", subtitle = "You & ${partner?.displayName?.substringBefore(' ') ?: "partner"}") }
+        item { switcher() }
         item {
             Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 Segmented(listOf("Both", "Me", partner?.displayName?.substringBefore(' ') ?: "Partner"), filter, { filter = it })

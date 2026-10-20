@@ -38,6 +38,8 @@ import app.tandem.data.ThemeMode
 import app.tandem.work.EXTRA_TAB
 import app.tandem.ui.components.*
 import app.tandem.ui.screens.*
+import androidx.compose.ui.graphics.Brush
+import app.tandem.ui.theme.LocalNight
 import app.tandem.ui.theme.T
 import app.tandem.ui.theme.TandemTheme
 import app.tandem.ui.theme.Type
@@ -47,10 +49,8 @@ import androidx.compose.ui.res.painterResource
 
 enum class AppTab(val label: String, @DrawableRes val icon: Int) {
     Today("Today", R.drawable.ic_tab_home),
-    Timeline("Moods", R.drawable.ic_tab_moods),
-    Diary("Diary", R.drawable.ic_tab_diary),
+    Echoes("Echoes", R.drawable.ic_tab_echoes),
     Calendar("Calendar", R.drawable.ic_tab_calendar),
-    Heatmap("Heatmap", R.drawable.ic_tab_heatmap),
     Play("Play", R.drawable.ic_tab_play),
     Profile("Profile", R.drawable.ic_tab_profile),
 }
@@ -147,6 +147,7 @@ private fun LoadingScreen(vm: AppViewModel) {
 @Composable
 private fun Shell(vm: AppViewModel) {
     var tab by rememberSaveable { mutableStateOf(AppTab.Today) }
+    var echoes by rememberSaveable { mutableStateOf(0) } // 0 Moods, 1 Diary, 2 Heatmap
     var showStats by rememberSaveable { mutableStateOf(false) }
     var showAchievements by rememberSaveable { mutableStateOf(false) }
     var showPage by rememberSaveable { mutableStateOf(false) }
@@ -154,13 +155,19 @@ private fun Shell(vm: AppViewModel) {
     val requested = vm.requestedTab
     LaunchedEffect(requested) {
         if (requested != null) {
-            AppTab.entries.firstOrNull { it.name == requested }?.let { tab = it; showStats = false }
+            // Moods / Diary / Heatmap now live inside Echoes; old tab names still route there.
+            val section = when (requested) { "Timeline", "Moods" -> 0; "Diary" -> 1; "Heatmap" -> 2; else -> -1 }
+            if (section >= 0) { echoes = section; tab = AppTab.Echoes; showStats = false }
+            else AppTab.entries.firstOrNull { it.name == requested }?.let { tab = it; showStats = false }
             vm.requestedTab = null
         }
     }
     val update = vm.update
     val dismissed by vm.dismissedUpdate.collectAsState()
     DreamBackground {
+        // A soft night veil over the backdrop (behind the content) that fades in with the phone's clock.
+        val night = LocalNight.current
+        if (night > 0f) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF05031A).copy(alpha = .30f * night), Color(0xFF0A0624).copy(alpha = .16f * night)))))
         AnimatedContent(tab, label = "tab", transitionSpec = {
             val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
             (slideInHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { dir * it / 6 } + fadeIn(tween(220))) togetherWith
@@ -168,10 +175,19 @@ private fun Shell(vm: AppViewModel) {
         }) { t ->
             when (t) {
                 AppTab.Today -> HomeScreen(vm, openCalendar = { tab = AppTab.Calendar }, openStats = { showStats = true }, openPartnerPage = { pageMine = false; showPage = true })
-                AppTab.Timeline -> TimelineScreen(vm)
-                AppTab.Diary -> DiaryScreen(vm)
+                AppTab.Echoes -> {
+                    val switcher: @Composable () -> Unit = {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Segmented(listOf("Moods", "Diary", "Heatmap"), echoes, { echoes = it })
+                        }
+                    }
+                    when (echoes) {
+                        0 -> TimelineScreen(vm, switcher)
+                        1 -> DiaryScreen(vm, switcher)
+                        else -> HeatmapScreen(vm, switcher)
+                    }
+                }
                 AppTab.Calendar -> CalendarScreen(vm)
-                AppTab.Heatmap -> HeatmapScreen(vm)
                 AppTab.Play -> GamesScreen(vm)
                 AppTab.Profile -> ProfileScreen(vm, openPage = { mine -> pageMine = mine; showPage = true })
             }

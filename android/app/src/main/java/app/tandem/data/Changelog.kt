@@ -5,6 +5,14 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.3.4", title = "Update 4.4 · Echoes & night mode", date = "2026-10-19",
+        items = listOf(
+            "Moods, Diary and Heatmap are now one tab called Echoes, with a switcher at the top. The tab bar is down to five.",
+            "Night mode: after dusk (by your phone's clock) the colours dim a little and the Today sky becomes a proper night sky with a moon and more stars. It fades back by morning.",
+            "New tab icons.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.3.3", title = "Update 4.3 · Right now, head to head", date = "2026-10-19",
         items = listOf(
             "Right now has five slots: watching a series, watching a movie, playing, reading, and obsessed with (a track).",
