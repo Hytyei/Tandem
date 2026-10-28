@@ -55,6 +55,9 @@ Existing installs: do **not** re-run `schema.sql`. Apply each file in `backend/m
 npx wrangler d1 execute tandem --remote --file=migrations/0002_update1.sql   # skip if already applied
 npx wrangler d1 execute tandem --remote --file=migrations/0003_update2.sql
 npx wrangler d1 execute tandem --remote --file=migrations/0004_update3.sql
+npx wrangler d1 execute tandem --remote --file=migrations/0005_update4.sql
+npx wrangler d1 execute tandem --remote --file=migrations/0006_period.sql
+npx wrangler d1 execute tandem --remote --file=migrations/0007_perf.sql
 npx wrangler deploy
 ```
 

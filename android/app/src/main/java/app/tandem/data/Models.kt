@@ -307,10 +307,14 @@ data class GameStats(
     val bests: List<BestRow> = emptyList(),
     val gameWins: List<GameWinRow> = emptyList(),
     val highs: List<HighRow> = emptyList(),
+    val perf: List<PerfRow> = emptyList(),
 )
 @Serializable data class GamesResponse(val matches: List<Match> = emptyList(), val goals: List<GameGoal> = emptyList(), val stats: GameStats = GameStats())
 @Serializable data class MatchBody(val game: String, val rounds: Int)
-@Serializable data class ScoreBody(val round: Int, val score: Int)
+/** How a round was played (sent along with the score): fastest and average reaction in ms, how many reaction samples, hits and misses. */
+@Serializable data class PerfBody(val bestMs: Int = 0, val avgMs: Int = 0, val n: Int = 0, val hits: Int = 0, val misses: Int = 0)
+@Serializable data class PerfRow(val game: String, val userId: String, val plays: Int = 0, val bestMs: Int = 0, val avgMs: Int = 0, val n: Int = 0, val hits: Int = 0, val misses: Int = 0)
+@Serializable data class ScoreBody(val round: Int, val score: Int, val perf: PerfBody? = null)
 @Serializable data class GoalBody(val title: String, val metric: String, val target: Int)
 
 

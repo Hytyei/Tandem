@@ -31,6 +31,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.tandem.data.MiniGame
+import app.tandem.data.PerfBody
+import app.tandem.ui.components.FxKind
+import app.tandem.ui.components.FxLayer
+import app.tandem.ui.components.LocalFx
+import app.tandem.ui.components.rememberFx
+import app.tandem.ui.components.touchFx
 import app.tandem.ui.components.PrimaryButton
 import app.tandem.ui.components.pressable
 import app.tandem.ui.theme.T
@@ -50,9 +56,11 @@ private enum class Phase { Intro, Count, Play, Done }
 @Composable
 fun RoundRunnerDialog(
     game: MiniGame, seed: Long, round: Int, rounds: Int, partnerName: String, beat: Int?, sending: Boolean,
-    onFinished: (Int) -> Unit, onClose: () -> Unit,
+    onFinished: (Int, PerfBody?) -> Unit, onClose: () -> Unit,
 ) {
     val c = T.colors
+    val fx = rememberFx()
+    val perf = remember { PerfLog() }
     var phase by remember { mutableStateOf(Phase.Intro) }
     var score by remember { mutableIntStateOf(0) }
     var askQuit by remember { mutableStateOf(false) }
@@ -62,7 +70,7 @@ fun RoundRunnerDialog(
             when (phase) {
                 Phase.Play, Phase.Count -> askQuit = true
                 Phase.Intro -> onClose()
-                Phase.Done -> if (!sending) onFinished(score)
+                Phase.Done -> if (!sending) onFinished(score, perf.toBody())
             }
         },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
@@ -90,6 +98,8 @@ fun RoundRunnerDialog(
                 Phase.Count -> Countdown { phase = Phase.Play }
                 Phase.Play -> {
                     val finish: (Int) -> Unit = { s -> score = s; phase = Phase.Done }
+                    CompositionLocalProvider(LocalFx provides fx, LocalPerf provides perf, LocalBeat provides beat) {
+                    Box(Modifier.fillMaxSize().touchFx(fx)) {
                     when (game) {
                         MiniGame.Heart -> HeartCatchGame(seed, finish)
                         MiniGame.Memory -> MemoryGame(seed, finish)
@@ -102,6 +112,15 @@ fun RoundRunnerDialog(
                         MiniGame.Code -> CodeBreakerGame(seed, finish)
                         MiniGame.Lights -> LightsOutGame(seed, finish)
                         MiniGame.Slide -> SlidePuzzleGame(seed, finish)
+                        MiniGame.Mole -> WhackGame(seed, finish)
+                        MiniGame.Stack -> StackGame(seed, finish)
+                        MiniGame.Flap -> FlappyGame(seed, finish)
+                        MiniGame.Stroop -> StroopGame(seed, finish)
+                        MiniGame.Word -> WordGame(seed, finish)
+                        MiniGame.Blackjack -> BlackjackGame(seed, finish)
+                    }
+                    FxLayer(fx, Modifier.fillMaxSize())
+                    }
                     }
                 }
                 Phase.Done -> Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -111,6 +130,16 @@ fun RoundRunnerDialog(
                     Text(game.doneLabel, style = Type.title, color = c.secondary)
                     Text("$score", style = Type.numberHuge, color = c.accent)
                     Text(game.unit, style = Type.callout, color = c.secondary)
+                    if (perf.samples > 0 || perf.hits + perf.misses > 0) {
+                        Spacer(Modifier.height(14.dp))
+                        Row(Modifier.clip(RoundedCornerShape(18.dp)).background(c.card).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                            if (perf.samples > 0) {
+                                PerfStat("fastest", "${perf.best} ms")
+                                PerfStat("average", "${perf.avg} ms")
+                            }
+                            if (perf.hits + perf.misses > 0) PerfStat("accuracy", "${perf.hits * 100 / (perf.hits + perf.misses)}%")
+                        }
+                    }
                     if (beat != null) {
                         Spacer(Modifier.height(14.dp))
                         Text(
@@ -123,7 +152,7 @@ fun RoundRunnerDialog(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    PrimaryButton("Send score", onClick = { onFinished(score) }, loading = sending)
+                    PrimaryButton("Send score", onClick = { onFinished(score, perf.toBody()) }, loading = sending)
                 }
             }
         }
@@ -133,9 +162,18 @@ fun RoundRunnerDialog(
         onDismissRequest = { askQuit = false }, containerColor = c.sheet,
         title = { Text("Quit this round?") },
         text = { Text("Leaving now counts as a score of 0 for this round.") },
-        confirmButton = { TextButton(onClick = { askQuit = false; score = 0; phase = Phase.Done }) { Text("Quit", color = c.danger) } },
+        confirmButton = { TextButton(onClick = { askQuit = false; score = 0; perf.clear(); phase = Phase.Done }) { Text("Quit", color = c.danger) } },
         dismissButton = { TextButton(onClick = { askQuit = false }) { Text("Keep playing", color = c.secondary) } },
     )
+}
+
+@Composable
+private fun PerfStat(label: String, value: String) {
+    val c = T.colors
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = Type.headline, color = c.label)
+        Text(label, style = Type.caption, color = c.secondary)
+    }
 }
 
 @Composable
@@ -151,7 +189,7 @@ private fun Countdown(onDone: () -> Unit) {
 
 /** Milliseconds since the round started, ticking every frame while [running]; [onTimeUp] fires once at [limitMs]. */
 @Composable
-private fun rememberClock(running: Boolean, limitMs: Long, onTimeUp: () -> Unit): Long {
+internal fun rememberClock(running: Boolean, limitMs: Long, onTimeUp: () -> Unit): Long {
     var elapsed by remember { mutableLongStateOf(0L) }
     val up by rememberUpdatedState(onTimeUp)
     LaunchedEffect(running) {
@@ -168,7 +206,7 @@ private fun rememberClock(running: Boolean, limitMs: Long, onTimeUp: () -> Unit)
 }
 
 @Composable
-private fun Hud(leftMs: Long, totalMs: Long, right: String) {
+internal fun Hud(leftMs: Long, totalMs: Long, right: String) {
     val c = T.colors
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -200,7 +238,14 @@ private fun HeartCatchGame(seed: Long, onDone: (Int) -> Unit) {
         }
     }
     var hits by remember { mutableStateOf(setOf<Int>()) }
-    val elapsed = rememberClock(true, total) { onDone(hits.size) }
+    val perf = LocalPerf.current
+    val fx = LocalFx.current
+    val elapsed = rememberClock(true, total) {
+        val seen = spawns.count { it.t + 300 < total }
+        repeat((seen - hits.size).coerceAtLeast(0)) { perf.miss() }
+        onDone(hits.size)
+    }
+    val nowMs by rememberUpdatedState(elapsed)
     val c = T.colors
     Column(Modifier.fillMaxSize()) {
         Hud(total - elapsed, total, "💗 ${hits.size}")
@@ -211,9 +256,17 @@ private fun HeartCatchGame(seed: Long, onDone: (Int) -> Unit) {
                     val pop = (0.5f + age / 150f).coerceAtMost(1f)
                     val fade = ((sp.t + sp.life - elapsed) / 250f).coerceIn(0f, 1f)
                     Box(
-                        Modifier.offset(x = maxWidth * sp.x - 32.dp, y = maxHeight * sp.y - 32.dp).size(64.dp)
+                        // the whole heart always stays inside the play area
+                        Modifier.offset(x = (maxWidth - 64.dp) * sp.x, y = (maxHeight - 64.dp) * sp.y).size(64.dp)
                             .graphicsLayer { scaleX = pop; scaleY = pop; alpha = fade }
-                            .pointerInput(i) { detectTapGestures(onPress = { hits = hits + i }) },
+                            .pointerInput(i) {
+                                detectTapGestures(onPress = {
+                                    if (i !in hits) {
+                                        hits = hits + i; perf.hit(); perf.react((nowMs - sp.t).toInt())
+                                        fx.burst(FxKind.Hearts, "+1")
+                                    }
+                                })
+                            },
                         contentAlignment = Alignment.Center,
                     ) { Icon(Icons.Filled.Favorite, "Heart", tint = c.accent, modifier = Modifier.size(56.dp)) }
                 }
@@ -237,6 +290,8 @@ private fun MemoryGame(seed: Long, onDone: (Int) -> Unit) {
     var matched by remember { mutableStateOf(setOf<Int>()) }
     var mistakes by remember { mutableIntStateOf(0) }
     var finished by remember { mutableStateOf(false) }
+    val perf = LocalPerf.current
+    val fx = LocalFx.current
     fun scoreFor(leftMs: Long): Int {
         val bonus = if (matched.size == faces.size) (leftMs / 1000).toInt() * 5 else 0
         return (matched.size / 2 * 100 + bonus - mistakes * 10).coerceAtLeast(0)
@@ -245,7 +300,8 @@ private fun MemoryGame(seed: Long, onDone: (Int) -> Unit) {
     LaunchedEffect(open) {
         if (open.size == 2) {
             delay(550)
-            if (faces[open[0]] == faces[open[1]]) matched = matched + open else mistakes++
+            if (faces[open[0]] == faces[open[1]]) { matched = matched + open; perf.hit(); fx.burst(FxKind.Hearts, "match!") }
+            else { mistakes++; perf.miss(); fx.burst(FxKind.Bad) }
             open = emptyList()
         }
     }
@@ -307,6 +363,9 @@ private fun MathGame(seed: Long, onDone: (Int) -> Unit) {
     var right by remember { mutableIntStateOf(0) }
     var wrong by remember { mutableIntStateOf(0) }
     var last by remember { mutableStateOf<Boolean?>(null) }
+    val perf = LocalPerf.current
+    val fx = LocalFx.current
+    var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     fun score() = (right * 10 - wrong * 5).coerceAtLeast(0)
     val elapsed = rememberClock(true, total) { onDone(score()) }
     val c = T.colors
@@ -329,7 +388,10 @@ private fun MathGame(seed: Long, onDone: (Int) -> Unit) {
                             Modifier.weight(1f).height(84.dp).clip(RoundedCornerShape(22.dp)).background(c.cardRaised)
                                 .border(1.dp, c.separator, RoundedCornerShape(22.dp))
                                 .pressable(haptic = false) {
-                                    if (optIdx == sum.answerIdx) { right++; last = true } else { wrong++; last = false }
+                                    if (optIdx == sum.answerIdx) {
+                                        right++; last = true; perf.hit(); perf.react((SystemClock.elapsedRealtime() - shownAt).toInt()); fx.burst(FxKind.Stars, "+10")
+                                    } else { wrong++; last = false; perf.miss(); fx.burst(FxKind.Bad, "-5") }
+                                    shownAt = SystemClock.elapsedRealtime()
                                     idx++
                                 },
                             contentAlignment = Alignment.Center,
@@ -353,6 +415,8 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
     var lastMs by remember { mutableIntStateOf(0) }
     var scores by remember { mutableStateOf(listOf<Int>()) }
     val up by rememberUpdatedState(onDone)
+    val perf = LocalPerf.current
+    val fx = LocalFx.current
 
     LaunchedEffect(tryIdx, state) {
         when (state) {
@@ -366,11 +430,13 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
     }
     fun tap() {
         when (state) {
-            DrawState.Waiting -> { scores = scores + 0; state = DrawState.Early }
+            DrawState.Waiting -> { scores = scores + 0; state = DrawState.Early; perf.miss(); fx.burst(FxKind.Bad, "too early") }
             DrawState.Ready -> {
                 lastMs = (SystemClock.elapsedRealtime() - readyAt).toInt()
                 scores = scores + (600 - lastMs).coerceAtLeast(0)
                 state = DrawState.Result
+                perf.hit(); perf.react(lastMs)
+                fx.burst(if (lastMs < 250) FxKind.Confetti else FxKind.Stars, "$lastMs ms")
             }
             else -> {}
         }
@@ -441,6 +507,9 @@ private fun SequenceGame(seed: Long, onDone: (Int) -> Unit) {
     var points by remember { mutableIntStateOf(0) }
     var streak by remember { mutableIntStateOf(0) }
     var last by remember { mutableStateOf<Boolean?>(null) }
+    val perf = LocalPerf.current
+    val fx = LocalFx.current
+    var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     fun score() = points.coerceIn(0, 800)
     val elapsed = rememberClock(true, total) { onDone(score()) }
     val c = T.colors
@@ -468,8 +537,12 @@ private fun SequenceGame(seed: Long, onDone: (Int) -> Unit) {
                             Modifier.weight(1f).height(84.dp).clip(RoundedCornerShape(22.dp)).background(c.cardRaised)
                                 .border(1.dp, c.separator, RoundedCornerShape(22.dp))
                                 .pressable(haptic = false) {
-                                    if (optIdx == pz.answerIdx) { points += 10 + minOf(streak, 5) * 2; streak++; last = true }
-                                    else { points = (points - 3).coerceAtLeast(0); streak = 0; last = false }
+                                    if (optIdx == pz.answerIdx) {
+                                        val g = 10 + minOf(streak, 5) * 2
+                                        points += g; streak++; last = true
+                                        perf.hit(); perf.react((SystemClock.elapsedRealtime() - shownAt).toInt()); fx.burst(FxKind.Stars, "+$g")
+                                    } else { points = (points - 3).coerceAtLeast(0); streak = 0; last = false; perf.miss(); fx.burst(FxKind.Bad, "-3") }
+                                    shownAt = SystemClock.elapsedRealtime()
                                     idx++
                                 },
                             contentAlignment = Alignment.Center,
@@ -698,6 +771,9 @@ private fun OddOneOutGame(seed: Long, onDone: (Int) -> Unit) {
     var points by remember { mutableIntStateOf(0) }
     var streak by remember { mutableIntStateOf(0) }
     var wrongCell by remember { mutableStateOf<Int?>(null) }
+    val perf = LocalPerf.current
+    val fx = LocalFx.current
+    var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
     val c = T.colors
     val size = if (level < 3) 3 else if (level < 7) 4 else 5
@@ -724,8 +800,12 @@ private fun OddOneOutGame(seed: Long, onDone: (Int) -> Unit) {
                                 .background(if (bad) c.danger.copy(alpha = .25f) else c.cardRaised)
                                 .border(1.dp, if (bad) c.danger else c.separator, RoundedCornerShape(16.dp))
                                 .pressable(haptic = false) {
-                                    if (i == puzzle.third) { points += 10 + minOf(streak, 5) * 2; streak++; level++ }
-                                    else { points = (points - 3).coerceAtLeast(0); streak = 0; wrongCell = i }
+                                    if (i == puzzle.third) {
+                                        val g = 10 + minOf(streak, 5) * 2
+                                        points += g; streak++; level++
+                                        perf.hit(); perf.react((SystemClock.elapsedRealtime() - shownAt).toInt()); shownAt = SystemClock.elapsedRealtime()
+                                        fx.burst(FxKind.Stars, "+$g")
+                                    } else { points = (points - 3).coerceAtLeast(0); streak = 0; wrongCell = i; perf.miss(); fx.burst(FxKind.Bad, "-3") }
                                 },
                             contentAlignment = Alignment.Center,
                         ) { Text(if (i == puzzle.third) puzzle.second else puzzle.first, fontSize = if (size >= 5) 26.sp else 32.sp) }
@@ -757,6 +837,9 @@ private fun TargetGame(seed: Long, onDone: (Int) -> Unit) {
     var streak by remember { mutableIntStateOf(0) }
     var picked by remember { mutableStateOf(setOf<Int>()) }
     var flash by remember { mutableStateOf<Boolean?>(null) }      // true = solved, false = went over
+    val perf = LocalPerf.current
+    val fx = LocalFx.current
+    var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val puzzle = remember(idx, seed) { makeTarget(seed, idx) }
     val sum = picked.sumOf { puzzle.numbers[it] }
     val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
@@ -764,44 +847,53 @@ private fun TargetGame(seed: Long, onDone: (Int) -> Unit) {
     LaunchedEffect(sum, idx) {
         if (picked.isEmpty()) { flash = null; return@LaunchedEffect }
         if (sum == puzzle.target) {
-            flash = true; delay(350)
-            points += 25 + minOf(streak, 5) * 3; streak++; idx++; picked = emptySet(); flash = null
+            flash = true
+            val g = 25 + minOf(streak, 5) * 3
+            perf.hit(); perf.react((SystemClock.elapsedRealtime() - shownAt).toInt())
+            fx.burst(FxKind.Confetti, "+$g")
+            delay(350)
+            points += g; streak++; idx++; picked = emptySet(); flash = null; shownAt = SystemClock.elapsedRealtime()
         } else if (sum > puzzle.target) {
-            flash = false; delay(500)
+            flash = false; perf.miss(); fx.burst(FxKind.Bad, "too much"); delay(500)
             picked = emptySet(); flash = null
         }
     }
+    // The layout adapts to the space it gets: the tiles shrink to fit, so nothing is ever pushed off the screen
+    // (on small phones, big font sizes or with the gesture bar), and the Clear / Skip buttons are always reachable.
     Column(Modifier.fillMaxSize()) {
         Hud(total - elapsed, total, "$points pts" + if (streak >= 2) " · 🔥$streak" else "")
-        Spacer(Modifier.weight(1f))
-        Text("Make", style = Type.callout, color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Text("🎯 ${puzzle.target}", style = Type.numberHuge.copy(fontSize = 64.sp), color = c.label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Text(
-            when (flash) { true -> "✓ Got it!"; false -> "Too much, try again"; null -> if (picked.isEmpty()) "Tap tiles that add up to it" else picked.joinToString(" + ") { "${puzzle.numbers[it]}" } + " = $sum" },
-            style = Type.headline, color = when (flash) { true -> c.accent; false -> c.danger; null -> c.secondary },
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp), textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(18.dp))
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            puzzle.numbers.indices.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    row.forEach { i ->
-                        val on = i in picked
-                        Box(
-                            Modifier.weight(1f).height(86.dp).clip(RoundedCornerShape(22.dp))
-                                .background(if (on) c.accent else c.cardRaised)
-                                .border(1.dp, if (on) c.accent else c.separator, RoundedCornerShape(22.dp))
-                                .pressable(haptic = false) { if (flash == null) picked = if (on) picked - i else picked + i },
-                            contentAlignment = Alignment.Center,
-                        ) { Text("${puzzle.numbers[i]}", style = Type.title.copy(fontSize = 32.sp), color = if (on) Color.White else c.label) }
+        Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Make", style = Type.callout, color = c.secondary)
+            Text("🎯 ${puzzle.target}", style = Type.numberHuge.copy(fontSize = 52.sp, lineHeight = 56.sp), color = c.label, maxLines = 1)
+            Text(
+                when (flash) { true -> "✓ Got it!"; false -> "Too much, try again"; null -> if (picked.isEmpty()) "Tap tiles that add up to it" else picked.joinToString(" + ") { "${puzzle.numbers[it]}" } + " = $sum" },
+                style = Type.headline, color = when (flash) { true -> c.accent; false -> c.danger; null -> c.secondary },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp), textAlign = TextAlign.Center, maxLines = 2,
+            )
+        }
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+            val gap = 10.dp
+            val tileH = ((maxHeight - gap) / 2).coerceIn(48.dp, 96.dp)
+            Column(Modifier.align(Alignment.Center), verticalArrangement = Arrangement.spacedBy(gap)) {
+                puzzle.numbers.indices.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        row.forEach { i ->
+                            val on = i in picked
+                            Box(
+                                Modifier.weight(1f).height(tileH).clip(RoundedCornerShape(22.dp))
+                                    .background(if (on) c.accent else c.cardRaised)
+                                    .border(1.dp, if (on) c.accent else c.separator, RoundedCornerShape(22.dp))
+                                    .pressable(haptic = false) { if (flash == null) picked = if (on) picked - i else picked + i },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("${puzzle.numbers[i]}", style = Type.title.copy(fontSize = 30.sp), color = if (on) Color.White else c.label, maxLines = 1) }
+                        }
                     }
                 }
             }
         }
-        Spacer(Modifier.weight(1f))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(onClick = { picked = emptySet() }, modifier = Modifier.weight(1f)) { Text("Clear", color = c.secondary) }
-            TextButton(onClick = { streak = 0; idx++; picked = emptySet() }, modifier = Modifier.weight(1f)) { Text("Skip this one", color = c.secondary) }
+            TextButton(onClick = { streak = 0; idx++; picked = emptySet(); shownAt = SystemClock.elapsedRealtime() }, modifier = Modifier.weight(1f)) { Text("Skip this one", color = c.secondary) }
         }
     }
 }
@@ -823,6 +915,7 @@ private fun EchoGame(seed: Long, onDone: (Int) -> Unit) {
     var message by remember { mutableStateOf("Watch…") }
     var finished by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val fx = LocalFx.current
     val c = T.colors
     val up by rememberUpdatedState(onDone)
 
@@ -840,6 +933,7 @@ private fun EchoGame(seed: Long, onDone: (Int) -> Unit) {
         scope.launch { lit = pad; delay(160); lit = null }
         if (pad == full[inputIdx]) {
             inputIdx++
+            fx.burst(FxKind.Stars)
             if (inputIdx == length) {
                 accepting = false
                 score += length * 10
@@ -850,6 +944,7 @@ private fun EchoGame(seed: Long, onDone: (Int) -> Unit) {
             }
         } else {
             accepting = false
+            fx.burst(FxKind.Bad, "✗")
             lives--
             scope.launch {
                 if (lives <= 0) { message = "✗ That's the end"; delay(900); finish() }

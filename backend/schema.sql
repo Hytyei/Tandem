@@ -146,6 +146,20 @@ CREATE TABLE IF NOT EXISTS game_scores (
   PRIMARY KEY (match_id, round, user_id)
 );
 
+-- How a round was played (reaction times, hits, misses). Sent along with the score; used for the speed stats.
+CREATE TABLE IF NOT EXISTS game_perf (
+  match_id TEXT NOT NULL,
+  round INTEGER NOT NULL,
+  user_id TEXT NOT NULL,
+  game TEXT NOT NULL,
+  best_ms INTEGER NOT NULL DEFAULT 0,
+  avg_ms INTEGER NOT NULL DEFAULT 0,
+  n INTEGER NOT NULL DEFAULT 0,
+  hits INTEGER NOT NULL DEFAULT 0,
+  misses INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (match_id, round, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS game_goals (
   id TEXT PRIMARY KEY,
   couple_id TEXT NOT NULL,

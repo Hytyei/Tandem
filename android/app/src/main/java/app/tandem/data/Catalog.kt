@@ -206,6 +206,9 @@ fun zodiacOf(month: Int, day: Int): String = when {
 /** The emoji people can react with (same list as the backend's REACTIONS). */
 val REACTION_EMOJIS = listOf("😂", "🤣", "😭", "🥲", "😐", "🫠", "😑", "🤔", "🐥", "🥹", "🥺", "🔥", "🥳", "📿")
 
+/** How the minigames are grouped in lists. */
+enum class GameGroup(val label: String) { Reflex("Quick reflexes"), Arcade("Arcade duels"), Brain("Brain teasers"), Cards("Cards") }
+
 /** The minigames. Keys and score caps must match the backend (GAMES). */
 enum class MiniGame(
     val key: String, val label: String, val emoji: String, val tint: Color, val blurb: String, val rules: String, val unit: String,
@@ -214,11 +217,20 @@ enum class MiniGame(
     val doneLabel: String = "Time!",
     /** No longer offered for new matches, but matches already running with it can still be finished. */
     val retired: Boolean = false,
+    val group: GameGroup? = null,
 ) {
     Heart("heart", "Heart Catch", "💗", Color(0xFFF2476F), "30 seconds · tap every heart", "Hearts pop up all over the screen. Tap as many as you can in 30 seconds. Missed taps cost nothing, but hearts vanish fast.", "hearts"),
     Memory("memory", "Memory Match", "🧠", Color(0xFF6A5CF0), "60 seconds · match the pairs", "Flip two cards to find a pair. Pairs, time left and fewer mistakes all add up to your score.", "pts"),
     Sums("math", "Math Sprint", "➗", Color(0xFF14B8A6), "45 seconds · quick sums", "Answer as many sums as you can in 45 seconds. Right answers score, wrong ones cost you.", "pts"),
     Draw("draw", "Quick Draw", "⚡", Color(0xFFF59E0B), "5 tries · wait, then tap", "Wait for the screen to turn gold, then tap as fast as you can. Tap too early and that try scores zero. Five tries.", "pts"),
+    Mole("mole", "Whack-a-Mole", "🐹", Color(0xFF22C55E), "40 seconds · whack the moles, dodge the bombs",
+        "Moles pop out of nine holes. Tap them before they hide. A unicorn is worth lots of points, but never touch a bomb! Hits in a row build a combo, and tapping an empty hole breaks it.", "pts"),
+
+    // ---- arcade duels: same course for both, highest score wins
+    Stack("stack", "Stack", "🧱", Color(0xFFF97316), "tap to drop · build the tallest tower",
+        "A block slides back and forth. Tap to drop it on the tower. Whatever hangs over is cut off, so the tower gets thinner. A perfect drop keeps its full width and earns a bonus. Miss completely and it's over.", "pts", group = GameGroup.Arcade, doneLabel = "Tower fell"),
+    Flap("flap", "Flappy Heart", "💗", Color(0xFFEC4899), "tap to flap · squeeze through the gaps",
+        "Tap to make the heart flap and fly through the gaps. Gravity does the rest. Every gap you pass scores. Touch a pipe or the ground and it's over. You both fly the very same course.", "pts", group = GameGroup.Arcade, doneLabel = "Crashed"),
 
     // ---- brain teasers: both of you get the very same puzzle (the seed), so it is a fair fight
     Odd("odd", "Odd One Out", "👀", Color(0xFFEC4899), "45 seconds · spot the different one",
@@ -229,14 +241,24 @@ enum class MiniGame(
         "Each puzzle is a row of numbers with one missing at the end. Work out the rule and pick the number that comes next. Right answers score 10 (a streak adds bonus), wrong ones cost 3. It starts easy and gets trickier.", "pts", brain = true),
     Echo("echo", "Echo", "🎵", Color(0xFF14B8A6), "watch the lights · repeat the pattern",
         "Four pads light up in a pattern. Watch carefully, then tap them in the same order. Each round adds one more. You have two lives: a mistake shows the pattern again, and the second mistake ends the game. Longer patterns score more.", "pts", brain = true, doneLabel = "Game over"),
+    Stroop("stroop", "Colour Clash", "🎨", Color(0xFFF59E0B), "30 seconds · tap the colour, not the word",
+        "A colour name appears, written in a colour that is often a different one. Tap the name of the colour you SEE, not the one the word says. Your brain will fight you. Quick right answers build a streak.", "pts", brain = true),
+    Word("word", "Word Duel", "🔤", Color(0xFF6A5CF0), "3 minutes · guess the 5-letter word",
+        "Guess the secret five-letter word in six tries. After each guess, green means the right letter in the right place, yellow means it is in the word but elsewhere. You both chase the same word. Fewer guesses and a faster time score more.", "pts", brain = true, doneLabel = "Round over"),
     Code("code", "Code Breaker", "🔐", Color(0xFF8B5CF6), "10 guesses · crack the colour code",
         "A secret code of 4 different colours (out of 5) is hiding. Guess it: after each guess you learn how many are the right colour in the right spot (●) and how many are right but in the wrong spot (○). Crack it in fewer guesses and less time for a higher score.", "pts", brain = true, doneLabel = "Round over"),
+
+    Blackjack("bj", "Blackjack", "🃏", Color(0xFF16A34A), "6 hands · grow your chips",
+        "Start with 500 chips and play six hands against the dealer. Get closer to 21 than the dealer without going over. Hit, stand or double down. Blackjack pays 3 to 2, the dealer stands on 17. You both play from the same shuffled shoe, and the one who ends with more chips wins. If your partner already played, you can see their total as the number to beat.", "chips", group = GameGroup.Cards, doneLabel = "Out of hands"),
 
     // retired (too fiddly): only kept so matches that were already started can be finished
     Lights("lights", "Lights Out", "💡", Color(0xFFF5B301), "90 seconds · switch every light off",
         "Tapping a light flips it and its four neighbours. Turn every light off. Fewer taps and a faster finish score more. Not solved in time? You still get points for each light you switched off.", "pts", brain = true, doneLabel = "Round over", retired = true),
     Slide("slide", "Slide Puzzle", "🧩", Color(0xFF14B8A6), "2 minutes · tiles back in order",
         "Slide the tiles into the empty space until 1 to 8 are in order. Finish sooner and in fewer moves for a higher score. Not solved in time? You still get points for each tile in the right place.", "pts", brain = true, doneLabel = "Round over", retired = true);
+
+    /** Which list header the game sits under. */
+    val grp: GameGroup get() = group ?: if (brain) GameGroup.Brain else GameGroup.Reflex
 
     companion object {
         fun from(key: String?): MiniGame? = entries.firstOrNull { it.key == key }

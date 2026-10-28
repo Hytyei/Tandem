@@ -5,6 +5,17 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.4.0", title = "v1.4.0 · Six new games, speed stats & one dark look", date = "2026-10-28",
+        items = listOf(
+            "Tandem is now dark only: the light theme (and the theme setting) is gone.",
+            "New games: Whack-a-Mole, Stack, Flappy Heart, Colour Clash (the Stroop test), Word Duel and Blackjack. Both of you get the very same course, word or shoe, so the better player wins.",
+            "Blackjack is built for turns: six hands from 500 chips, hit / stand / double, and if your partner already played you see their chip total as the number to beat.",
+            "Speed stats: your fastest touch, average reaction time and accuracy are recorded as you play, shown after each round and under Play > Stats, per game and overall.",
+            "Touch effects: hearts, stars, coins, confetti and a ripple under your finger when you hit things in a game.",
+            "Fixed Make the Target: the tiles and buttons now always fit on screen. Hearts in Heart Catch also stay fully on screen.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.3.4", title = "Update 4.4 · Echoes & night mode", date = "2026-10-19",
         items = listOf(
             "Moods, Diary and Heatmap are now one tab called Echoes, with a switcher at the top. The tab bar is down to five.",

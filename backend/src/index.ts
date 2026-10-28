@@ -1334,7 +1334,22 @@ const GAMES: Record<string, { max: number }> = {
   odd: { max: 1000 },     // Odd One Out: spot the different emoji, 45 s
   target: { max: 1000 },  // Make the Target: tap numbers that add up to the target, 60 s
   echo: { max: 1000 },    // Echo: repeat the growing light pattern, 2 lives
+  mole: { max: 1000 },    // Whack-a-Mole: 40 s, moles +, bombs -
+  stack: { max: 1000 },   // Stack: floors * 10 + perfect drops * 5
+  flap: { max: 1000 },    // Flappy Heart: gaps passed * 10
+  stroop: { max: 1000 },  // Colour Clash: 30 s, tap the ink colour
+  word: { max: 1000 },    // Word Duel: 5-letter word in 6 guesses, faster = more
+  bj: { max: 5000 },      // Blackjack: chips after 6 hands (start 500)
 };
+
+/** Optional "how it was played" numbers that come with a score (fastest / average reaction in ms, hits, misses). Never trusted for anything but stats. */
+function cleanPerf(p: any): { best: number; avg: number; n: number; hits: number; misses: number } | null {
+  if (!p || typeof p !== "object") return null;
+  const num = (v: any, max: number) => (Number.isInteger(v) && v >= 0 && v <= max ? v : 0);
+  const out = { best: num(p.bestMs, 120000), avg: num(p.avgMs, 120000), n: num(p.n, 5000), hits: num(p.hits, 5000), misses: num(p.misses, 5000) };
+  if (out.n === 0 && out.hits === 0 && out.misses === 0) return null;
+  return out;
+}
 const MATCH_ROUNDS = [1, 3, 5];
 const MAX_ACTIVE_MATCHES = 6;
 const MAX_OPEN_GOALS = 6;
@@ -1420,6 +1435,19 @@ async function gamesSummary(c: Ctx): Promise<Response> {
       "WHERE m.couple_id = ? ORDER BY s.score DESC, s.created_at ASC LIMIT 400"
     ).bind(coupleId).all(),
   ]);
+  // how you play: reaction times and accuracy (empty when migration 0007 has not been run yet)
+  let perfRows: any[] = [];
+  try {
+    const pr = await c.env.DB.prepare(
+      "SELECT m.game AS game, p.user_id AS user_id, COUNT(*) AS plays, MIN(CASE WHEN p.best_ms > 0 THEN p.best_ms END) AS best_ms, " +
+      "SUM(p.avg_ms * p.n) AS sum_ms, SUM(p.n) AS n, SUM(p.hits) AS hits, SUM(p.misses) AS misses " +
+      "FROM game_perf p JOIN game_matches m ON m.id = p.match_id WHERE m.couple_id = ? GROUP BY m.game, p.user_id"
+    ).bind(coupleId).all();
+    perfRows = (pr.results as any[]).map((r) => ({
+      game: r.game, userId: r.user_id, plays: r.plays, bestMs: r.best_ms ?? 0,
+      avgMs: r.n > 0 ? Math.round((r.sum_ms ?? 0) / r.n) : 0, n: r.n ?? 0, hits: r.hits ?? 0, misses: r.misses ?? 0,
+    }));
+  } catch { perfRows = []; }
   const goals = [];
   for (const g of goalsRes.results as any[]) {
     let prog: Record<string, number> | null = live[g.id] ?? null;
@@ -1460,6 +1488,7 @@ async function gamesSummary(c: Ctx): Promise<Response> {
       bests: scoreRows.map((r) => ({ game: r.game, userId: r.user_id, best: r.best, plays: r.plays, total: r.total ?? 0 })),
       gameWins: winRows.map((w) => ({ game: w.game, userId: w.winner_id ?? null, n: w.n })),
       highs: perGameHighs,
+      perf: perfRows,
     },
   });
 }
@@ -1497,6 +1526,14 @@ async function matchScore(c: Ctx): Promise<Response> {
   if (c.user.id !== first && !has(b.round, first)) throw new HttpError(409, "It's not your turn yet");
   const t = now();
   await c.env.DB.prepare("INSERT INTO game_scores (match_id, round, user_id, score, created_at) VALUES (?,?,?,?,?)").bind(m.id, b.round, c.user.id, b.score, t).run();
+  const perf = cleanPerf(b.perf);
+  if (perf) {
+    // best effort: stats must never stop a score from being saved (e.g. before migration 0007 has been run)
+    try {
+      await c.env.DB.prepare("INSERT OR REPLACE INTO game_perf (match_id, round, user_id, game, best_ms, avg_ms, n, hits, misses) VALUES (?,?,?,?,?,?,?,?,?)")
+        .bind(m.id, b.round, c.user.id, m.game, perf.best, perf.avg, perf.n, perf.hits, perf.misses).run();
+    } catch { /* ignore */ }
+  }
   scores.push({ match_id: m.id, round: b.round, user_id: c.user.id, score: b.score, created_at: t });
   if (scores.length === m.rounds * 2) {
     const wins: Record<string, number> = { [c.user.id]: 0, [partner.id]: 0 };
@@ -1524,6 +1561,7 @@ async function matchDelete(c: Ctx): Promise<Response> {
     c.env.DB.prepare("DELETE FROM game_scores WHERE match_id = ?").bind(c.params[0]),
     c.env.DB.prepare("DELETE FROM game_matches WHERE id = ?").bind(c.params[0]),
   ]);
+  try { await c.env.DB.prepare("DELETE FROM game_perf WHERE match_id = ?").bind(c.params[0]).run(); } catch { /* table not there yet */ }
   return json({ ok: true });
 }
 async function goalPost(c: Ctx): Promise<Response> {
@@ -1569,6 +1607,7 @@ async function accountDelete(c: Ctx): Promise<Response> {
   const hash = await hashPassword(password, b64uDecode(c.user.pass_salt));
   if (!timingSafeEqual(hash, c.user.pass_hash)) { await bump(c.env, ukey, 15 * MIN); throw new HttpError(401, "Wrong password"); }
   const id = c.user.id;
+  try { await c.env.DB.prepare("DELETE FROM game_perf WHERE user_id = ?").bind(id).run(); } catch { /* table not there yet (migration 0007) */ }
   const stmts = [];
   if (c.user.couple_id) {
     stmts.push(

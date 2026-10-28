@@ -40,7 +40,6 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
     val data = s ?: return
     val me = data.me
     val partner = data.couple.partner
-    val theme by vm.theme.collectAsState()
 
     var editProfile by remember { mutableStateOf(false) }
     var pickAnniv by remember { mutableStateOf(false) }
@@ -117,14 +116,6 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
                 "Event reminders always arrive on time. Partner updates arrive within about 15 minutes when the app is closed (instantly while it's open) because Tandem has no push server.",
                 style = Type.footnote, color = c.secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             )
-        }
-
-        // ---------- Appearance
-        SectionHeader("Appearance")
-        Group(Modifier.staggerIn(3)) {
-            Box(Modifier.padding(12.dp)) {
-                Segmented(listOf("System", "Light", "Dark"), theme.ordinal, { vm.setTheme(ThemeMode.entries[it]) })
-            }
         }
 
         // ---------- App

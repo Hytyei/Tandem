@@ -1,11 +1,9 @@
 package app.tandem.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,16 +46,6 @@ data class TandemColors(
     val isDark: Boolean,
 )
 
-val LightColors = TandemColors(
-    background = Color(0xFFF5EDFA), card = Color(0xB8FFFFFF), cardRaised = Color(0xE6FFFFFF),
-    label = Color(0xFF2A2058), secondary = Color(0xFF6F678F), tertiary = Color(0xFFA59FC4),
-    separator = Color(0x26231A55), accent = Color(0xFFF2476F), accentSoft = Color(0x1FF2476F),
-    me = Color(0xFF6A5CF0), partner = Color(0xFFF2476F), danger = Color(0xFFE5384F), special = Color(0xFFD98A00),
-    sheet = Color(0xFFF9F4FD), glow = Color(0xFFFFB59A),
-    sky = listOf(Color(0xFFD2C8FF), Color(0xFFF0D2EA), Color(0xFFFFE6D6)),
-    isDark = false,
-)
-
 val DarkColors = TandemColors(
     background = Color(0xFF110C2C), card = Color(0x1FFFFFFF), cardRaised = Color(0x33FFFFFF),
     label = Color(0xFFF6F2FF), secondary = Color(0xFFC4BDE6), tertiary = Color(0xFF9D95C9),
@@ -68,7 +56,7 @@ val DarkColors = TandemColors(
     isDark = true,
 )
 
-val LocalTandem = staticCompositionLocalOf { LightColors }
+val LocalTandem = staticCompositionLocalOf { DarkColors }
 
 /** 0 = daytime, 1 = deep night, from the phone's clock: dusk 19:00-21:00, night until 05:00, dawn 05:00-07:00. */
 val LocalNight = staticCompositionLocalOf { 0f }
@@ -89,13 +77,9 @@ private fun Color.deeper(to: Color, f: Float): Color = if (f <= 0f) this else le
 fun TandemColors.atNight(n: Float): TandemColors {
     if (n <= 0f) return this
     val deep = Color(0xFF070418)
-    return if (isDark) copy(
+    return copy(
         background = background.deeper(deep, .55f * n), sheet = sheet.deeper(deep, .35f * n),
         sky = sky.map { it.deeper(deep, .5f * n) }, glow = glow.deeper(Color(0xFF6A4FB0), .5f * n),
-    ) else copy(
-        background = background.deeper(Color(0xFF2A2352), .30f * n), sheet = sheet.deeper(Color(0xFF2A2352), .26f * n),
-        card = card.deeper(Color(0xFFCFC6EE), .30f * n), cardRaised = cardRaised.deeper(Color(0xFFCFC6EE), .26f * n),
-        sky = sky.map { it.deeper(Color(0xFF2A2352), .34f * n) }, glow = glow.deeper(Color(0xFF8A6FD0), .45f * n),
     )
 }
 
@@ -117,8 +101,9 @@ object Type {
     val numberHuge = TextStyle(fontFamily = Serif, fontSize = 64.sp, lineHeight = 68.sp, fontWeight = FontWeight.Medium, letterSpacing = (-1).sp)
 }
 
+/** Tandem has one look: the dream-dusk dark theme (a little deeper still after dark, by the phone's clock). */
 @Composable
-fun TandemTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun TandemTheme(content: @Composable () -> Unit) {
     var night by remember { mutableFloatStateOf(Calendar.getInstance().let { nightFactor(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -126,12 +111,8 @@ fun TandemTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -
             night = Calendar.getInstance().let { nightFactor(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
         }
     }
-    val c = (if (dark) DarkColors else LightColors).atNight(night)
-    val scheme = if (dark) darkColorScheme(
-        primary = c.accent, onPrimary = Color.White, background = c.background, onBackground = c.label,
-        surface = c.sheet, onSurface = c.label, surfaceVariant = c.sheet, onSurfaceVariant = c.secondary,
-        surfaceContainerHigh = c.sheet, surfaceContainerHighest = c.sheet, outline = c.separator,
-    ) else lightColorScheme(
+    val c = DarkColors.atNight(night)
+    val scheme = darkColorScheme(
         primary = c.accent, onPrimary = Color.White, background = c.background, onBackground = c.label,
         surface = c.sheet, onSurface = c.label, surfaceVariant = c.sheet, onSurfaceVariant = c.secondary,
         surfaceContainerHigh = c.sheet, surfaceContainerHighest = c.sheet, outline = c.separator,

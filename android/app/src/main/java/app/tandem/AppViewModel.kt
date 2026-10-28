@@ -276,11 +276,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     /** Sends a finished round. The refreshed match (and goals/stats) come back through [loadGames]. */
-    fun submitScore(matchId: String, round: Int, score: Int, done: (Match?) -> Unit) {
+    fun submitScore(matchId: String, round: Int, score: Int, perf: PerfBody?, done: (Match?) -> Unit) {
         viewModelScope.launch {
             busy = true
             var result: Match? = null
-            try { result = repo.submitScore(matchId, round, score); replaceMatch(result); loadGames() }
+            try { result = repo.submitScore(matchId, round, score, perf); replaceMatch(result); loadGames() }
             catch (e: AppException) { toast(e.message ?: "Couldn't save your score") } finally { busy = false }
             done(result)
         }

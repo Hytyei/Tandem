@@ -16,7 +16,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.activity.SystemBarStyle
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.tandem.data.CHANGELOG
-import app.tandem.data.ThemeMode
 import app.tandem.work.EXTRA_TAB
 import app.tandem.ui.components.*
 import app.tandem.ui.screens.*
@@ -60,12 +59,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         vm.requestedTab = intent?.getStringExtra(EXTRA_TAB)
         setContent {
-            val mode by vm.theme.collectAsState()
-            val dark = when (mode) { ThemeMode.System -> isSystemInDarkTheme(); ThemeMode.Light -> false; ThemeMode.Dark -> true }
-            TandemTheme(dark) {
+            TandemTheme {
                 Surface(Modifier.fillMaxSize(), color = T.colors.background) { Root(vm) }
             }
         }

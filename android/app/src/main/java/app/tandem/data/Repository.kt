@@ -350,7 +350,7 @@ class Repository(private val context: Context) {
 
     suspend fun games(): GamesResponse = call { api.games() }
     suspend fun createMatch(game: String, rounds: Int): Match = call { api.createMatch(MatchBody(game, rounds)) }
-    suspend fun submitScore(id: String, round: Int, score: Int): Match = call { api.submitScore(id, ScoreBody(round, score)) }
+    suspend fun submitScore(id: String, round: Int, score: Int, perf: PerfBody? = null): Match = call { api.submitScore(id, ScoreBody(round, score, perf)) }
     suspend fun cancelMatch(id: String) { call { api.cancelMatch(id) } }
     suspend fun addGoal(title: String, metric: String, target: Int): GameGoal = call { api.addGoal(GoalBody(title.trim(), metric, target)) }
     suspend fun settleGoal(id: String): GameGoal = call { api.settleGoal(id) }

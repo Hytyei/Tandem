@@ -145,7 +145,7 @@ fun GamesScreen(vm: AppViewModel) {
                 items(playable.size) { i ->
                     val game = playable[i]
                     Column {
-                    if (i == 0 || playable[i - 1].brain != game.brain) SectionHeader(if (game.brain) "Brain teasers" else "Quick reflexes")
+                    if (i == 0 || playable[i - 1].grp != game.grp) SectionHeader(game.grp.label)
                     val mine = stats.bests.firstOrNull { it.game == game.key && it.userId == me.id }
                     val theirs = stats.bests.firstOrNull { it.game == game.key && it.userId == partner.id }
                     val highs = stats.highs.filter { it.game == game.key }
@@ -206,8 +206,8 @@ fun GamesScreen(vm: AppViewModel) {
         if (m != null && game != null) RoundRunnerDialog(
             game = game, seed = m.seed + round * 7919L, round = round, rounds = m.rounds, partnerName = pName,
             beat = m.scoreOf(round, partner.id), sending = vm.busy,
-            onFinished = { score ->
-                vm.submitScore(m.id, round, score) { res ->
+            onFinished = { score, perf ->
+                vm.submitScore(m.id, round, score, perf) { res ->
                     if (res != null) {
                         playing = null
                         vm.toast(
@@ -352,6 +352,43 @@ private fun StatRow(label: String, mine: String, theirs: String) {
     }
 }
 
+private fun ms(v: Int?) = if (v == null || v <= 0) "–" else "$v ms"
+private fun acc(p: PerfRow?): String = if (p == null || p.hits + p.misses == 0) "–" else "${p.hits * 100 / (p.hits + p.misses)}%"
+
+/** How fast each of you plays: fastest touch, average reaction and accuracy over every timed game. */
+@Composable
+private fun SpeedCard(stats: GameStats, me: User, partner: User) {
+    val c = T.colors
+    val pName = partner.displayName.substringBefore(' ')
+    fun mine(id: String) = stats.perf.filter { it.userId == id }
+    val a = mine(me.id); val b = mine(partner.id)
+    if (a.isEmpty() && b.isEmpty()) return
+    fun fastest(rows: List<PerfRow>): PerfRow? = rows.filter { it.bestMs > 0 }.minByOrNull { it.bestMs }
+    fun avg(rows: List<PerfRow>): Int? { val n = rows.sumOf { it.n }; return if (n == 0) null else (rows.sumOf { it.avgMs.toLong() * it.n } / n).toInt() }
+    fun accuracy(rows: List<PerfRow>): String { val h = rows.sumOf { it.hits }; val m = rows.sumOf { it.misses }; return if (h + m == 0) "–" else "${h * 100 / (h + m)}%" }
+    val fa = fastest(a); val fb = fastest(b)
+    SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("⚡", fontSize = 26.sp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Speed & reflexes", style = Type.headline, color = c.label)
+                Text("measured as you play", style = Type.caption, color = c.secondary)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            Text("You", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.me, modifier = Modifier.weight(1f))
+            Text(pName, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.partner, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1)
+        }
+        StatRow("fastest touch", ms(fa?.bestMs), ms(fb?.bestMs))
+        StatRow("…in", fa?.let { g -> MiniGame.from(g.game)?.label } ?: "–", fb?.let { g -> MiniGame.from(g.game)?.label } ?: "–")
+        StatRow("average reaction", ms(avg(a)), ms(avg(b)))
+        StatRow("accuracy", accuracy(a), accuracy(b))
+        StatRow("timed touches", "${a.sumOf { it.n }}", "${b.sumOf { it.n }}")
+    }
+}
+
 @Composable
 private fun StatsTab(stats: GameStats, me: User, partner: User) {
     val c = T.colors
@@ -382,6 +419,7 @@ private fun StatsTab(stats: GameStats, me: User, partner: User) {
             StatRow("current streak", "${my.streak}", "${th.streak}")
             StatRow("best streak", "${my.bestStreak}", "${th.bestStreak}")
         }
+        SpeedCard(stats, me, partner)
         MiniGame.playable.forEach { game ->
             val mb = stats.bests.firstOrNull { it.game == game.key && it.userId == me.id }
             val tb = stats.bests.firstOrNull { it.game == game.key && it.userId == partner.id }
@@ -398,6 +436,13 @@ private fun StatsTab(stats: GameStats, me: User, partner: User) {
                 StatRow("rounds played", "${mb?.plays ?: 0}", "${tb?.plays ?: 0}")
                 StatRow("best", mb?.best?.toString() ?: "–", tb?.best?.toString() ?: "–")
                 StatRow("average", if (mb != null && mb.plays > 0) "${mb.total / mb.plays}" else "–", if (tb != null && tb.plays > 0) "${tb.total / tb.plays}" else "–")
+                val mp = stats.perf.firstOrNull { it.game == game.key && it.userId == me.id }
+                val tp = stats.perf.firstOrNull { it.game == game.key && it.userId == partner.id }
+                if ((mp?.n ?: 0) > 0 || (tp?.n ?: 0) > 0) {
+                    StatRow("fastest", ms(mp?.bestMs), ms(tp?.bestMs))
+                    StatRow("average speed", ms(mp?.avgMs), ms(tp?.avgMs))
+                }
+                if ((mp?.hits ?: 0) + (mp?.misses ?: 0) > 0 || (tp?.hits ?: 0) + (tp?.misses ?: 0) > 0) StatRow("accuracy", acc(mp), acc(tp))
             }
         }
     }
@@ -414,8 +459,10 @@ private fun NewMatchSheet(vm: AppViewModel, onDismiss: () -> Unit, onStarted: (M
             Text("New match", style = Type.title, color = c.label)
             Text("You each play the same round, one after the other. The higher score wins.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
             MiniGame.playable.forEach { gm ->
-                if (gm == MiniGame.playable.first() || gm == MiniGame.playable.first { it.brain })
-                    Text(if (gm.brain) "BRAIN TEASERS" else "QUICK REFLEXES", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+                val all = MiniGame.playable
+                val at = all.indexOf(gm)
+                if (at == 0 || all[at - 1].grp != gm.grp)
+                    Text(gm.grp.label.uppercase(), style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
                 val on = gm == game
                 val shape = RoundedCornerShape(20.dp)
                 Row(
