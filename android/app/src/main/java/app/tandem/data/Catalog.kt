@@ -38,7 +38,9 @@ enum class Activity(val key: String, val label: String, @DrawableRes val art: In
     Working("working", "Working", R.drawable.act_working, R.drawable.w_act_working, Color(0xFF6B7FB8)),
     Coding("coding", "Coding", R.drawable.act_coding, R.drawable.w_act_coding, Color(0xFF7C5CD6)),
     Studying("studying", "Studying", R.drawable.act_studying, R.drawable.w_act_studying, Color(0xFFB07A4F)),
-    Partying("partying", "Partying", R.drawable.act_partying, R.drawable.w_act_partying, Color(0xFFD946A8));
+    Partying("partying", "Partying", R.drawable.act_partying, R.drawable.w_act_partying, Color(0xFFD946A8)),
+    Shopping("shopping", "Shopping", R.drawable.act_shopping, R.drawable.w_act_shopping, Color(0xFFE4725A)),
+    Scrolling("scrolling", "Doomscrolling", R.drawable.act_scrolling, R.drawable.w_act_scrolling, Color(0xFF7A55C4));
 
     companion object {
         fun from(key: String?): Activity? = entries.firstOrNull { it.key == key }
@@ -47,9 +49,9 @@ enum class Activity(val key: String, val label: String, @DrawableRes val art: In
 
 /** The activities grouped for the mood sheet, so 18 posters are easy to scan instead of one endless row. */
 val ACTIVITY_GROUPS: List<Pair<String, List<Activity>>> = listOf(
-    "At home" to listOf(Activity.Gaming, Activity.Tv, Activity.Music, Activity.Eating, Activity.Sleeping, Activity.Hair, Activity.Nails),
+    "At home" to listOf(Activity.Gaming, Activity.Tv, Activity.Scrolling, Activity.Music, Activity.Eating, Activity.Sleeping, Activity.Hair, Activity.Nails),
     "Work & study" to listOf(Activity.Working, Activity.Coding, Activity.Studying),
-    "Out & about" to listOf(Activity.Football, Activity.Cycling, Activity.Hiking, Activity.Camping, Activity.Roadtrip, Activity.Stargazing, Activity.Photography, Activity.Partying),
+    "Out & about" to listOf(Activity.Football, Activity.Cycling, Activity.Hiking, Activity.Camping, Activity.Roadtrip, Activity.Stargazing, Activity.Photography, Activity.Shopping, Activity.Partying),
 )
 
 /** Kinds of special days (birthdays, Valentine's Day, first date, ...). Keys must match the backend. */

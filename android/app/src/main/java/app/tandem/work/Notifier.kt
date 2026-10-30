@@ -49,6 +49,7 @@ object Notifier {
     private const val ID_ENDED = 1004
     private const val ID_UPDATE = 1005
     private const val ID_TRIP = 1006
+    private const val ID_GAME = 1007
     private const val ID_TEST = 1099
 
     fun enabled(context: Context) = NotificationManagerCompat.from(context).areNotificationsEnabled()
@@ -97,12 +98,19 @@ object Notifier {
             return
         }
 
+        val sp = context.getSharedPreferences("tandem_notifier", Context.MODE_PRIVATE)
+        // Matches where the partner has played and it's now your turn. Remembered as "matchId:round" so each one is announced once.
+        val waiting = data.awaiting.filter { it.partnerPlayed }
+        val waitingKeys = waiting.map { "${it.id}:${it.round}" }.toSet()
+        val announcedGames = sp.getStringSet("games_noticed", emptySet()) ?: emptySet()
+
         val partnerMoods = data.moods.filter { it.userId != me }
         val newestMood = partnerMoods.maxOfOrNull { it.createdAt } ?: 0L
         val currentEvents = data.events.associate { it.id to it.updatedAt }
 
         // First sync (or a new partner): remember the current state without announcing the existing history.
         if (!seen.initialised || seen.partnerId != partner.id) {
+            sp.edit().putStringSet("games_noticed", waitingKeys).apply()
             prefs.setSeen(SeenState(true, partner.id, newestMood, data.diary.map { it.id }.toSet(), currentEvents))
             return
         }
@@ -131,7 +139,7 @@ object Notifier {
                     feeling != null -> "Feeling $feeling"
                     else -> "Shared a mood"
                 } + if (m.note.isNotBlank()) " — “${m.note}”" else ""
-                notes += Note(ID_MOOD, name, text, "Timeline")
+                notes += Note(ID_MOOD, "$name updated their mood", text, "Timeline")
             }
         }
         if (prefs.notifyDiary.first()) {
@@ -153,6 +161,17 @@ object Notifier {
                     notes += Note(ID_EVENT, name, "Updated a $kind: $label · $day", "Calendar")
             }
         }
+
+        if (prefs.notifyGames.first()) {
+            val fresh = waiting.filter { "${it.id}:${it.round}" !in announcedGames }
+            if (fresh.isNotEmpty()) {
+                val first = MiniGame.from(fresh.first().game)
+                val text = if (fresh.size == 1) "${first?.emoji ?: "🎮"} Your turn in ${first?.label ?: "a game"}! Open Play to beat their score."
+                else "🎮 ${fresh.size} games are waiting for your turn."
+                notes += Note(ID_GAME, name, text, "Play")
+            }
+        }
+        sp.edit().putStringSet("games_noticed", waitingKeys).apply()
 
         for (n in notes) {
             if (foreground) inApp("${n.title}: ${n.text}") else post(context, CHANNEL_PARTNER, n.id, n.title, n.text, n.tab)

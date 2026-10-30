@@ -58,6 +58,7 @@ npx wrangler d1 execute tandem --remote --file=migrations/0004_update3.sql
 npx wrangler d1 execute tandem --remote --file=migrations/0005_update4.sql
 npx wrangler d1 execute tandem --remote --file=migrations/0006_period.sql
 npx wrangler d1 execute tandem --remote --file=migrations/0007_perf.sql
+npx wrangler d1 execute tandem --remote --file=migrations/0008_google.sql
 npx wrangler deploy
 ```
 

@@ -42,6 +42,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val notifyMoods = repo.prefs.notifyMoods.stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val notifyDiary = repo.prefs.notifyDiary.stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val notifyEvents = repo.prefs.notifyEvents.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val notifyGames = repo.prefs.notifyGames.stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val dismissedUpdate = repo.prefs.dismissedUpdate.stateIn(viewModelScope, SharingStarted.Eagerly, null as String?)
 
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -86,6 +87,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- Sign in with Google
+    var googleSignup by mutableStateOf<Repository.GoogleNeedsSignup?>(null)
+    var google by mutableStateOf<GoogleStatus?>(null); private set
+    fun googleSignIn(idToken: String) = busyRun { googleSignup = repo.googleSignIn(idToken, null, null) }
+    fun googleFinishSignup(username: String, name: String) = busyRun {
+        val p = googleSignup ?: return@busyRun
+        googleSignup = repo.googleSignIn(p.idToken, username, name)
+    }
+    fun loadGoogle() { viewModelScope.launch { try { google = repo.googleStatus() } catch (_: AppException) { /* the row just stays hidden */ } } }
+    fun linkGoogle(idToken: String) = busyRun({ toast("Google account connected") }) { google = repo.googleLink(idToken) }
+    fun unlinkGoogle() = busyRun({ toast("Google account disconnected") }) { google = repo.googleUnlink() }
+    fun setPassword(pw: String, done: () -> Unit) = busyRun({ toast("Password saved"); done() }) { google = repo.setPassword(pw) }
+
     fun login(u: String, p: String) = busyRun { repo.login(u, p) }
     fun register(u: String, p: String, name: String) = busyRun { repo.register(u, p, name) }
     fun logout() { viewModelScope.launch { repo.logout() } }
@@ -113,6 +127,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setNotifyMoods(v: Boolean) { viewModelScope.launch { repo.prefs.setNotifyMoods(v) } }
     fun setNotifyDiary(v: Boolean) { viewModelScope.launch { repo.prefs.setNotifyDiary(v) } }
     fun setNotifyEvents(v: Boolean) { viewModelScope.launch { repo.prefs.setNotifyEvents(v) } }
+    fun setNotifyGames(v: Boolean) { viewModelScope.launch { repo.prefs.setNotifyGames(v) } }
     fun testNotification() {
         val ctx = getApplication<Application>()
         if (!Notifier.enabled(ctx)) toast("Notifications are turned off for Tandem in your phone's settings")

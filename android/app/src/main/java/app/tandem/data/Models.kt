@@ -135,9 +135,25 @@ data class SyncResponse(
     val events: List<CalendarEvent> = emptyList(),
     val stats: Stats? = null,
     val trip: Trip? = null,               // the live-tracked date that is in progress, if any
+    val awaiting: List<AwaitingGame> = emptyList(),   // matches where it is the caller's turn (see AwaitingGame)
+)
+
+/** A running match the caller can play now. [partnerPlayed] = the partner already played this round, so the partner is waiting for you. */
+@Serializable data class AwaitingGame(
+    val id: String, val game: String, val round: Int = 1, val rounds: Int = 1,
+    val partnerPlayed: Boolean = false, val createdAt: Long = 0,
 )
 
 @Serializable data class AuthResponse(val token: String, val user: User)
+/** First step of "Continue with Google": either signed in (token + user) or this Google account is new and needs a username. */
+@Serializable data class GoogleAuthBody(val idToken: String, val username: String? = null, val displayName: String? = null)
+@Serializable data class GoogleAuthResponse(
+    val token: String? = null, val user: User? = null, val created: Boolean = false,
+    val needsSignup: Boolean = false, val email: String = "", val displayName: String = "", val suggestedUsername: String = "",
+)
+@Serializable data class GoogleLinkBody(val idToken: String)
+@Serializable data class PasswordBody(val password: String)
+@Serializable data class GoogleStatus(val enabled: Boolean = false, val linked: Boolean = false, val email: String? = null, val hasPassword: Boolean = true)
 @Serializable data class MeResponse(val user: User, val couple: CoupleInfo)
 @Serializable data class MoodsResponse(val moods: List<MoodEntry>)
 @Serializable data class DiaryResponse(val entries: List<DiaryEntry>)

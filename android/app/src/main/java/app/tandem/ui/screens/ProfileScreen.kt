@@ -27,6 +27,7 @@ import app.tandem.data.*
 import app.tandem.ui.components.*
 import app.tandem.ui.theme.T
 import app.tandem.ui.theme.Type
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -53,6 +54,11 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
     val nMoods by vm.notifyMoods.collectAsState()
     val nDiary by vm.notifyDiary.collectAsState()
     val nEvents by vm.notifyEvents.collectAsState()
+    val nGames by vm.notifyGames.collectAsState()
+    var showGooglePw by remember { mutableStateOf(false) }
+    var confirmUnlink by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { if (GoogleSignIn.available) vm.loadGoogle() }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.uploadAvatar(uri) }
 
@@ -111,11 +117,43 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
             Divider()
             SwitchRow("Events & special days added or changed", nEvents) { vm.setNotifyEvents(it) }
             Divider()
+            SwitchRow("Games waiting for you", nGames) { vm.setNotifyGames(it) }
+            Divider()
             ListRow("Send a test notification", "", accent = true, onClick = { vm.testNotification() })
             Text(
                 "Event reminders always arrive on time. Partner updates arrive within about 15 minutes when the app is closed (instantly while it's open) because Tandem has no push server.",
                 style = Type.footnote, color = c.secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             )
+        }
+
+        // ---------- Account (Google)
+        val google = vm.google
+        if (GoogleSignIn.available && google != null && google.enabled) {
+            SectionHeader("Account")
+            Group(Modifier.staggerIn(3)) {
+                if (google.linked) {
+                    ListRow("Google", "Connected" + (google.email?.let { " · $it" } ?: ""))
+                    Divider()
+                    if (!google.hasPassword) {
+                        ListRow("Set a password", "", accent = true, onClick = { showGooglePw = true })
+                    } else {
+                        ListRow("Disconnect Google", "", destructive = true, onClick = { confirmUnlink = true })
+                    }
+                } else {
+                    ListRow("Connect your Google account", "Sign in with Google next time", accent = true, onClick = {
+                        scope.launch {
+                            try { GoogleSignIn.idToken(ctx)?.let { vm.linkGoogle(it) } }
+                            catch (e: AppException) { vm.toast(e.message ?: "Google sign-in didn't work") }
+                        }
+                    })
+                }
+                if (google.linked && !google.hasPassword) {
+                    Text(
+                        "This account was created with Google, so it has no password yet. Set one to be able to disconnect Google or delete the account.",
+                        style = Type.footnote, color = c.secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                }
+            }
         }
 
         // ---------- App
@@ -145,6 +183,29 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
     }
 
     if (showNotes) PatchNotesSheet { showNotes = false }
+
+    if (confirmUnlink) AlertDialog(
+        onDismissRequest = { confirmUnlink = false }, containerColor = c.sheet,
+        title = { Text("Disconnect Google?") },
+        text = { Text("You'll sign in with your username and password again. You can connect Google again any time.") },
+        confirmButton = { TextButton(onClick = { confirmUnlink = false; vm.unlinkGoogle() }) { Text("Disconnect", color = c.danger) } },
+        dismissButton = { TextButton(onClick = { confirmUnlink = false }) { Text("Keep", color = c.secondary) } },
+    )
+    if (showGooglePw) {
+        var pw by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showGooglePw = false }, containerColor = c.sheet,
+            title = { Text("Set a password") },
+            text = {
+                OutlinedTextField(
+                    pw, { pw = it }, label = { Text("New password (8+ characters)") }, singleLine = true, shape = RoundedCornerShape(14.dp),
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                )
+            },
+            confirmButton = { TextButton(enabled = pw.length >= 8 && !vm.busy, onClick = { vm.setPassword(pw) { showGooglePw = false } }) { Text("Save", color = c.accent) } },
+            dismissButton = { TextButton(onClick = { showGooglePw = false }) { Text("Cancel", color = c.secondary) } },
+        )
+    }
 
     if (editProfile) {
         var name by remember { mutableStateOf(me.displayName) }

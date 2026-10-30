@@ -26,12 +26,15 @@ android {
         minSdk = 26
         targetSdk = 36
         // CI passes -PversionCode=<run number> -PversionName=<tag without v>.
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 9
-        versionName = (project.findProperty("versionName") as String?) ?: "1.4.0"
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 10
+        versionName = (project.findProperty("versionName") as String?) ?: "1.5.0"
 
         val api = (project.findProperty("TANDEM_API_URL") as String).trimEnd('/')
         buildConfigField("String", "API_URL", "\"$api\"")
         buildConfigField("String", "GITHUB_REPO", "\"${project.findProperty("TANDEM_GITHUB_REPO")}\"")
+        // The Google *web* OAuth client id (public, not a secret). Leave it blank and the Google buttons stay hidden.
+        val googleId = ((project.findProperty("GOOGLE_WEB_CLIENT_ID") as String?) ?: System.getenv("GOOGLE_WEB_CLIENT_ID") ?: "").trim()
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleId\"")
     }
 
     val ksPath = signingValue("TANDEM_KEYSTORE_FILE", "storeFile")
@@ -83,6 +86,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation("androidx.work:work-runtime-ktx:2.10.2")
+
+    // Sign in with Google (Credential Manager)
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.glance:glance-material3:1.1.1")

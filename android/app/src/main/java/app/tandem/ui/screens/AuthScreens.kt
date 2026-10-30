@@ -34,6 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.tandem.AppViewModel
 import app.tandem.R
+import app.tandem.data.AppException
+import app.tandem.data.GoogleSignIn
+import kotlinx.coroutines.launch
 import app.tandem.ui.components.*
 import app.tandem.ui.theme.T
 import app.tandem.ui.theme.Type
@@ -78,6 +81,16 @@ fun AuthScreen(vm: AppViewModel) {
     var name by rememberSaveable { mutableStateOf("") }
     var showServer by rememberSaveable { mutableStateOf(false) }
     var server by rememberSaveable { mutableStateOf(vm.repo.currentBaseUrl) }
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    fun googleFlow() {
+        scope.launch {
+            try {
+                val token = GoogleSignIn.idToken(ctx)
+                if (token != null) vm.googleSignIn(token)
+            } catch (e: AppException) { vm.toast(e.message ?: "Google sign-in didn't work") }
+        }
+    }
 
     var appeared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { appeared = true }
@@ -122,6 +135,17 @@ fun AuthScreen(vm: AppViewModel) {
                 enabled = valid, loading = vm.busy,
             )
 
+            if (GoogleSignIn.available) {
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f).height(1.dp).background(c.separator))
+                    Text("  or  ", style = Type.footnote, color = c.secondary)
+                    Box(Modifier.weight(1f).height(1.dp).background(c.separator))
+                }
+                Spacer(Modifier.height(16.dp))
+                GoogleButton(if (mode == 0) "Continue with Google" else "Sign up with Google", enabled = !vm.busy) { googleFlow() }
+            }
+
             Spacer(Modifier.height(20.dp))
             AnimatedVisibility(showServer) {
                 Column {
@@ -134,6 +158,45 @@ fun AuthScreen(vm: AppViewModel) {
             Spacer(Modifier.height(32.dp))
         }
     }
+    GoogleSignupDialog(vm)
+}
+
+/** The white "Continue with Google" pill. */
+@Composable
+fun GoogleButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(26.dp)).background(Color.White.copy(alpha = if (enabled) 1f else .6f))
+            .pressable(enabled = enabled, onClick = onClick),
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("G", style = Type.title.copy(fontWeight = FontWeight.Bold, fontSize = 22.sp), color = Color(0xFF4285F4))
+        Spacer(Modifier.width(10.dp))
+        Text(label, style = Type.headline, color = Color(0xFF1F1F1F))
+    }
+}
+
+/** Shown after Google accepted a brand-new account: pick the username (and the name your partner will see). */
+@Composable
+fun GoogleSignupDialog(vm: AppViewModel) {
+    val c = T.colors
+    val p = vm.googleSignup ?: return
+    var username by remember(p.idToken) { mutableStateOf(p.suggestedUsername) }
+    var name by remember(p.idToken) { mutableStateOf(p.displayName) }
+    AlertDialog(
+        onDismissRequest = { if (!vm.busy) vm.googleSignup = null }, containerColor = c.sheet,
+        title = { Text("Almost there") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Welcome${if (p.email.isNotBlank()) ", ${p.email}" else ""}! Pick how you'll appear in Tandem.", style = Type.callout, color = c.secondary)
+                IosField(name, { name = it }, "Your name (shown to your partner)", capitalize = true)
+                IosField(username, { username = it.filter { ch -> !ch.isWhitespace() } }, "Username")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { vm.googleFinishSignup(username, name) }, enabled = username.length >= 3 && name.isNotBlank() && !vm.busy) { Text("Create account", color = c.accent) }
+        },
+        dismissButton = { TextButton(onClick = { vm.googleSignup = null }) { Text("Cancel", color = c.secondary) } },
+    )
 }
 
 @Composable

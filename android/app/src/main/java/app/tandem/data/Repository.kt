@@ -135,6 +135,20 @@ class Repository(private val context: Context) {
         onAuth(api.login(LoginBody(username.trim(), password)))
     }
 
+    /** A Google account Tandem hasn't seen yet: the app asks for a username, then calls [googleSignIn] again with it. */
+    class GoogleNeedsSignup(val idToken: String, val suggestedUsername: String, val displayName: String, val email: String)
+
+    /** Signs in with a Google ID token. Returns null when signed in, or a [GoogleNeedsSignup] when the person must pick a username first. */
+    suspend fun googleSignIn(idToken: String, username: String?, displayName: String?): GoogleNeedsSignup? = call {
+        val r = api.googleAuth(GoogleAuthBody(idToken, username?.trim(), displayName?.trim()))
+        if (r.needsSignup) GoogleNeedsSignup(idToken, r.suggestedUsername, r.displayName, r.email)
+        else { onAuth(AuthResponse(r.token ?: "", r.user ?: throw AppException("The server sent something unexpected."))); null }
+    }
+    suspend fun googleStatus(): GoogleStatus = call { api.googleStatus() }
+    suspend fun googleLink(idToken: String): GoogleStatus = call { api.googleLink(GoogleLinkBody(idToken)) }
+    suspend fun googleUnlink(): GoogleStatus = call { api.googleUnlink() }
+    suspend fun setPassword(password: String): GoogleStatus = call { api.setPassword(PasswordBody(password)) }
+
     private suspend fun onAuth(r: AuthResponse) {
         token = r.token
         prefs.setToken(r.token)

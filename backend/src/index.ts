@@ -3,13 +3,15 @@
 export interface Env {
   DB: D1Database;
   JWT_SECRET: string;
+  /** The Google *web* OAuth client id (public, not a secret). Several may be comma-separated. Blank = Google sign-in off. */
+  GOOGLE_CLIENT_ID?: string;
 }
 
 const MOODS = ["happy", "loved", "calm", "excited", "tired", "sad", "anxious", "angry"];
 const ACTIVITIES = [
   "gaming", "sleeping", "eating", "tv", "music", "football", "cycling",
   "hiking", "camping", "roadtrip", "stargazing", "photography", "hair", "nails",
-  "working", "coding", "studying", "partying",
+  "working", "coding", "studying", "partying", "shopping", "scrolling",
 ];
 const TOKEN_TTL = 60 * 60 * 24 * 90; // 90 days
 const PBKDF2_ITER = 100_000;
@@ -353,6 +355,120 @@ async function login(req: Request, env: Env): Promise<Response> {
   }
   await env.DB.prepare("DELETE FROM auth_attempts WHERE key = ?").bind(ukey).run();
   return json({ token: await signJwt(user.id, env.JWT_SECRET), user: publicUser(user) });
+}
+
+// ------------------------------------------------------------- Sign in with Google
+// The app gets a Google ID token (a signed JWT) on the phone and sends it here. We check Google's signature, the audience
+// (GOOGLE_CLIENT_ID, the *web* client id: not a secret), the issuer and the expiry. Accounts are linked by Google's stable
+// "sub", never by e-mail address, and an existing account is only ever linked from inside that account.
+let googleKeyCache: { at: number; keys: any[] } | null = null;
+async function googleKeys(force = false): Promise<any[]> {
+  if (!force && googleKeyCache && now() - googleKeyCache.at < 3600_000) return googleKeyCache.keys;
+  const r = await fetch("https://www.googleapis.com/oauth2/v3/certs");
+  if (!r.ok) throw new HttpError(502, "Couldn't reach Google to check your sign-in. Try again.");
+  const j: any = await r.json();
+  googleKeyCache = { at: now(), keys: Array.isArray(j.keys) ? j.keys : [] };
+  return googleKeyCache.keys;
+}
+async function verifyGoogleToken(env: Env, idToken: unknown): Promise<{ sub: string; email: string; name: string }> {
+  const audiences = (env.GOOGLE_CLIENT_ID ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (audiences.length === 0) throw new HttpError(501, "Google sign-in isn't set up on this server yet");
+  if (typeof idToken !== "string" || idToken.length < 40 || idToken.length > 4096) throw new HttpError(400, "idToken is required");
+  const parts = idToken.split(".");
+  if (parts.length !== 3) throw new HttpError(401, "That Google sign-in isn't valid");
+  let header: any, claims: any;
+  try {
+    header = JSON.parse(new TextDecoder().decode(b64uDecode(parts[0])));
+    claims = JSON.parse(new TextDecoder().decode(b64uDecode(parts[1])));
+  } catch { throw new HttpError(401, "That Google sign-in isn't valid"); }
+  if (header.alg !== "RS256" || typeof header.kid !== "string") throw new HttpError(401, "That Google sign-in isn't valid");
+  let jwk = (await googleKeys()).find((k) => k.kid === header.kid);
+  if (!jwk) jwk = (await googleKeys(true)).find((k) => k.kid === header.kid);
+  if (!jwk) throw new HttpError(401, "That Google sign-in isn't valid");
+  const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  const okSig = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64uDecode(parts[2]), enc.encode(`${parts[0]}.${parts[1]}`));
+  if (!okSig) throw new HttpError(401, "That Google sign-in isn't valid");
+  const nowSec = Math.floor(now() / 1000);
+  const issOk = claims.iss === "https://accounts.google.com" || claims.iss === "accounts.google.com";
+  if (!issOk || !audiences.includes(claims.aud) || typeof claims.exp !== "number" || claims.exp < nowSec - 30 || typeof claims.sub !== "string" || !claims.sub)
+    throw new HttpError(401, "That Google sign-in isn't valid or has expired. Try again.");
+  const email = typeof claims.email === "string" ? claims.email : "";
+  return { sub: claims.sub, email, name: typeof claims.name === "string" ? claims.name : "" };
+}
+async function googleLinkOf(env: Env, userId: string): Promise<any | null> {
+  try { return await env.DB.prepare("SELECT * FROM google_links WHERE user_id = ?").bind(userId).first<any>(); } catch { return null; }
+}
+function suggestUsername(email: string, name: string): string {
+  const base = (email.split("@")[0] || name || "tandem").replace(/[^A-Za-z0-9_.]/g, "").slice(0, 20);
+  return base.length >= 3 ? base : (base + "user").slice(0, 20);
+}
+
+/** Public: sign in (or, when it is a new Google account and username is given, sign up). */
+async function googleAuth(req: Request, env: Env): Promise<Response> {
+  const b = await readJson(req);
+  if ((await bump(env, `google:ip:${clientIp(req)}`, 15 * MIN)) > 40) throw tooMany();
+  const g = await verifyGoogleToken(env, b.idToken);
+  const link = await env.DB.prepare("SELECT * FROM google_links WHERE sub = ?").bind(g.sub).first<any>();
+  if (link) {
+    const user = await getUser(env, link.user_id);
+    if (!user) throw new HttpError(401, "That account no longer exists");
+    return json({ token: await signJwt(user.id, env.JWT_SECRET), user: publicUser(user), created: false });
+  }
+  if (b.username == null) {
+    // a Google account Tandem hasn't seen: the app now asks for a username (prefilled with this suggestion)
+    let suggested = suggestUsername(g.email, g.name);
+    if (await env.DB.prepare("SELECT 1 FROM users WHERE username = ?").bind(suggested).first()) suggested = (suggested.slice(0, 18) + Math.floor(Math.random() * 90 + 10));
+    return json({ needsSignup: true, email: g.email, displayName: (g.name || suggested).slice(0, 40), suggestedUsername: suggested });
+  }
+  const username = str(b.username, "username", 3, 24);
+  if (!/^[A-Za-z0-9_.]+$/.test(username)) throw new HttpError(400, "Username may contain letters, numbers, _ and .");
+  const displayName = str(b.displayName ?? g.name ?? username, "displayName", 1, 40);
+  if ((await bump(env, `reg:ip:${clientIp(req)}`, 60 * MIN)) > 10) throw tooMany();
+  if (await env.DB.prepare("SELECT 1 FROM users WHERE username = ?").bind(username).first()) throw new HttpError(409, "That username is taken");
+  const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16)));
+  const hash = await hashPassword(b64u(crypto.getRandomValues(new Uint8Array(new ArrayBuffer(32)))), salt);   // nobody knows this password: Google is the way in
+  const id = uid();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO users (id, username, display_name, pass_hash, pass_salt, created_at) VALUES (?,?,?,?,?,?)").bind(id, username, displayName, hash, b64u(salt), now()),
+    env.DB.prepare("INSERT INTO google_links (sub, user_id, email, no_password, created_at) VALUES (?,?,?,?,?)").bind(g.sub, id, g.email, 1, now()),
+  ]);
+  const user = (await getUser(env, id))!;
+  return json({ token: await signJwt(id, env.JWT_SECRET), user: publicUser(user), created: true }, 201);
+}
+
+async function googleStatus(c: Ctx): Promise<Response> {
+  const link = await googleLinkOf(c.env, c.user.id);
+  return json({ enabled: !!c.env.GOOGLE_CLIENT_ID, linked: !!link, email: link?.email ?? null, hasPassword: link ? !link.no_password : true });
+}
+/** Connect the signed-in (existing) account to a Google account. */
+async function googleLink(c: Ctx): Promise<Response> {
+  if ((await bump(c.env, `google:u:${c.user.id}`, 15 * MIN)) > 20) throw tooMany();
+  const g = await verifyGoogleToken(c.env, (await readJson(c.req)).idToken);
+  if (await googleLinkOf(c.env, c.user.id)) throw new HttpError(409, "This account is already connected to a Google account. Disconnect it first.");
+  const other = await c.env.DB.prepare("SELECT user_id FROM google_links WHERE sub = ?").bind(g.sub).first<any>();
+  if (other) throw new HttpError(409, "That Google account is already used by another Tandem account.");
+  await c.env.DB.prepare("INSERT INTO google_links (sub, user_id, email, no_password, created_at) VALUES (?,?,?,?,?)").bind(g.sub, c.user.id, g.email, 0, now()).run();
+  return json({ enabled: true, linked: true, email: g.email, hasPassword: true });
+}
+async function googleUnlink(c: Ctx): Promise<Response> {
+  const link = await googleLinkOf(c.env, c.user.id);
+  if (!link) throw new HttpError(404, "No Google account is connected");
+  if (link.no_password) throw new HttpError(409, "This account was created with Google and has no password yet. Set a password first, then you can disconnect Google.");
+  await c.env.DB.prepare("DELETE FROM google_links WHERE user_id = ?").bind(c.user.id).run();
+  return json({ enabled: !!c.env.GOOGLE_CLIENT_ID, linked: false, email: null, hasPassword: true });
+}
+/** Only for accounts that were created with Google (they have no password): choose one. */
+async function passwordSet(c: Ctx): Promise<Response> {
+  const link = await googleLinkOf(c.env, c.user.id);
+  if (!link || !link.no_password) throw new HttpError(409, "This account already has a password");
+  const password = str((await readJson(c.req)).password, "password", 8, 128);
+  const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16)));
+  const hash = await hashPassword(password, salt);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE users SET pass_hash = ?, pass_salt = ? WHERE id = ?").bind(hash, b64u(salt), c.user.id),
+    c.env.DB.prepare("UPDATE google_links SET no_password = 0 WHERE user_id = ?").bind(c.user.id),
+  ]);
+  return json({ enabled: !!c.env.GOOGLE_CLIENT_ID, linked: true, email: link.email ?? null, hasPassword: true });
 }
 
 async function coupleInfo(env: Env, user: UserRow) {
@@ -700,11 +816,33 @@ async function eventList(c: Ctx): Promise<Response> {
 }
 
 /** One call that feeds the whole app and every widget. */
+/** Active matches where it is (or could be) the caller's turn. partnerPlayed = the partner already played this round, so the caller is the one being waited for. */
+async function awaitingGames(env: Env, coupleId: string, userId: string, partnerId: string | null) {
+  if (!partnerId) return [];
+  const { results } = await env.DB.prepare("SELECT id, game, rounds, created_by, created_at FROM game_matches WHERE couple_id = ? AND status = 'active' ORDER BY created_at DESC").bind(coupleId).all();
+  const ms = results as any[];
+  if (ms.length === 0) return [];
+  const sc = await env.DB.prepare(`SELECT match_id, round, user_id FROM game_scores WHERE match_id IN (${ms.map(() => "?").join(",")})`).bind(...ms.map((m) => m.id)).all();
+  const rows = sc.results as any[];
+  const out: any[] = [];
+  for (const m of ms) {
+    const has = (round: number, user: string) => rows.some((s) => s.match_id === m.id && s.round === round && s.user_id === user);
+    let round = 0;
+    for (let r = 1; r <= m.rounds; r++) if (!has(r, userId)) { round = r; break; }
+    if (!round) continue;
+    const first = round % 2 === 1 ? m.created_by : (m.created_by === userId ? partnerId : userId);
+    const partnerPlayed = has(round, partnerId);
+    if (first !== userId && !partnerPlayed) continue;      // waiting for the partner to go first
+    out.push({ id: m.id, game: m.game, round, rounds: m.rounds, partnerPlayed, createdAt: m.created_at });
+  }
+  return out;
+}
+
 async function sync(c: Ctx): Promise<Response> {
   const user = c.user;
   const info = await coupleInfo(c.env, user);
   const base = { serverTime: now(), me: publicUser(user), couple: info };
-  if (!user.couple_id) return json({ ...base, moods: [], latestMoods: {}, diary: [], events: [], stats: null, trip: null });
+  if (!user.couple_id) return json({ ...base, moods: [], latestMoods: {}, diary: [], events: [], stats: null, trip: null, awaiting: [] });
 
   const coupleId = user.couple_id;
   const [moods, diary, events, stats, latest] = await Promise.all([
@@ -724,8 +862,10 @@ async function sync(c: Ctx): Promise<Response> {
   const latestWithReactions = await moodsWithReactions(c.env, latest.results as any[]);
   for (const m of latestWithReactions) latestMoods[m.userId] = m;
 
+  const mate = await partnerOf(c.env, user);
   return json({
     ...base,
+    awaiting: await awaitingGames(c.env, coupleId, user.id, mate?.id ?? null),
     moods: await moodsWithReactions(c.env, moods.results as any[]),
     latestMoods,
     diary: await withImages(c.env, diary.results as any[]),
@@ -1601,6 +1741,8 @@ async function goalDelete(c: Ctx): Promise<Response> {
 /** Erases the caller's own data and account. The partner (if any) is unpaired and keeps their own data. */
 async function accountDelete(c: Ctx): Promise<Response> {
   const b = await readJson(c.req);
+  const gl = await googleLinkOf(c.env, c.user.id);
+  if (gl?.no_password) throw new HttpError(409, "This account was created with Google. Set a password first (Profile, Account), then delete it.");
   const password = str(b.password, "password", 1, 128);
   const ukey = `login:u:${c.user.username.toLowerCase()}`;
   if ((await attempts(c.env, ukey)) >= 8) throw tooMany();
@@ -1608,6 +1750,7 @@ async function accountDelete(c: Ctx): Promise<Response> {
   if (!timingSafeEqual(hash, c.user.pass_hash)) { await bump(c.env, ukey, 15 * MIN); throw new HttpError(401, "Wrong password"); }
   const id = c.user.id;
   try { await c.env.DB.prepare("DELETE FROM game_perf WHERE user_id = ?").bind(id).run(); } catch { /* table not there yet (migration 0007) */ }
+  try { await c.env.DB.prepare("DELETE FROM google_links WHERE user_id = ?").bind(id).run(); } catch { /* table not there yet (migration 0008) */ }
   const stmts = [];
   if (c.user.couple_id) {
     stmts.push(
@@ -1770,6 +1913,10 @@ route("GET", "/me", async (c) => json({ user: publicUser(c.user), couple: await 
 route("PATCH", "/me", profileUpdate);
 route("DELETE", "/me", accountDelete);
 route("PUT", "/me/profile", profilePut);
+route("GET", "/me/google", googleStatus);
+route("POST", "/me/google", googleLink);
+route("DELETE", "/me/google", googleUnlink);
+route("PUT", "/me/password", passwordSet);
 route("PUT", "/me/avatar", avatarPut);
 route("GET", "/avatar/:id", avatarGet);
 route("POST", "/couple", coupleCreate);
@@ -1845,6 +1992,7 @@ export default {
       if (url.pathname === "/" || url.pathname === "/health") return json({ ok: true, app: "tandem" });
       if (req.method === "POST" && url.pathname === "/auth/register") return await register(req, env);
       if (req.method === "POST" && url.pathname === "/auth/login") return await login(req, env);
+      if (req.method === "POST" && url.pathname === "/auth/google") return await googleAuth(req, env);
 
       const auth = req.headers.get("authorization") ?? "";
       const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";

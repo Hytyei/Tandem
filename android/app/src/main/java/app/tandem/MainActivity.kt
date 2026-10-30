@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.tandem.data.CHANGELOG
@@ -192,7 +193,13 @@ private fun Shell(vm: AppViewModel) {
                 AppTab.Profile -> ProfileScreen(vm, openPage = { mine -> pageMine = mine; showPage = true })
             }
         }
-        FloatingTabBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter), badge = if (update != null) AppTab.Profile else null)
+        val syncNow by vm.state.collectAsState()
+        val gamesNow = vm.games
+        val myId = syncNow?.me?.id
+        val pid = syncNow?.couple?.partner?.id
+        // Games waiting for you: from the loaded match list when we have it, otherwise from the last sync.
+        val turns = if (gamesNow != null && myId != null && pid != null) gamesNow.matches.count { it.nextTurn(myId, pid) != null } else syncNow?.awaiting?.size ?: 0
+        FloatingTabBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter), badge = if (update != null) AppTab.Profile else null, counts = mapOf(AppTab.Play to turns))
 
         // Full stats page, slides over everything
         AnimatedVisibility(
@@ -249,7 +256,7 @@ private fun Shell(vm: AppViewModel) {
 }
 
 @Composable
-private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier, badge: AppTab? = null) {
+private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier, badge: AppTab? = null, counts: Map<AppTab, Int> = emptyMap()) {
     val c = T.colors
     Row(
         modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 14.dp)
@@ -269,7 +276,13 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
             ) {
                 Box {
                     Icon(painterResource(t.icon), contentDescription = t.label, tint = tint, modifier = Modifier.size(23.dp))
-                    if (badge == t) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).clip(RoundedCornerShape(50)).background(c.accent)
+                    val n = counts[t] ?: 0
+                    if (n > 0 && !on) Box(
+                        Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-6).dp).defaultMinSize(minWidth = 16.dp, minHeight = 16.dp).clip(RoundedCornerShape(50)).background(c.accent)
+                            .border(1.5.dp, c.sheet, RoundedCornerShape(50)).padding(horizontal = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(if (n > 9) "9+" else "$n", style = Type.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = Color.White) }
+                    else if (badge == t) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).clip(RoundedCornerShape(50)).background(c.accent)
                         .border(1.5.dp, c.sheet, RoundedCornerShape(50)))
                 }
                 if (on) {

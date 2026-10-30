@@ -12,6 +12,11 @@ import java.util.concurrent.TimeUnit
 interface TandemApi {
     @POST("auth/register") suspend fun register(@Body b: RegisterBody): AuthResponse
     @POST("auth/login") suspend fun login(@Body b: LoginBody): AuthResponse
+    @POST("auth/google") suspend fun googleAuth(@Body b: GoogleAuthBody): GoogleAuthResponse
+    @GET("me/google") suspend fun googleStatus(): GoogleStatus
+    @POST("me/google") suspend fun googleLink(@Body b: GoogleLinkBody): GoogleStatus
+    @DELETE("me/google") suspend fun googleUnlink(): GoogleStatus
+    @PUT("me/password") suspend fun setPassword(@Body b: PasswordBody): GoogleStatus
 
     @GET("me") suspend fun me(): MeResponse
     @PATCH("me") suspend fun updateProfile(@Body b: ProfileBody): User

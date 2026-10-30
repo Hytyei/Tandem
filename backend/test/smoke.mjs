@@ -322,6 +322,10 @@ r = await call("GET", "/places", H);
 ok("place gone", r.body.places.length === 2 && !r.body.places.some((x) => x.id === p1), r.body.places.length);
 
 // ---- new activities
+r = await call("POST", "/moods", H, { mood: "happy", activity: "shopping" });
+ok("activity shopping accepted", r.status === 201 && r.body.activity === "shopping", r);
+r = await call("POST", "/moods", H, { mood: "tired", activity: "scrolling" });
+ok("activity scrolling accepted", r.status === 201 && r.body.activity === "scrolling", r);
 r = await call("POST", "/moods", H, { mood: "calm", activity: "coding" });
 ok("activity coding accepted", r.status === 201 && r.body.activity === "coding", r); const moodNora = r.body.id;
 for (const a of ["working", "studying", "partying"]) { r = await call("POST", "/moods", I, { mood: "happy", activity: a }); ok("activity " + a, r.status === 201, r); }
@@ -440,6 +444,20 @@ r = await call("PUT", `/games/matches/${mbj}/score`, H, { round: 1, score: 1450 
 ok("blackjack chips score saved", r.status === 200, r);
 r = await call("DELETE", `/games/matches/${mbj}`, H);
 ok("cancel match with perf-less score", r.status === 200, r);
+// awaiting games show up in /sync for the partner whose turn it is
+r = await call("POST", "/games/matches", H, { game: "stroop", rounds: 1 }); const maw = r.body.id;
+r = await call("GET", "/sync", I);
+ok("awaiting: starter hasn't played, so the partner isn't being waited for", !r.body.awaiting.some((x) => x.id === maw && x.partnerPlayed), r.body.awaiting);
+r = await call("GET", "/sync", H);
+ok("awaiting: starter can play", r.body.awaiting.some((x) => x.id === maw && x.partnerPlayed === false && x.round === 1), r.body.awaiting);
+await call("PUT", `/games/matches/${maw}/score`, H, { round: 1, score: 200 });
+r = await call("GET", "/sync", I);
+ok("awaiting: partner is now being waited for", r.body.awaiting.some((x) => x.id === maw && x.partnerPlayed === true && x.game === "stroop"), r.body.awaiting);
+r = await call("GET", "/sync", H);
+ok("awaiting: starter now waits (not listed)", !r.body.awaiting.some((x) => x.id === maw), r.body.awaiting);
+await call("PUT", `/games/matches/${maw}/score`, I, { round: 1, score: 100 });
+r = await call("GET", "/sync", I);
+ok("awaiting: finished match is gone", !r.body.awaiting.some((x) => x.id === maw), r.body.awaiting);
 // cancel + limits
 r = await call("POST", "/games/matches", H, { game: "memory", rounds: 3 }); const m4 = r.body.id;
 r = await call("DELETE", `/games/matches/${m4}`, I);
@@ -705,6 +723,80 @@ r = await call("DELETE", "/me", Z, { password: "secret000" });
 ok("delete account with update-4 data", r.status === 200, r);
 r = await call("GET", "/addresses", Y);
 ok("deleted user's addresses are gone", r.status === 409 || r.body.addresses.length === 0, r.body);
+
+// ---- Sign in with Google (token checked against a locally generated key, Google's key list is faked)
+const kp = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+const jwkPub = { ...(await crypto.subtle.exportKey("jwk", kp.publicKey)), kid: "test-kid", alg: "RS256", use: "sig" };
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (u, ...rest) => String(u).startsWith("https://www.googleapis.com/oauth2/v3/certs") ? new Response(JSON.stringify({ keys: [jwkPub] }), { status: 200 }) : realFetch(u, ...rest);
+const b64url = (b) => Buffer.from(b).toString("base64url");
+const gToken = async (claims, kid = "test-kid", key = kp.privateKey) => {
+  const h = b64url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" })), pl = b64url(JSON.stringify(claims));
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(`${h}.${pl}`));
+  return `${h}.${pl}.${b64url(sig)}`;
+};
+const AUD = "web-client-123.apps.googleusercontent.com";
+const good = (sub, extra = {}) => ({ iss: "https://accounts.google.com", aud: AUD, sub, email: `${sub}@gmail.com`, name: "Gina Google", exp: Math.floor(Date.now() / 1000) + 3600, ...extra });
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1")) });
+ok("google: off until GOOGLE_CLIENT_ID is set", r.status === 501, r);
+env.GOOGLE_CLIENT_ID = AUD;
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1", { aud: "someone-else" })) });
+ok("google: wrong audience rejected", r.status === 401, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1", { exp: Math.floor(Date.now() / 1000) - 600 })) });
+ok("google: expired rejected", r.status === 401, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1", { iss: "https://evil.example" })) });
+ok("google: wrong issuer rejected", r.status === 401, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1"), "other-kid") });
+ok("google: unknown key id rejected", r.status === 401, r);
+const other = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1"), "test-kid", other.privateKey) });
+ok("google: forged signature rejected", r.status === 401, r);
+r = await call("POST", "/auth/google", null, { idToken: "not.a.token" });
+ok("google: garbage rejected", r.status === 400 || r.status === 401, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1")) });
+ok("google: new account asks for a username", r.status === 200 && r.body.needsSignup === true && r.body.suggestedUsername.length >= 3 && r.body.displayName === "Gina Google", r.body);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1")), username: "sara", displayName: "Gina" });
+ok("google: taken username rejected", r.status === 409, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1")), username: "gina_g", displayName: "Gina" });
+ok("google: sign up", r.status === 201 && r.body.created === true && r.body.token, r); const GG = r.body.token; const ggId = r.body.user.id;
+r = await call("GET", "/me", GG);
+ok("google: token works", r.status === 200 && r.body.user.username === "gina_g", r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1")) });
+ok("google: sign in again gives the same account", r.status === 200 && r.body.created === false && r.body.user.id === ggId, r);
+r = await call("POST", "/auth/login", null, { username: "gina_g", password: "anything123" });
+ok("google: the random password can't be used", r.status === 401, r);
+r = await call("GET", "/me/google", GG);
+ok("google: status", r.body.linked === true && r.body.hasPassword === false && r.body.email === "g1@gmail.com", r.body);
+r = await call("DELETE", "/me/google", GG);
+ok("google: can't disconnect without a password", r.status === 409, r);
+r = await call("DELETE", "/me", GG, { password: "whatever12" });
+ok("google: can't delete before setting a password", r.status === 409, r);
+r = await call("PUT", "/me/password", GG, { password: "short" });
+ok("google: short password rejected", r.status === 400, r);
+r = await call("PUT", "/me/password", GG, { password: "brand-new-pass" });
+ok("google: set a password", r.status === 200 && r.body.hasPassword === true, r);
+r = await call("POST", "/auth/login", null, { username: "gina_g", password: "brand-new-pass" });
+ok("google: password login works after setting it", r.status === 200, r);
+r = await call("PUT", "/me/password", GG, { password: "another-pass-1" });
+ok("google: can't 'set' a password twice", r.status === 409, r);
+// linking an existing account
+r = await call("POST", "/me/google", A, { idToken: await gToken(good("g1")) });
+ok("link: a Google account already used elsewhere is refused", r.status === 409, r);
+r = await call("POST", "/me/google", A, { idToken: await gToken(good("g2")) });
+ok("link: existing account connects to Google", r.status === 200 && r.body.linked === true && r.body.hasPassword === true, r);
+r = await call("POST", "/me/google", A, { idToken: await gToken(good("g3")) });
+ok("link: only one Google account per account", r.status === 409, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g2")) });
+ok("link: Google sign-in now opens the old account", r.status === 200 && r.body.user.id === aId && r.body.created === false, r.body);
+r = await call("DELETE", "/me/google", A);
+ok("link: disconnect (account has a password)", r.status === 200 && r.body.linked === false, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g2")) });
+ok("link: after disconnecting, that Google account is unknown again", r.status === 200 && r.body.needsSignup === true, r.body);
+r = await call("DELETE", "/me", GG, { password: "brand-new-pass" });
+ok("google: delete account once it has a password", r.status === 200, r);
+r = await call("POST", "/auth/google", null, { idToken: await gToken(good("g1")) });
+ok("google: deleted account's link is gone", r.status === 200 && r.body.needsSignup === true, r.body);
+globalThis.fetch = realFetch;
 
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
 process.exit(fails ? 1 : 0);

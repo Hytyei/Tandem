@@ -5,6 +5,18 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.5.0", title = "v1.5.0 · A new Play page, Google sign-in & game alerts", date = "2026-10-30",
+        items = listOf(
+            "Play is now tile based: every game has its own page with how to play, a new match button, your running matches, stats, the hall of fame and past matches.",
+            "Games are grouped (quick reflexes, arcade duels, brain teasers, cards), so the page stays tidy however many games there are.",
+            "Games waiting for you are impossible to miss: a glowing Your turn section at the top of Play, highlighted cards that show your partner's score, and a number on the Play tab.",
+            "Recent games shows finished results by day plus everything still running. Goals and Stats have their own pages too.",
+            "Notifications: a game is waiting for you, a new mood, a new diary entry. Each can be switched off under Profile. Without a push server, alerts arrive within about 15 minutes when the app is closed (and within seconds while it is open).",
+            "Sign in or sign up with Google, and connect (or disconnect) Google on an existing account under Profile > Account. Google-only accounts can set a password there too.",
+            "Two new activities with new artwork: Shopping and Doom scrolling.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.4.0", title = "v1.4.0 · Six new games, speed stats & one dark look", date = "2026-10-28",
         items = listOf(
             "Tandem is now dark only: the light theme (and the theme setting) is gone.",

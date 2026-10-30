@@ -160,6 +160,15 @@ CREATE TABLE IF NOT EXISTS game_perf (
   PRIMARY KEY (match_id, round, user_id)
 );
 
+-- Sign in with Google: which Google account (its stable "sub") belongs to which user. no_password = 1 for accounts created with Google.
+CREATE TABLE IF NOT EXISTS google_links (
+  sub TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE,
+  email TEXT,
+  no_password INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS game_goals (
   id TEXT PRIMARY KEY,
   couple_id TEXT NOT NULL,
