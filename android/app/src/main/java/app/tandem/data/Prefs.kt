@@ -36,6 +36,7 @@ class Prefs(private val context: Context) {
     private val kNotifyMoods = booleanPreferencesKey("notify_moods")
     private val kNotifyDiary = booleanPreferencesKey("notify_diary")
     private val kNotifyEvents = booleanPreferencesKey("notify_events")
+    private val kNotifyGames = booleanPreferencesKey("notify_games")
     private val kSeenInit = booleanPreferencesKey("seen_init")
     private val kSeenPartner = stringPreferencesKey("seen_partner")
     private val kSeenMoodAt = longPreferencesKey("seen_mood_at")
@@ -57,6 +58,7 @@ class Prefs(private val context: Context) {
     val notifyMoods: Flow<Boolean> = context.store.data.map { it[kNotifyMoods] ?: true }
     val notifyDiary: Flow<Boolean> = context.store.data.map { it[kNotifyDiary] ?: true }
     val notifyEvents: Flow<Boolean> = context.store.data.map { it[kNotifyEvents] ?: true }
+    val notifyGames: Flow<Boolean> = context.store.data.map { it[kNotifyGames] ?: true }
 
     suspend fun setToken(v: String?) = context.store.edit { prefs -> if (v == null) { prefs.remove(kToken) } else { prefs[kToken] = SecureBox.encrypt(v) } }
     suspend fun setBaseUrl(v: String?) = context.store.edit { prefs -> if (v.isNullOrBlank()) { prefs.remove(kBase) } else { prefs[kBase] = v.trim() } }
@@ -67,6 +69,7 @@ class Prefs(private val context: Context) {
     suspend fun setNotifyMoods(v: Boolean) = context.store.edit { it[kNotifyMoods] = v }
     suspend fun setNotifyDiary(v: Boolean) = context.store.edit { it[kNotifyDiary] = v }
     suspend fun setNotifyEvents(v: Boolean) = context.store.edit { it[kNotifyEvents] = v }
+    suspend fun setNotifyGames(v: Boolean) = context.store.edit { it[kNotifyGames] = v }
 
     /** Version whose patch notes the person has already seen. */
     val notesSeen: Flow<String?> = context.store.data.map { it[kNotesSeen] }
