@@ -26,3 +26,6 @@ val LocalPerf = staticCompositionLocalOf { PerfLog() }
 
 /** The partner's score for this round, when they already played it (games like Blackjack show it as the number to beat). */
 val LocalBeat = staticCompositionLocalOf<Int?> { null }
+
+/** The partner's first name, shown next to [LocalBeat] in a round's top bar. */
+val LocalRival = staticCompositionLocalOf<String?> { null }

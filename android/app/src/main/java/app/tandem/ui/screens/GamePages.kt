@@ -69,29 +69,29 @@ internal fun GamePage(vm: AppViewModel, game: MiniGame, me: User, partner: User,
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 130.dp)) {
         item { PageHeader(game.label, game.grp.label, nav.back) }
 
-        // ---------- play: the game's own scene, its mark and the one action
+        // ---------- play: the game's mark, lit in its colour, and the one action
         item {
-            val skin = game.skin()
             val shape = RoundedCornerShape(24.dp)
-            GameBackdrop(game, Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(shape).border(1.dp, Color.White.copy(alpha = .10f), shape)) {
-                Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        GameEmblem(game, 72.dp)
-                        Spacer(Modifier.width(16.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(game.blurb.replaceFirstChar { it.uppercase() }, style = Type.callout.copy(fontWeight = FontWeight.Medium), color = skin.ink)
-                            Text(
-                                if (rulesOpen) "Hide the rules" else "How to play",
-                                style = Type.footnote, color = skin.accent,
-                                modifier = Modifier.padding(top = 4.dp).pressable(haptic = false) { rulesOpen = !rulesOpen },
-                            )
-                        }
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(shape).background(c.card).gameGlow(game, 1.6f)
+                    .border(1.dp, game.light.copy(alpha = .22f), shape).padding(20.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GameMark(game, 64.dp)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(game.blurb.replaceFirstChar { it.uppercase() }, style = Type.callout.copy(fontWeight = FontWeight.Medium), color = c.label)
+                        Text(
+                            if (rulesOpen) "Hide the rules" else "How to play",
+                            style = Type.footnote, color = game.light,
+                            modifier = Modifier.padding(top = 4.dp).pressable(haptic = false) { rulesOpen = !rulesOpen },
+                        )
                     }
-                    if (rulesOpen) Text(game.rules, style = Type.callout, color = skin.ink.copy(alpha = .8f), modifier = Modifier.padding(top = 12.dp))
-                    Spacer(Modifier.height(20.dp))
-                    PrimaryButton("Challenge $pName", onClick = { vm.startMatch(game, 1) { nav.started(it) } }, loading = vm.busy, color = skin.ink)
-                    Text("You play first, then $pName plays the very same round. The higher score wins.", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = skin.ink.copy(alpha = .6f), modifier = Modifier.padding(top = 8.dp).fillMaxWidth(), textAlign = TextAlign.Center)
                 }
+                if (rulesOpen) Text(game.rules, style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 12.dp))
+                Spacer(Modifier.height(20.dp))
+                PrimaryButton("Challenge $pName", onClick = { vm.startMatch(game, 1) { nav.started(it) } }, loading = vm.busy, color = Color(0xFFF6F2FF))
+                Text("You play first, then $pName plays the very same round. The higher score wins.", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary, modifier = Modifier.padding(top = 8.dp).fillMaxWidth(), textAlign = TextAlign.Center)
             }
         }
 
@@ -266,7 +266,7 @@ internal fun StatsPage(me: User, partner: User, stats: GameStats, nav: PlayNav) 
                     .pressable(haptic = false) { nav.open("game:${gm.key}") }.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GameTile(gm, 36.dp)
+                GameMark(gm, 36.dp)
                 Spacer(Modifier.width(12.dp))
                 Text(gm.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f))
                 Text("$mw", style = Type.headline, color = c.me)

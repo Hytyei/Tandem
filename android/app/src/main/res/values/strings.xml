@@ -3,5 +3,6 @@
     <string name="widget_partner_label">Tandem · Partner mood</string>
     <string name="widget_both_label">Tandem · Both moods</string>
     <string name="widget_diary_label">Tandem · Diary wall</string>
+    <string name="widget_planet_label">Tandem · Our planet</string>
     <string name="widget_event_label">Tandem · Next event</string>
 </resources>

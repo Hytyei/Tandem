@@ -1,4 +1,5 @@
 // Tandem API — Cloudflare Worker + D1. No external dependencies.
+import * as Planet from "./planet.ts";
 
 export interface Env {
   DB: D1Database;
@@ -872,7 +873,20 @@ async function sync(c: Ctx): Promise<Response> {
     events: events.results.map(eventJson),
     stats,
     trip: await activeTrip(c.env, coupleId),
+    planet: await planetSummary(c, coupleId),
   });
+}
+
+/** The planet for notifications and the widget. /sync runs often, so the day-by-day catch-up only runs once a day. */
+async function planetSummary(c: Ctx, coupleId: string) {
+  const row = await c.env.DB.prepare("SELECT state FROM planets WHERE couple_id = ?").bind(coupleId).first<any>();
+  if (!row) return null;
+  try {
+    const s: Planet.PlanetState = JSON.parse(row.state);
+    // once a day, catch the world up here too, so its seasons (and its losses) arrive even when nobody opens it
+    if (Planet.nextDay(s.day) < Planet.dayOf(now(), s.tz)) return Planet.summary((await loadPlanet(c)).s);
+    return Planet.summary(s);
+  } catch { return null; }
 }
 
 // ------------------------------------------------------------- places (heatmap) + reviews
@@ -1903,6 +1917,101 @@ async function periodDayPut(c: Ctx): Promise<Response> {
   return json({ date: day, flow, symptoms, note });
 }
 
+
+// ------------------------------------------------------------- the couple's planet (see src/planet.ts)
+/** What the two of you did on each day from [from] up to (not including) [to], in the planet's time zone. */
+async function planetActivity(env: Env, coupleId: string, members: string[], from: string, to: string, tz: number) {
+  const a = Planet.startOfDay(from, tz), b = Planet.startOfDay(to, tz);
+  const [moods, notes, pics, rounds, trips] = await Promise.all([
+    env.DB.prepare("SELECT user_id, created_at FROM moods WHERE couple_id = ? AND created_at >= ? AND created_at < ?").bind(coupleId, a, b).all<any>(),
+    env.DB.prepare("SELECT created_at FROM diary WHERE couple_id = ? AND created_at >= ? AND created_at < ?").bind(coupleId, a, b).all<any>(),
+    env.DB.prepare("SELECT created_at FROM diary_images WHERE couple_id = ? AND created_at >= ? AND created_at < ?").bind(coupleId, a, b).all<any>(),
+    env.DB.prepare("SELECT s.created_at FROM game_scores s JOIN game_matches m ON m.id = s.match_id WHERE m.couple_id = ? AND s.created_at >= ? AND s.created_at < ?").bind(coupleId, a, b).all<any>(),
+    env.DB.prepare("SELECT id, title, ended_at FROM trips WHERE couple_id = ? AND status = 'done' AND ended_at >= ? AND ended_at < ?").bind(coupleId, a, b).all<any>(),
+  ]);
+  const days: Record<string, Planet.DayActivity> = {};
+  const at = (ms: number) => (days[Planet.dayOf(ms, tz)] ??= { shares: {}, notes: 0, pictures: 0, rounds: 0, trips: [] });
+  for (const m of moods.results) if (members.includes(m.user_id)) at(m.created_at).shares[m.user_id] = true;
+  for (const n of notes.results) at(n.created_at).notes++;
+  for (const p of pics.results) at(p.created_at).pictures++;
+  for (const r of rounds.results) at(r.created_at).rounds++;
+  for (const t of trips.results) at(t.ended_at).trips.push({ id: t.id, title: t.title });
+  return (d: string): Planet.DayActivity => days[d] ?? { shares: {}, notes: 0, pictures: 0, rounds: 0, trips: [] };
+}
+
+/** Loads the planet (making it the first time), runs every finished day since the last visit, and saves it. */
+async function loadPlanet(c: Ctx): Promise<{ s: Planet.PlanetState; version: number; today: string; coupleId: string; sharedToday: Record<string, boolean> }> {
+  const coupleId = requireCouple(c.user);
+  const couple = await c.env.DB.prepare("SELECT user_a, user_b FROM couples WHERE id = ?").bind(coupleId).first<any>();
+  if (!couple?.user_a || !couple?.user_b) throw new HttpError(409, "Your planet needs both of you");
+  const tzParam = parseInt(c.url.searchParams.get("tz") ?? "", 10);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const row = await c.env.DB.prepare("SELECT state, version FROM planets WHERE couple_id = ?").bind(coupleId).first<any>();
+    let s: Planet.PlanetState;
+    let version = 0;
+    if (row) { s = JSON.parse(row.state); version = row.version; }
+    else s = Planet.newPlanet([couple.user_a, couple.user_b], Planet.dayOf(now(), Number.isFinite(tzParam) ? tzParam : 0), Number.isFinite(tzParam) ? Math.max(-720, Math.min(840, tzParam)) : 0);
+    const today = Planet.dayOf(now(), s.tz);
+    const act = await planetActivity(c.env, coupleId, s.members, Planet.nextDay(s.day) < today ? Planet.nextDay(s.day) : today, Planet.nextDay(today), s.tz);
+    const before = s.day;
+    Planet.catchUp(s, today, act, coupleId);
+    const sharedToday = act(today).shares;
+    if (!row) {
+      const ins = await c.env.DB.prepare("INSERT OR IGNORE INTO planets (couple_id, state, version, updated_at) VALUES (?,?,1,?)").bind(coupleId, JSON.stringify(s), now()).run();
+      if (!ins.meta.changes) continue;      // the partner made it at the same moment: load theirs
+      return { s, version: 1, today, coupleId, sharedToday };
+    }
+    if (s.day !== before) {
+      const up = await c.env.DB.prepare("UPDATE planets SET state = ?, version = version + 1, updated_at = ? WHERE couple_id = ? AND version = ?").bind(JSON.stringify(s), now(), coupleId, version).run();
+      if (!up.meta.changes) continue;
+      version++;
+    }
+    return { s, version, today, coupleId, sharedToday };
+  }
+  throw new HttpError(409, "The planet is busy, try again");
+}
+
+function planetJson(s: Planet.PlanetState, me: string, today: string, sharedToday: Record<string, boolean>) {
+  return {
+    planet: s,
+    today: {
+      day: today, shared: sharedToday,
+      canWarm: !!sharedToday[me] && s.warmed[me] !== today,
+      canHibernate: !s.hibernate && s.hibernateMonth !== today.slice(0, 7),
+    },
+    catalog: Planet.SPECIES.map((d) => ({ key: d.key, name: d.name, needs: d.needs })),
+    buildings: Object.entries(Planet.BUILDINGS).map(([kind, b]) => ({ kind, name: b.name, cost: b.cost })),
+    terraformCost: Planet.TERRAFORM_COST,
+  };
+}
+
+async function planetGet(c: Ctx): Promise<Response> {
+  const { s, today, sharedToday } = await loadPlanet(c);
+  return json(planetJson(s, c.user.id, today, sharedToday));
+}
+
+/** Loads, applies one action, and saves with a version check (so two phones can't overwrite each other). */
+async function planetAction(c: Ctx, apply: (s: Planet.PlanetState, today: string, sharedToday: Record<string, boolean>, body: any) => void): Promise<Response> {
+  const body = await readJson(c.req);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { s, version, today, coupleId, sharedToday } = await loadPlanet(c);
+    try { apply(s, today, sharedToday, body); }
+    catch (e) { if (e instanceof Planet.PlanetError) throw new HttpError(e.status, e.message); throw e; }
+    const up = await c.env.DB.prepare("UPDATE planets SET state = ?, version = version + 1, updated_at = ? WHERE couple_id = ? AND version = ?").bind(JSON.stringify(s), now(), coupleId, version).run();
+    if (up.meta.changes) return json(planetJson(s, c.user.id, today, sharedToday));
+  }
+  throw new HttpError(409, "The planet is busy, try again");
+}
+
+const planetName = (c: Ctx) => planetAction(c, (s, today, _sh, b) => Planet.rename(s, str(b.name, "name", 1, 32), today, typeof b.moonId === "string" ? b.moonId : undefined));
+const planetTerraform = (c: Ctx) => planetAction(c, (s, today, _sh, b) => Planet.terraform(s, b.biome, today));
+const planetBuild = (c: Ctx) => planetAction(c, (s, today, _sh, b) => Planet.build(s, String(b.kind ?? ""), today, uid().slice(0, 12)));
+const planetRepair = (c: Ctx) => planetAction(c, (s, today, _sh, b) => Planet.repair(s, String(b.id ?? ""), today));
+const planetWarm = (c: Ctx) => planetAction(c, (s, today, sh) => Planet.warm(s, c.user.id, !!sh[c.user.id], today));
+const planetSpark = (c: Ctx) => planetAction(c, (s, today, _sh, b) => { Planet.spark(s, c.user.id, str(b.text, "text", 1, 200), today, now()); });
+const planetHibernate = (c: Ctx) => planetAction(c, (s, today, _sh, b) => Planet.hibernate(s, Number(b.days), today));
+const planetWake = (c: Ctx) => planetAction(c, (s, today) => Planet.wake(s, today));
+
 // ------------------------------------------------------------- router
 type Handler = (c: Ctx) => Promise<Response>;
 const routes: { method: string; re: RegExp; h: Handler }[] = [];
@@ -1933,6 +2042,15 @@ route("DELETE", "/diary/image/:id", diaryImageDelete);
 route("POST", "/diary/:id/images", diaryImagePost);
 route("GET", "/diary/image/:id", diaryImageGet);
 route("GET", "/events", eventList);
+route("GET", "/planet", planetGet);
+route("POST", "/planet/name", planetName);
+route("POST", "/planet/terraform", planetTerraform);
+route("POST", "/planet/build", planetBuild);
+route("POST", "/planet/repair", planetRepair);
+route("POST", "/planet/warm", planetWarm);
+route("POST", "/planet/spark", planetSpark);
+route("POST", "/planet/hibernate", planetHibernate);
+route("POST", "/planet/wake", planetWake);
 route("POST", "/events", eventPost);
 route("PUT", "/events/:id", eventPut);
 route("DELETE", "/events/:id", eventDelete);

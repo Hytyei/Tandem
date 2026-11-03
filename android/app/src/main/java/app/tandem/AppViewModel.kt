@@ -251,6 +251,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun closeTrip() { tripDetail = null }
 
     /** Routes of finished dates, for the Heatmap. Fetched once per trip (a finished route never changes) and kept for the session. */
+    // ---- the couple's planet
+    var planet by mutableStateOf<PlanetResponse?>(null); private set
+    fun loadPlanet() { viewModelScope.launch { try { planet = repo.planet() } catch (e: AppException) { if (planet == null) toast(e.message ?: "Couldn't reach your planet") } } }
+    private fun planetRun(done: () -> Unit = {}, block: suspend () -> PlanetResponse) = busyRun(done) { planet = block(); runCatching { repo.refresh() } }
+    fun planetName(name: String, moonId: String? = null, done: () -> Unit = {}) = planetRun(done) { repo.planetName(name, moonId) }
+    fun planetTerraform(biome: String) = planetRun { repo.planetTerraform(biome) }
+    fun planetBuild(kind: String, done: () -> Unit = {}) = planetRun(done) { repo.planetBuild(kind) }
+    fun planetRepair(id: String) = planetRun { repo.planetRepair(id) }
+    fun planetWarm() = planetRun { repo.planetWarm() }
+    fun planetSpark(text: String, done: () -> Unit = {}) = planetRun(done) { repo.planetSpark(text) }
+    fun planetHibernate(days: Int, done: () -> Unit = {}) = planetRun(done) { repo.planetHibernate(days) }
+    fun planetWake() = planetRun { repo.planetWake() }
+
     var tripRoutes by mutableStateOf<Map<String, TripDetail>>(emptyMap()); private set
     private var loadingRoutes = false
     fun loadTripRoutes() {
@@ -397,7 +410,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             state.map { it?.couple?.partner?.id }.distinctUntilChanged().collect {
                 places = null; memories = null; stats = null; games = null
-                addresses = null; notes = null; period = null; trips = null; tripDetail = null; tripRoutes = emptyMap()
+                addresses = null; notes = null; period = null; trips = null; tripDetail = null; tripRoutes = emptyMap(); planet = null
             }
         }
     }

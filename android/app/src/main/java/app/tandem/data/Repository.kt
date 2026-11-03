@@ -349,6 +349,18 @@ class Repository(private val context: Context) {
 
     // ------------------------------------------------------------ trips (live tracking)
     suspend fun trips(): TripsResponse = call { api.trips() }
+
+    // ---- the couple's planet
+    private fun tzMinutes() = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
+    suspend fun planet(): PlanetResponse = call { api.planet(tzMinutes()) }
+    suspend fun planetName(name: String, moonId: String? = null): PlanetResponse = call { api.planetName(PlanetNameBody(name.trim(), moonId)) }
+    suspend fun planetTerraform(biome: String): PlanetResponse = call { api.planetTerraform(PlanetBiomeBody(biome)) }
+    suspend fun planetBuild(kind: String): PlanetResponse = call { api.planetBuild(PlanetBuildBody(kind)) }
+    suspend fun planetRepair(id: String): PlanetResponse = call { api.planetRepair(PlanetIdBody(id)) }
+    suspend fun planetWarm(): PlanetResponse = call { api.planetWarm() }
+    suspend fun planetSpark(text: String): PlanetResponse = call { api.planetSpark(PlanetTextBody(text.trim())) }
+    suspend fun planetHibernate(days: Int): PlanetResponse = call { api.planetHibernate(PlanetDaysBody(days)) }
+    suspend fun planetWake(): PlanetResponse = call { api.planetWake() }
     suspend fun tripDetail(id: String): TripDetail = call { api.tripDetail(id) }
     suspend fun startTrip(title: String): Trip = call { api.startTrip(TripStartBody(title.trim().ifBlank { "Our date" })) }.also { refresh() }
     suspend fun joinTrip(id: String): Trip = call { api.joinTrip(id) }.also { refresh() }

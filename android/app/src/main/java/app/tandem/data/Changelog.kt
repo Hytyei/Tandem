@@ -5,6 +5,21 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.7.0", title = "v1.7.0 · Your planet, games made of light and new widgets", date = "2026-11-03",
+        items = listOf(
+            "Meet your planet: a small world the two of you keep alive, on the Today screen. It orbits two suns, one for each of you, and each sun shines brighter the days you share your mood.",
+            "It runs on what you already do. Sharing on the same day fills its air, diary notes and pictures grow life, games give stardust, and tracked dates raise landmarks named after where you went.",
+            "Shape it: grow the ocean, forest, crystal or aurora lands, build an observatory, a lighthouse, a garden, a bridge or an aurora station, and meet up to 14 kinds of life that only live where the world suits them.",
+            "It has real consequences. Three quiet days and it dims, a week brings winter, and two weeks lose a moon for good. When it dims it needs a spark from each of you to rekindle, and what was lost stays lost.",
+            "It's fair to real life: put it to sleep for 3 to 14 days once a month, and lend your partner's sun some of your light on the days you share.",
+            "A new widget shows your planet on the home screen, and you'll hear when your partner sends a spark or the planet starts to dim.",
+            "Every game was redone around light instead of pictures: a soft dusk behind each round, glowing pieces, bursts of light when you score, streaks that warm the whole screen, and a soft rose glow and a small shake when you miss. Your phone gives a little tap on every hit.",
+            "The Play page is calmer: the game waiting for you is one big card, and every game is a glass tile lit in its own colour.",
+            "Echo is four moons, Memory cards turn over to glowing shapes, Odd One Out is now about shades of light, Word Duel letters turn over one by one, and Stack slices fall away.",
+            "Widgets were redone: the two-moods widget blends both your pictures into one scene, and the diary and event widgets are painted night skies with a glowing countdown ring.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.6.0", title = "v1.6.0 · New moods timeline, map looks & games with their own worlds", date = "2026-11-03",
         items = listOf(
             "Moods has a new timeline. Two orbits at the top show the last two weeks: each of you is a lane of coloured moons, and a line joins the days you both checked in. Tap a day to jump to it.",

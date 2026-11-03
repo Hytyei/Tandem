@@ -146,6 +146,35 @@ ok("login locked after repeated failures", r.status === 429, r);
   ok("oversized JSON rejected", big.status === 413, big.status);
 }
 
+// the couple's planet
+r = await call("GET", "/planet?tz=210", A);
+ok("planet: made on first visit", r.status === 200 && r.body.planet.members.length === 2 && r.body.planet.tz === 210 && r.body.catalog.length === 14, r.body);
+ok("planet: today knows who shared", r.body.today.shared[aId] === true && r.body.today.shared[bId] === true, r.body.today);
+r = await call("GET", "/planet", B);
+ok("planet: the same world for both", r.status === 200 && r.body.planet.created === r.body.today.day, r.body);
+r = await call("POST", "/planet/warm", A, {});
+ok("planet: warm the other sun after sharing", r.status === 200 && r.body.planet.suns[bId] === 70 && r.body.today.canWarm === false, r.body.planet?.suns);
+r = await call("POST", "/planet/warm", A, {});
+ok("planet: once a day", r.status === 409, r);
+r = await call("POST", "/planet/build", A, { kind: "lighthouse" });
+ok("planet: not enough stardust", r.status === 409, r);
+r = await call("POST", "/planet/terraform", B, { biome: "ocean" });
+ok("planet: terraform", r.status === 200 && r.body.planet.biomes.ocean === 35 && r.body.planet.stardust === 0, r.body.planet?.biomes);
+r = await call("POST", "/planet/terraform", B, { biome: "lava" });
+ok("planet: unknown biome", r.status === 409 || r.status === 400, r);
+r = await call("POST", "/planet/name", A, { name: "Lumen" });
+ok("planet: name it", r.status === 200 && r.body.planet.name === "Lumen", r);
+r = await call("POST", "/planet/spark", A, { text: "thinking of you" });
+ok("planet: spark", r.status === 200 && r.body.planet.sparks[aId].text === "thinking of you", r);
+r = await call("POST", "/planet/hibernate", B, { days: 5 });
+ok("planet: hibernate", r.status === 200 && r.body.planet.stage === "sleeping" && r.body.today.canHibernate === false, r.body.planet?.stage);
+r = await call("POST", "/planet/wake", A, {});
+ok("planet: wake early", r.status === 200 && !r.body.planet.hibernate, r);
+r = await call("POST", "/planet/hibernate", B, { days: 5 });
+ok("planet: one sleep a month", r.status === 409, r);
+r = await call("GET", "/sync", B);
+ok("planet: sync carries a summary", r.body.planet && r.body.planet.name === "Lumen" && r.body.planet.sparks.includes(aId), r.body.planet);
+
 // removing a partner keeps history; a new partner starts blank; the same pair gets history back
 r = await call("POST", "/couple/leave", A);
 ok("A removes partner", r.status === 200, r);

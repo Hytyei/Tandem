@@ -1,47 +1,59 @@
 package app.tandem.ui.components
 
+import android.os.Build
+import android.view.HapticFeedbackConstants
+import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** The little bursts that play when you touch things in a game. */
+/**
+ * What just happened in a game. Every good kind is light (a ripple, motes drifting up, a few sparkles, a floating
+ * number); they differ in size and colour. [Bad] and [Boom] are misses: a soft rose vignette and a small shake.
+ */
 enum class FxKind { Hearts, Stars, Confetti, Boom, Coins, Bad, Ring }
 
-private enum class Shape { Glyph, Chip, Ring, Label, Heart, Star, Coin, Cross }
+private enum class Shape { Mote, Spark, Ring, Label }
 
 private class Particle(
     var x: Float, var y: Float, var vx: Float, var vy: Float,
-    val life: Float, val shape: Shape, val text: String = "", val color: Color = Color.White,
-    val size: Float = 20f, val gravity: Float = 0f, val spin: Float = 0f, val grow: Float = 0f,
-) {
-    var age = 0f
-    var angle = 0f
-}
+    val life: Float, val shape: Shape, val color: Color, val size: Float,
+    val text: String = "", val grow: Float = 0f, val rise: Float = 0f,
+) { var age = 0f }
+
+private val Gold = Color(0xFFFFD58A)
+private val Rose = Color(0xFFFF7D96)
 
 /**
- * Particles for one game round. [touch] is called for every finger-down (a soft ripple under the finger);
- * games call [burst] when something good or bad happens, and it plays at the spot that was just touched.
+ * The light of one round. [touch] answers every finger-down with a faint ripple; games call [burst] when something
+ * good or bad happens. Good bursts in a row build a streak that warms the round ([warmth] 0..1, read by the
+ * backdrop); a miss cools it, washes the edges rose ([vignette]) and gives a small shake.
  */
 @Stable
 class FxState {
@@ -52,15 +64,22 @@ class FxState {
     internal var d = 1f
     internal var w = 0f
     internal var h = 0f
+    internal var view: View? = null
+
+    /** The game's light. Ripples and motes take this colour. */
+    var tint: Color = Color(0xFFFF8FA3)
+    var streak = 0; private set
+    var warmth = 0f; private set
+    var flash = 0f; private set
+    var vignette = 0f; private set
+    private var shakeAmp = 0f
+    var shakeX by mutableFloatStateOf(0f); private set
+    var shakeY by mutableFloatStateOf(0f); private set
 
     fun touch(x: Float, y: Float) {
         lastX = x; lastY = y
-        parts.add(Particle(x, y, 0f, 0f, .38f, Shape.Ring, color = Color(0xFFFFC2D4), size = 10f * d, grow = 56f * d))
-        repeat(3) {
-            val a = Random.nextFloat() * 6.2832f
-            parts.add(Particle(x, y, cos(a) * 90f * d, sin(a) * 90f * d, .35f, Shape.Chip, color = Color(0xFFFFE08A), size = 3.5f * d))
-        }
-        if (parts.size > 220) parts.subList(0, parts.size - 220).clear()
+        parts.add(Particle(x, y, 0f, 0f, .42f, Shape.Ring, tint.copy(alpha = .55f), 6f * d, grow = 30f * d))
+        trim()
     }
 
     /** A burst at the last touched spot (or the middle of the screen if nothing was touched yet). */
@@ -71,125 +90,122 @@ class FxState {
     }
 
     fun burstAt(kind: FxKind, x: Float, y: Float, label: String? = null) {
-        val r = Random
-        when (kind) {
-            FxKind.Hearts -> repeat(9) {
-                val col = listOf(Color(0xFFFF6B8E), Color(0xFFFF9DB5), Color(0xFFE0305F), Color(0xFFC9A2FF))[r.nextInt(4)]
-                parts.add(Particle(x, y, (r.nextFloat() - .5f) * 280f * d, -(170f + r.nextFloat() * 260f) * d, .9f + r.nextFloat() * .5f, Shape.Heart, color = col, size = (6f + r.nextFloat() * 6f) * d, gravity = 150f * d, spin = (r.nextFloat() - .5f) * 120f))
-            }
-            FxKind.Stars -> repeat(10) {
-                val a = r.nextFloat() * 6.2832f; val s = (150f + r.nextFloat() * 260f) * d
-                val col = listOf(Color(0xFFFFE08A), Color(0xFFFFF4CF), Color(0xFFFFC857))[r.nextInt(3)]
-                parts.add(Particle(x, y, cos(a) * s, sin(a) * s, .7f + r.nextFloat() * .4f, Shape.Star, color = col, size = (5f + r.nextFloat() * 6f) * d, gravity = 160f * d, spin = (r.nextFloat() - .5f) * 300f))
-            }
-            FxKind.Confetti -> repeat(22) {
-                val a = r.nextFloat() * 6.2832f; val s = (120f + r.nextFloat() * 380f) * d
-                val col = listOf(Color(0xFFF2476F), Color(0xFFFFC857), Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFF9C8CFF))[r.nextInt(5)]
-                parts.add(Particle(x, y, cos(a) * s, sin(a) * s - 160f * d, .9f + r.nextFloat() * .5f, Shape.Chip, color = col, size = (4f + r.nextFloat() * 4f) * d, gravity = 620f * d, spin = (r.nextFloat() - .5f) * 700f))
-            }
-            FxKind.Boom -> {
-                parts.add(Particle(x, y, 0f, 0f, .45f, Shape.Ring, color = Color(0xFFFFC857), size = 10f * d, grow = 120f * d))
-                parts.add(Particle(x, y, 0f, 0f, .3f, Shape.Coin, color = Color(0xFFFFE6B0), size = 22f * d, grow = -18f * d))
-                repeat(10) {
-                    val a = r.nextFloat() * 6.2832f; val s = (140f + r.nextFloat() * 260f) * d
-                    parts.add(Particle(x, y, cos(a) * s, sin(a) * s, .55f, Shape.Chip, color = listOf(Color(0xFFFF8A3D), Color(0xFFFFC857), Color(0xFFEF4444))[r.nextInt(3)], size = 5f * d, gravity = 300f * d))
-                }
-            }
-            FxKind.Coins -> repeat(7) {
-                parts.add(Particle(x, y, (r.nextFloat() - .5f) * 240f * d, -(260f + r.nextFloat() * 240f) * d, .9f + r.nextFloat() * .3f, Shape.Coin, color = Color(0xFFFFC857), size = (6f + r.nextFloat() * 3f) * d, gravity = 700f * d, spin = (r.nextFloat() - .5f) * 500f))
-            }
-            FxKind.Bad -> {
-                parts.add(Particle(x, y, 0f, 0f, .45f, Shape.Ring, color = Color(0xFFFF6B7D), size = 12f * d, grow = 90f * d))
-                parts.add(Particle(x, y, 0f, -40f * d, .55f, Shape.Cross, color = Color(0xFFFF6B7D), size = 9f * d))
-            }
-            FxKind.Ring -> parts.add(Particle(x, y, 0f, 0f, .5f, Shape.Ring, color = Color(0xFFFFFFFF), size = 14f * d, grow = 110f * d))
-        }
-        if (label != null) {
-            val col = if (kind == FxKind.Bad || kind == FxKind.Boom) Color(0xFFFF8E9B) else Color(0xFFFFE08A)
-            parts.add(Particle(x, y - 28f * d, 0f, -70f * d, .85f, Shape.Label, label, col, size = 20f * d))
-        }
-        if (parts.size > 220) parts.subList(0, parts.size - 220).clear()
+        val bad = kind == FxKind.Bad || kind == FxKind.Boom
+        if (bad) miss(x, y, kind == FxKind.Boom) else good(kind, x, y)
+        if (label != null) parts.add(Particle(x, y - 22f * d, 0f, 0f, .85f, Shape.Label, if (bad) Rose else if (kind == FxKind.Coins) Gold else tint, 22f * d, label, rise = 46f * d))
+        trim()
         tick++
     }
 
+    private fun good(kind: FxKind, x: Float, y: Float) {
+        val r = Random
+        streak++
+        warmth = (warmth + .08f).coerceAtMost(1f)
+        flash = if (kind == FxKind.Confetti) 1.6f else 1f
+        // bigger moments and longer streaks throw a little more light, never a shower
+        val big = when (kind) { FxKind.Confetti -> 1.6f; FxKind.Ring -> .6f; else -> 1f } * (1f + minOf(streak, 8) * .05f)
+        val col = if (kind == FxKind.Coins) Gold else tint
+        parts.add(Particle(x, y, 0f, 0f, .52f, Shape.Ring, col, 10f * d, grow = 64f * d * big))
+        val n = ((if (kind == FxKind.Ring) 5 else 9) + minOf(streak, 8)) * (if (kind == FxKind.Confetti) 2 else 1)
+        repeat(n) {
+            val a = r.nextFloat() * 6.2832f; val s = (60f + r.nextFloat() * 170f) * d * big
+            val spark = r.nextFloat() < .28f
+            parts.add(Particle(x, y, cos(a) * s, sin(a) * s - 40f * d, .6f + r.nextFloat() * .55f, if (spark) Shape.Spark else Shape.Mote, if (spark) Color.White else col, (1.4f + r.nextFloat() * 2.2f) * d))
+        }
+        haptic(false)
+    }
+
+    private fun miss(x: Float, y: Float, hard: Boolean) {
+        streak = 0
+        warmth = (warmth - .3f).coerceAtLeast(0f)
+        vignette = if (hard) 1.3f else 1f
+        shakeAmp = if (hard) 1.4f else 1f
+        parts.add(Particle(x, y, 0f, 0f, .45f, Shape.Ring, Rose, 10f * d, grow = 44f * d))
+        repeat(4) {
+            val a = Random.nextFloat() * 6.2832f
+            parts.add(Particle(x, y, cos(a) * 50f * d, sin(a) * 30f * d + 30f * d, .6f, Shape.Mote, Rose.copy(alpha = .6f), 1.6f * d))
+        }
+        haptic(true)
+    }
+
+    private fun haptic(bad: Boolean) {
+        val v = view ?: return
+        val k = when {
+            !bad -> HapticFeedbackConstants.CLOCK_TICK
+            Build.VERSION.SDK_INT >= 30 -> HapticFeedbackConstants.REJECT
+            else -> HapticFeedbackConstants.LONG_PRESS
+        }
+        v.performHapticFeedback(k)
+    }
+
+    private fun trim() { if (parts.size > 240) parts.subList(0, parts.size - 240).clear() }
+
     internal fun step(dt: Float) {
-        if (parts.isEmpty()) return
+        flash = (flash - dt * 4f).coerceAtLeast(0f)
+        vignette = (vignette - dt * 2.4f).coerceAtLeast(0f)
+        warmth = (warmth - dt * .02f).coerceAtLeast(0f)
+        if (shakeAmp > 0f) {
+            shakeAmp = (shakeAmp - dt * 5f).coerceAtLeast(0f)
+            shakeX = (Random.nextFloat() - .5f) * 7f * d * shakeAmp; shakeY = (Random.nextFloat() - .5f) * 7f * d * shakeAmp
+        } else if (shakeX != 0f || shakeY != 0f) { shakeX = 0f; shakeY = 0f }
+        if (parts.isEmpty()) { if (flash > 0f || vignette > 0f) tick++; return }
+        val drag = exp(-3.2f * dt)
         val it = parts.iterator()
         while (it.hasNext()) {
             val p = it.next()
             p.age += dt
             if (p.age >= p.life) { it.remove(); continue }
-            p.vy += p.gravity * dt
+            p.vx *= drag; p.vy = p.vy * drag - 30f * d * dt      // motes float up as they slow, like embers
             p.x += p.vx * dt; p.y += p.vy * dt
-            p.angle += p.spin * dt
         }
         tick++
     }
 
-    internal fun draw(scope: androidx.compose.ui.graphics.drawscope.DrawScope) {
+    internal fun draw(scope: DrawScope) {
         tick // read, so the canvas redraws whenever something moved
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-        paint.textAlign = android.graphics.Paint.Align.CENTER
+        with(scope) {
+            if (flash > 0f) drawRect(tint.copy(alpha = (flash * .07f).coerceAtMost(.12f)))
+            if (vignette > 0f) drawRect(
+                Brush.radialGradient(listOf(Color.Transparent, Color(0xFF8C2A5A).copy(alpha = (vignette * .42f).coerceAtMost(.5f))), center = Offset(size.width / 2, size.height / 2), radius = size.maxDimension * .72f),
+            )
+        }
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = android.graphics.Paint.Align.CENTER
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
+        }
         for (p in parts) {
             val t = (p.age / p.life).coerceIn(0f, 1f)
-            val fade = if (t < .65f) 1f else (1f - t) / .35f
+            val fade = 1f - t
             when (p.shape) {
-                Shape.Glyph -> scope.drawContext.canvas.nativeCanvas.let { cv ->
-                    paint.textSize = p.size + p.grow * t
-                    paint.alpha = (255 * fade).toInt().coerceIn(0, 255)
-                    cv.drawText(p.text, p.x, p.y + paint.textSize * .35f, paint)
+                Shape.Mote -> with(scope) {
+                    drawCircle(Brush.radialGradient(listOf(p.color.copy(alpha = .38f * fade), Color.Transparent), center = Offset(p.x, p.y), radius = p.size * 6f), p.size * 6f, Offset(p.x, p.y), blendMode = BlendMode.Plus)
+                    drawCircle(Color.White.copy(alpha = .9f * fade), p.size, Offset(p.x, p.y))
                 }
-                Shape.Chip -> with(scope) {
-                    rotate(p.angle, Offset(p.x, p.y)) {
-                        drawRoundRect(p.color.copy(alpha = fade), Offset(p.x - p.size, p.y - p.size * .6f), Size(p.size * 2f, p.size * 1.2f), CornerRadius(p.size * .3f))
-                    }
+                Shape.Spark -> with(scope) {
+                    val r = p.size * 2.6f
+                    drawPath(spark(p.x, p.y, r), Color.White.copy(alpha = fade))
                 }
                 Shape.Ring -> with(scope) {
-                    drawCircle(p.color.copy(alpha = .8f * (1f - t)), p.size + p.grow * t, Offset(p.x, p.y), style = Stroke(width = 2.5f * d))
-                }
-                Shape.Heart -> with(scope) {
-                    rotate(p.angle, Offset(p.x, p.y)) {
-                        val sz = p.size
-                        val path = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(p.x, p.y + sz * .7f)
-                            cubicTo(p.x - sz * 1.25f, p.y - sz * .05f, p.x - sz * .6f, p.y - sz * 1.05f, p.x, p.y - sz * .42f)
-                            cubicTo(p.x + sz * .6f, p.y - sz * 1.05f, p.x + sz * 1.25f, p.y - sz * .05f, p.x, p.y + sz * .7f)
-                            close()
-                        }
-                        drawPath(path, p.color.copy(alpha = fade))
-                    }
-                }
-                Shape.Star -> with(scope) {
-                    rotate(p.angle, Offset(p.x, p.y)) {
-                        val r = p.size
-                        val path = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(p.x, p.y - r); quadraticTo(p.x, p.y, p.x + r, p.y); quadraticTo(p.x, p.y, p.x, p.y + r)
-                            quadraticTo(p.x, p.y, p.x - r, p.y); quadraticTo(p.x, p.y, p.x, p.y - r); close()
-                        }
-                        drawPath(path, p.color.copy(alpha = fade))
-                    }
-                }
-                Shape.Coin -> with(scope) {
-                    // a coin seen edge-on as it spins: squash its width with the angle
-                    val sz = (p.size + p.grow * t).coerceAtLeast(1f)
-                    val squash = kotlin.math.abs(cos(p.angle * 0.0174533f)).coerceAtLeast(.15f)
-                    drawOval(p.color.copy(alpha = fade), Offset(p.x - sz * squash, p.y - sz), Size(sz * 2 * squash, sz * 2))
-                    drawOval(Color.White.copy(alpha = .5f * fade), Offset(p.x - sz * squash * .5f, p.y - sz * .7f), Size(sz * squash * .6f, sz * .6f))
-                }
-                Shape.Cross -> with(scope) {
-                    val r = p.size
-                    drawLine(p.color.copy(alpha = fade), Offset(p.x - r, p.y - r), Offset(p.x + r, p.y + r), 3f * d, androidx.compose.ui.graphics.StrokeCap.Round)
-                    drawLine(p.color.copy(alpha = fade), Offset(p.x + r, p.y - r), Offset(p.x - r, p.y + r), 3f * d, androidx.compose.ui.graphics.StrokeCap.Round)
+                    val e = 1f - (1f - t) * (1f - t) * (1f - t)
+                    drawCircle(p.color.copy(alpha = p.color.alpha * .75f * fade), p.size + p.grow * e, Offset(p.x, p.y), style = Stroke(width = (2.2f * fade + .6f) * d))
                 }
                 Shape.Label -> scope.drawContext.canvas.nativeCanvas.let { cv ->
-                    paint.textSize = p.size
-                    paint.isFakeBoldText = true
-                    paint.color = android.graphics.Color.argb((255 * fade).toInt().coerceIn(0, 255), (p.color.red * 255).toInt(), (p.color.green * 255).toInt(), (p.color.blue * 255).toInt())
-                    cv.drawText(p.text, p.x, p.y, paint)
-                    paint.isFakeBoldText = false
+                    val inA = (t / .15f).coerceAtMost(1f)
+                    val outA = if (t < .15f) 1f else 1f - ((t - .15f) / .85f).let { 1f - (1f - it) * (1f - it) }
+                    val a = (255 * inA * outA).toInt().coerceIn(0, 255)
+                    paint.textSize = p.size * (1f + .2f * (1f - t))
+                    paint.color = android.graphics.Color.argb(a, 255, 255, 255)
+                    paint.setShadowLayer(16f * d, 0f, 0f, p.color.copy(alpha = inA * outA).toArgb())
+                    val e = 1f - (1f - t) * (1f - t) * (1f - t)
+                    cv.drawText(p.text, p.x, p.y - p.rise * e, paint)
                 }
             }
         }
+    }
+
+    private fun spark(x: Float, y: Float, r: Float) = Path().apply {
+        moveTo(x, y - r); quadraticTo(x, y, x + r, y); quadraticTo(x, y, x, y + r)
+        quadraticTo(x, y, x - r, y); quadraticTo(x, y, x, y - r); close()
     }
 }
 
@@ -199,11 +215,11 @@ fun rememberFx(): FxState = remember { FxState() }
 /** What a game uses to play a burst. Outside a round it does nothing visible. */
 val LocalFx = staticCompositionLocalOf { FxState() }
 
-/** Draws the particles of [fx] over whatever is below. Does not take touches. */
+/** Draws the light of [fx] over whatever is below. Does not take touches. */
 @Composable
 fun FxLayer(fx: FxState, modifier: Modifier = Modifier) {
-    val d = LocalDensity.current.density
-    fx.d = d
+    fx.d = LocalDensity.current.density
+    fx.view = LocalView.current
     LaunchedEffect(fx) {
         var last = 0L
         while (true) {

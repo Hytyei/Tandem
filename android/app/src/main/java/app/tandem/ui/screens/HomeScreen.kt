@@ -58,7 +58,7 @@ private fun greeting(): String = when (LocalTime.now().hour) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit, openPartnerPage: () -> Unit = {}) {
+fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit, openPartnerPage: () -> Unit = {}, openPlanet: () -> Unit = {}) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -114,6 +114,9 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
                 MiniStat(Modifier.weight(1f), Icons.Filled.Edit, st.diary.toLong(), "notes", c.me)
                 MiniStat(Modifier.weight(1f), Icons.Filled.CalendarMonth, st.activeDays.toLong(), "active days", c.special)
             }
+
+            // ---------- the planet the two of you keep alive
+            if (partner != null) PlanetCard(data.planet, me.id, partner.id, openPlanet, Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth().staggerIn(2))
 
             // ---------- Mood shares
             SectionHeader("Right now")

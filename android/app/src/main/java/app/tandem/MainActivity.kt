@@ -152,6 +152,7 @@ private fun Shell(vm: AppViewModel) {
     var showStats by rememberSaveable { mutableStateOf(false) }
     var showAchievements by rememberSaveable { mutableStateOf(false) }
     var showPage by rememberSaveable { mutableStateOf(false) }
+    var showPlanet by rememberSaveable { mutableStateOf(false) }
     var pageMine by rememberSaveable { mutableStateOf(true) }
     val requested = vm.requestedTab
     LaunchedEffect(requested) {
@@ -175,7 +176,7 @@ private fun Shell(vm: AppViewModel) {
                 (slideOutHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { -dir * it / 6 } + fadeOut(tween(120)))
         }) { t ->
             when (t) {
-                AppTab.Today -> HomeScreen(vm, openCalendar = { tab = AppTab.Calendar }, openStats = { showStats = true }, openPartnerPage = { pageMine = false; showPage = true })
+                AppTab.Today -> HomeScreen(vm, openCalendar = { tab = AppTab.Calendar }, openStats = { showStats = true }, openPartnerPage = { pageMine = false; showPage = true }, openPlanet = { showPlanet = true })
                 AppTab.Echoes -> {
                     val switcher: @Composable () -> Unit = {
                         Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -225,6 +226,14 @@ private fun Shell(vm: AppViewModel) {
         ) {
             BackHandler { showPage = false }
             PersonPage(vm, mine = pageMine, onBack = { showPage = false })
+        }
+        AnimatedVisibility(
+            showPlanet, modifier = Modifier.fillMaxSize(),
+            enter = slideInVertically(spring(0.85f, Spring.StiffnessMediumLow)) { it / 3 } + fadeIn(tween(220)),
+            exit = slideOutVertically { it / 3 } + fadeOut(tween(160)),
+        ) {
+            BackHandler { showPlanet = false }
+            PlanetScreen(vm, onBack = { showPlanet = false })
         }
     }
 

@@ -10,6 +10,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -30,15 +34,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal val GOAL_PRESETS = listOf(
-    "Loser buys lunch 🥪", "Loser buys dinner 🍽️", "Loser buys coffee ☕", "Loser buys dessert 🍦",
-    "Loser picks the movie 🎬", "Loser does the dishes 🧽", "Winner gets a massage 💆", "Loser plans the next date 🌹",
+    "Loser buys lunch", "Loser buys dinner", "Loser buys coffee", "Loser buys dessert",
+    "Loser picks the movie", "Loser does the dishes", "Winner gets a massage", "Loser plans the next date",
 )
 
 internal fun fmt(n: Int) = "%,d".format(n)
 internal fun day(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM"))
 
 @Composable
-internal fun GameTile(game: MiniGame, size: androidx.compose.ui.unit.Dp) = GameEmblem(game, size)
+internal fun GameTile(game: MiniGame, size: androidx.compose.ui.unit.Dp) = GameMark(game, size)
 
 @Composable
 internal fun BestChip(modifier: Modifier, label: String, value: Int?, tint: androidx.compose.ui.graphics.Color) {
@@ -118,7 +122,10 @@ internal fun GoalCard(goal: GameGoal, me: User, partner: User, vm: AppViewModel)
     var confirmDelete by remember { mutableStateOf(false) }
     SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (goal.status == "active") "🎯" else if (goal.status == "won") "🏆" else "✅", fontSize = 26.sp)
+            Icon(
+                when (goal.status) { "active" -> androidx.compose.material.icons.Icons.Outlined.Flag; "won" -> androidx.compose.material.icons.Icons.Outlined.EmojiEvents; else -> androidx.compose.material.icons.Icons.Outlined.CheckCircle },
+                null, tint = if (goal.status == "won") c.special else c.secondary, modifier = Modifier.size(22.dp),
+            )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(goal.title, style = Type.headline, color = if (dim) c.secondary else c.label)
@@ -138,12 +145,12 @@ internal fun GoalCard(goal: GameGoal, me: User, partner: User, vm: AppViewModel)
             }
         }
         when (goal.status) {
-            "won" -> Text("${if (goal.winnerId == me.id) "You" else pName} won. Pay up!", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.special, modifier = Modifier.padding(top = 8.dp))
+            "won" -> Text("${if (goal.winnerId == me.id) "You" else pName} won. Time to pay up", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.special, modifier = Modifier.padding(top = 8.dp))
             "settled" -> Text("${if (goal.winnerId == me.id) "You" else pName} won · settled ${day(goal.settledAt)}", style = Type.footnote, color = c.tertiary, modifier = Modifier.padding(top = 8.dp))
             else -> Text("Counting since ${day(goal.createdAt)}", style = Type.footnote, color = c.tertiary, modifier = Modifier.padding(top = 8.dp))
         }
         Row {
-            if (goal.status == "won") SoftButton("Paid up ✓", onClick = { vm.settleGoal(goal.id) }, color = c.special)
+            if (goal.status == "won") SoftButton("Paid up", onClick = { vm.settleGoal(goal.id) }, color = c.special)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { confirmDelete = true }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Delete", style = Type.caption, color = c.tertiary) }
         }
@@ -183,7 +190,7 @@ internal fun SpeedCard(stats: GameStats, me: User, partner: User) {
     val fa = fastest(a); val fb = fastest(b)
     SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("⚡", fontSize = 26.sp)
+            Icon(androidx.compose.material.icons.Icons.Outlined.Bolt, null, tint = c.secondary, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text("Speed & reflexes", style = Type.headline, color = c.label)

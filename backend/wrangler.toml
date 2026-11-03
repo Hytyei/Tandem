@@ -8,3 +8,7 @@ database_name = "tandem"
 database_id = "cdd023dc-ccad-4fd4-a77f-b82bb0534c11"
 
 # Set the JWT secret with:  npx wrangler secret put JWT_SECRET
+
+[vars]
+# The Google *web* OAuth client id (public, not a secret). ID tokens must be issued for it.
+GOOGLE_CLIENT_ID = "146527205813-nuuo1id1nqr14sa19j7fd3kol7og1lan.apps.googleusercontent.com"

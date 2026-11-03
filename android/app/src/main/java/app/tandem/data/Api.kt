@@ -45,6 +45,15 @@ interface TandemApi {
     @DELETE("events/{id}") suspend fun deleteEvent(@Path("id") id: String)
 
     @GET("sync") suspend fun sync(): SyncResponse
+    @GET("planet") suspend fun planet(@Query("tz") tzMinutes: Int): PlanetResponse
+    @POST("planet/name") suspend fun planetName(@Body b: PlanetNameBody): PlanetResponse
+    @POST("planet/terraform") suspend fun planetTerraform(@Body b: PlanetBiomeBody): PlanetResponse
+    @POST("planet/build") suspend fun planetBuild(@Body b: PlanetBuildBody): PlanetResponse
+    @POST("planet/repair") suspend fun planetRepair(@Body b: PlanetIdBody): PlanetResponse
+    @POST("planet/warm") suspend fun planetWarm(@Body b: PlanetEmptyBody = PlanetEmptyBody()): PlanetResponse
+    @POST("planet/spark") suspend fun planetSpark(@Body b: PlanetTextBody): PlanetResponse
+    @POST("planet/hibernate") suspend fun planetHibernate(@Body b: PlanetDaysBody): PlanetResponse
+    @POST("planet/wake") suspend fun planetWake(@Body b: PlanetEmptyBody = PlanetEmptyBody()): PlanetResponse
     @GET("stats") suspend fun statsDetail(@Query("tz") tzMinutes: Int): StatsDetail
     @GET("memories") suspend fun memories(@Query("date") today: String): Memories
 

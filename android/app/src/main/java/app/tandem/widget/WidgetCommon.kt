@@ -39,11 +39,13 @@ import app.tandem.data.Repository
 
 val SMALL = DpSize(110.dp, 110.dp)
 val WIDE = DpSize(250.dp, 110.dp)
-val RESPONSIVE = SizeMode.Responsive(setOf(SMALL, WIDE))
+/** Exact, so the painted backgrounds are drawn at the widget's real size and never stretched. */
+val RESPONSIVE: SizeMode = SizeMode.Exact
 
 /** The four widget types. [receiver] is the broadcast receiver class the home screen binds each one to. */
 enum class WidgetKind(val receiver: Class<*>) {
     Partner(PartnerMoodReceiver::class.java), Both(BothMoodReceiver::class.java), Diary(DiaryReceiver::class.java), Event(EventReceiver::class.java),
+    Planet(PlanetReceiver::class.java),
 }
 
 /**
@@ -63,6 +65,7 @@ fun WidgetContentFor(kind: WidgetKind, data: WidgetData) {
         WidgetKind.Both -> BothContent(data)
         WidgetKind.Diary -> DiaryContent(data)
         WidgetKind.Event -> EventContent(data)
+        WidgetKind.Planet -> PlanetContent(data)
     }
 }
 
@@ -74,7 +77,7 @@ object WidgetUpdater {
         for (kind in WidgetKind.entries) {
             val widget: GlanceAppWidget = when (kind) {
                 WidgetKind.Partner -> PartnerMoodWidget(); WidgetKind.Both -> BothMoodWidget()
-                WidgetKind.Diary -> DiaryWidget(); WidgetKind.Event -> EventWidget()
+                WidgetKind.Diary -> DiaryWidget(); WidgetKind.Event -> EventWidget(); WidgetKind.Planet -> PlanetWidget()
             }
             for (appWidgetId in awm.getAppWidgetIds(ComponentName(context, kind.receiver))) {
                 try { widget.update(context, glance.getGlanceIdBy(appWidgetId)) } catch (_: Exception) { }
@@ -118,6 +121,9 @@ object WText {
         TextStyle(color = ColorProvider(R.color.white), fontSize = size.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium)
     fun onArtDim(size: Int = 11) =
         TextStyle(color = ColorProvider(R.color.white_dim), fontSize = size.sp, fontWeight = FontWeight.Normal)
+    /** Headlines and notes, in the app's serif. */
+    fun serif(size: Int = 16) =
+        TextStyle(color = ColorProvider(R.color.white), fontSize = size.sp, fontWeight = FontWeight.Medium, fontFamily = androidx.glance.text.FontFamily.Serif)
 }
 
 val WidgetCorner = 26.dp
@@ -136,8 +142,12 @@ fun WidgetFrame(art: Int? = null, content: @Composable () -> Unit) {
             content()
         }
     } else {
-        Box(modifier = base.background(ImageProvider(R.drawable.widget_bg))) {
-            Image(ImageProvider(R.drawable.widget_stars), contentDescription = null, contentScale = ContentScale.Crop, modifier = GlanceModifier.fillMaxSize())
+        val size = androidx.glance.LocalSize.current
+        Box(modifier = base) {
+            Image(
+                ImageProvider(WidgetArt.dusk(LocalContext.current, size.width.value, size.height.value, 0xFFFF8FA3.toInt())),
+                contentDescription = null, contentScale = ContentScale.FillBounds, modifier = GlanceModifier.fillMaxSize(),
+            )
             content()
         }
     }
@@ -194,28 +204,10 @@ fun MessageWidget(title: String, body: String) {
             Image(ImageProvider(R.drawable.ic_logo), contentDescription = "Tandem", contentScale = ContentScale.Fit,
                 modifier = GlanceModifier.size(48.dp))
             Spacer(GlanceModifier.height(6.dp))
-            Text(title, style = WText.primary(14, true), maxLines = 1)
+            Text(title, style = WText.serif(15), maxLines = 1)
             Text(body, style = WText.secondary(11), maxLines = 2)
         }
     }
-}
-
-/**
- * A countdown ring for the next event, drawn as a bitmap (Glance can't draw): the arc fills as the day gets closer
- * over the last 30 days, in gold for special days and pink for the rest.
- */
-fun countdownRing(days: Long, special: Boolean, px: Int = 168): Bitmap {
-    val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
-    val cv = android.graphics.Canvas(bmp)
-    val stroke = px * .075f
-    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke; strokeCap = android.graphics.Paint.Cap.ROUND }
-    val oval = android.graphics.RectF(stroke, stroke, px - stroke, px - stroke)
-    paint.color = 0x24FFFFFF
-    cv.drawArc(oval, 0f, 360f, false, paint)
-    val f = (1f - days.coerceIn(0, 30) / 30f).coerceIn(.04f, 1f)
-    paint.color = if (special) 0xFFFFC857.toInt() else 0xFFFF8FA3.toInt()
-    cv.drawArc(oval, -90f, 360f * f, false, paint)
-    return bmp
 }
 
 /** Shared gate: returns an explanatory widget when there's nothing to show yet, else null. */
