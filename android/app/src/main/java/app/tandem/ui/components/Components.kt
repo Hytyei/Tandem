@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -97,7 +98,7 @@ fun LargeTitle(title: String, subtitle: String? = null, trailing: @Composable ((
         verticalAlignment = Alignment.Bottom,
     ) {
         Column(Modifier.weight(1f)) {
-            if (subtitle != null) Text(subtitle.uppercase(), style = Type.caption.copy(letterSpacing = 0.6.sp), color = T.colors.secondary)
+            if (subtitle != null) Text(subtitle, style = Type.footnote, color = T.colors.secondary)
             Text(title, style = Type.largeTitle, color = T.colors.label)
         }
         trailing?.invoke()
@@ -107,10 +108,10 @@ fun LargeTitle(title: String, subtitle: String? = null, trailing: @Composable ((
 @Composable
 fun SectionHeader(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.uppercase(),
-        style = Type.footnote.copy(letterSpacing = 0.5.sp, fontWeight = FontWeight.Medium),
+        text,
+        style = Type.footnote.copy(fontWeight = FontWeight.Medium),
         color = T.colors.secondary,
-        modifier = modifier.padding(start = 24.dp, bottom = 6.dp, top = 18.dp),
+        modifier = modifier.padding(start = 20.dp, bottom = 8.dp, top = 24.dp),
     )
 }
 
@@ -150,9 +151,12 @@ fun Avatar(user: User?, size: Dp, ring: Color? = null, modifier: Modifier = Modi
 fun PrimaryButton(
     text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, loading: Boolean = false,
+    /** Fill colour. The label turns dark on light fills so it always reads. */
+    color: Color = Color(0xFFE8456D),
 ) {
     val c = T.colors
-    val bg = if (enabled) Brush.linearGradient(listOf(Color(0xFFF2476F), Color(0xFFFF8A6A))) else Brush.linearGradient(listOf(c.tertiary, c.tertiary))
+    val bg = if (enabled) color else c.tertiary
+    val ink = if (bg.luminance() > .45f) Color(0xFF1A1226) else Color.White
     Box(
         modifier
             .fillMaxWidth().height(54.dp)
@@ -160,8 +164,8 @@ fun PrimaryButton(
             .pressable(enabled = enabled && !loading, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (loading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.5.dp)
-        else Text(text, style = Type.headline, color = Color.White, textAlign = TextAlign.Center)
+        if (loading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), color = ink, strokeWidth = 2.5.dp)
+        else Text(text, style = Type.headline, color = ink, textAlign = TextAlign.Center)
     }
 }
 

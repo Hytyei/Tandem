@@ -76,20 +76,72 @@ import kotlin.math.sqrt
  * and never sends anything but the tile address. Follows the OSM tile policy: a real User-Agent, a small number of parallel
  * requests, and caching. The Tandem login token is never attached (it only goes to the Tandem server host).
  */
-/** Which map pictures to draw. Only OpenStreetMap; the quiet heat-overlay look is a colour filter applied while drawing. */
+/** Where the map pictures come from. Only OpenStreetMap; every look is made on the phone from those tiles. */
 internal enum class TileStyle(val dir: String) {
     Osm("osm-tiles");
 
     fun url(z: Int, x: Int, y: Int): String = "https://tile.openstreetmap.org/$z/$x/$y.png"
 }
 
+/**
+ * The looks of the map. All of them are painted on the phone from the regular OpenStreetMap tiles: each pixel is sorted into
+ * water, green, road, building, label or ground and recoloured with the look's palette, so no third-party tile service or key is involved.
+ * [Street] is the plain map with a soft colour filter.
+ */
+enum class MapStyle(
+    val label: String, val dark: Boolean,
+    internal val ground: Int, internal val water: Int, internal val green: Int,
+    internal val building: Int, internal val road: Int, internal val ink: Int,
+) {
+    Chart("Star chart", true, 0xFF15123A.toInt(), 0xFF0A0924.toInt(), 0xFF181B3E.toInt(), 0xFF1E1A48.toInt(), 0xFF4A4390.toInt(), 0xFF7D76C2.toInt()),
+    Blueprint("Blueprint", true, 0xFF0F3463.toInt(), 0xFF0A2850.toInt(), 0xFF123B6E.toInt(), 0xFF164278.toInt(), 0xFF6F9FD8.toInt(), 0xFFA9C6EC.toInt()),
+    Atlas("Atlas", false, 0xFFEFE6D4.toInt(), 0xFFC4D3D3.toInt(), 0xFFDCE0C2.toInt(), 0xFFE3D5BE.toInt(), 0xFFFBF7EE.toInt(), 0xFF8C7C62.toInt()),
+    Street("Street", true, 0, 0, 0, 0, 0, 0);
+
+    internal val background: Color get() = if (this == Street) Color(0xFF1D1850) else Color(ground)
+}
+
+private fun smooth(e0: Float, e1: Float, x: Float): Float { val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f); return t * t * (3f - 2f * t) }
+private fun mix(a: Int, b: Int, t: Float): Int {
+    if (t <= 0f) return a
+    if (t >= 1f) return b
+    val ar = a shr 16 and 255; val ag = a shr 8 and 255; val ab = a and 255
+    val br = b shr 16 and 255; val bg = b shr 8 and 255; val bb = b and 255
+    return (0xFF shl 24) or ((ar + (br - ar) * t).toInt() shl 16) or ((ag + (bg - ag) * t).toInt() shl 8) or (ab + (bb - ab) * t).toInt()
+}
+
+/**
+ * Repaints one OpenStreetMap tile in [style]. Soft weights (not hard classes) keep the anti-aliased edges of roads and coastlines smooth.
+ * The thresholds follow the OSM Carto colours: water #aad3df, parks #c8facc / #add19e, land #f2efe9, buildings #d9d0c9, roads white to orange.
+ */
+private fun stylize(src: android.graphics.Bitmap, style: MapStyle): android.graphics.Bitmap {
+    val w = src.width; val h = src.height
+    val px = IntArray(w * h)
+    src.getPixels(px, 0, w, 0, 0, w, h)
+    for (i in px.indices) {
+        val p = px[i]
+        val r = p shr 16 and 255; val g = p shr 8 and 255; val b = p and 255
+        val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+        val mn = minOf(r, g, b); val mx = maxOf(r, g, b)
+        var out = style.ground
+        // buildings and other mid-light fills sit a step above the ground
+        out = mix(out, style.building, smooth(.90f, .80f, lum) * smooth(.62f, .74f, lum))
+        out = mix(out, style.green, smooth(6f, 22f, (g - maxOf(r, b)).toFloat()))
+        out = mix(out, style.water, smooth(12f, 34f, (b - r).toFloat()) * smooth(4f, 14f, (g - r).toFloat()))
+        // roads: near-white, or the warm yellow / orange / pink of bigger roads
+        val warmRoad = smooth(.80f, .90f, lum) * smooth(20f, 50f, (mx - mn).toFloat()) * smooth(-4f, 10f, (r - b).toFloat())
+        out = mix(out, style.road, maxOf(smooth(243f, 252f, mn.toFloat()), warmRoad))
+        // labels and outlines are dark: they become a faint ink
+        out = mix(out, style.ink, smooth(.55f, .30f, lum) * .75f)
+        px[i] = out
+    }
+    return android.graphics.Bitmap.createBitmap(px, w, h, android.graphics.Bitmap.Config.ARGB_8888)
+}
+
 private class TileStore(cacheRoot: File, private val http: OkHttpClient) {
     private val root = File(cacheRoot, "map-tiles").apply { mkdirs() }
     private val dir get() = root
-    private val minimalFailures = java.util.concurrent.atomic.AtomicInteger(0)
-    /** True after several minimal tiles failed in a row (blocked / offline host): the map then falls back to the regular tiles. */
-    val minimalDown: Boolean get() = minimalFailures.get() >= 6
-    // sized by bytes (in KB): 512 px "minimal" tiles are four times bigger than the regular ones
+    // sized by bytes (in KB); each look keeps its own painted copy of a tile
     private val memory = object : LruCache<Long, ImageBitmap>(48 * 1024) {
         override fun sizeOf(key: Long, value: ImageBitmap): Int = (value.width * value.height * 4 / 1024).coerceAtLeast(1)
     }
@@ -103,12 +155,12 @@ private class TileStore(cacheRoot: File, private val http: OkHttpClient) {
 
     init { scope.launch { trimDisk() } }
 
-    private fun key(st: TileStyle, z: Int, x: Int, y: Int) = (st.ordinal.toLong() shl 56) or (z.toLong() shl 48) or (x.toLong() shl 24) or y.toLong()
+    private fun key(look: MapStyle, z: Int, x: Int, y: Int) = (look.ordinal.toLong() shl 56) or (z.toLong() shl 48) or (x.toLong() shl 24) or y.toLong()
     private fun file(st: TileStyle, z: Int, x: Int, y: Int) = File(dir, "${st.dir}/$z/$x/$y.png")
 
     /** The tile if it's already in memory; otherwise null, and a load is started (unless [fetch] is false). */
-    fun peek(st: TileStyle, z: Int, x: Int, y: Int, fetch: Boolean): ImageBitmap? {
-        val k = key(st, z, x, y)
+    fun peek(st: TileStyle, look: MapStyle, z: Int, x: Int, y: Int, fetch: Boolean): ImageBitmap? {
+        val k = key(look, z, x, y)
         memory.get(k)?.let { return it }
         if (!fetch || !inFlight.add(k)) return null
         val failed = failedAt[k]
@@ -123,9 +175,10 @@ private class TileStore(cacheRoot: File, private val http: OkHttpClient) {
                         bytes = runCatching { http.newCall(req).execute().use { r -> if (r.isSuccessful) r.body?.bytes() else null } }.getOrNull()
                         if (bytes != null) runCatching { f.parentFile?.mkdirs(); f.writeBytes(bytes) }
                     }
-                    val bmp = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-                    if (bmp != null) { memory.put(k, bmp.asImageBitmap()); failedAt.remove(k); if (st != TileStyle.Osm) minimalFailures.set(0); version++ }
-                    else { failedAt[k] = System.currentTimeMillis(); if (st != TileStyle.Osm) minimalFailures.incrementAndGet() }
+                    val raw = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                    val bmp = raw?.let { if (look == MapStyle.Street) it else runCatching { stylize(it, look) }.getOrNull() ?: it }
+                    if (bmp != null) { memory.put(k, bmp.asImageBitmap()); failedAt.remove(k); version++ }
+                    else failedAt[k] = System.currentTimeMillis()
                 }
             } finally { inFlight.remove(k) }
         }
@@ -224,21 +277,22 @@ fun PlacesMap(
     onSelectAddress: (String?) -> Unit = {},
     /** Recorded routes of a live-tracked date. */
     paths: List<MapPath> = emptyList(),
+    /** How the map itself is painted. */
+    style: MapStyle = MapStyle.Chart,
+    /** Routes of past tracked dates: drawn as faint trails, and (with [heat] on) they warm the heat layer along the way. */
+    trails: List<MapPath> = emptyList(),
+    /** Where each tracked date began, with a short date label shown once you zoom in. */
+    dateMarks: List<DateMark> = emptyList(),
 ) {
     val c = T.colors
     val ctx = LocalContext.current
     val store = remember { tileStore(ctx) }
     val density = LocalDensity.current.density
     camera.k = (density / 1.5f).coerceIn(1f, 2f)
-    val dark = c.isDark
-    // With the heat overlay on, the city is drawn quietly (no labels, soft colours, a veil) so the glow is what you read.
-    // The quiet look is made on the phone from the regular OpenStreetMap tiles (no third-party tile key needed).
-    val minimal = heat
+    val dark = style.dark
     val tileStyle = TileStyle.Osm
-    val tileFilter = remember(dark, minimal) {
-        ColorFilter.colorMatrix(ColorMatrix(if (minimal) (if (dark) DARK_MINIMAL else LIGHT_MINIMAL) else if (dark) DARK_TILE else LIGHT_TILE))
-    }
-    val veil = if (!minimal) Color.Transparent else if (dark) Color(0xFF1D1850).copy(alpha = .30f) else Color(0xFFE9E1F5).copy(alpha = .48f)
+    val tileFilter = remember(style) { if (style == MapStyle.Street) ColorFilter.colorMatrix(ColorMatrix(DARK_TILE)) else null }
+    val trailHeat = remember(trails) { sampleTrail(trails) }
     val label = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER } }
     val currentPlaces by rememberUpdatedState(places)
     val currentAddresses by rememberUpdatedState(addresses)
@@ -246,7 +300,7 @@ fun PlacesMap(
     val onSelectNow by rememberUpdatedState(onSelect)
     val onLongNow by rememberUpdatedState(onLongPress)
 
-    Box(modifier.background(if (dark) Color(0xFF1D1850) else Color(0xFFE9E1F5)).clipToBounds()) {
+    Box(modifier.background(style.background).clipToBounds()) {
         Canvas(
             Modifier.fillMaxSize()
                 .pointerInput(Unit) {
@@ -306,10 +360,14 @@ fun PlacesMap(
             camera.viewW = size.width; camera.viewH = size.height
             @Suppress("UNUSED_VARIABLE") val tick = store.version   // redraw when tiles arrive
             val w = camera.worldPx()
-            drawTiles(camera, w, store, tileStyle, tileFilter)
-            if (veil.alpha > 0f) drawRect(veil)
+            drawTiles(camera, w, store, tileStyle, style, tileFilter)
+            drawTrails(camera, w, trails, density)
             drawPaths(camera, w, paths, density)
-            if (heat) drawHeat(camera, w, places, density, additive = dark)
+            if (heat) {
+                drawTrailHeat(camera, w, trailHeat, density, additive = dark)
+                drawHeat(camera, w, places, density, additive = dark)
+            }
+            drawDateMarks(camera, w, dateMarks, density, if (dark) Color.White else Color(0xFF3A3020), if (dark) Color(0xCC15123A) else Color(0xE6FBF7EE))
             drawPins(camera, w, places, selectedId, pending, density, label, c.sheet, c.accent)
             drawAddresses(camera, w, addresses, meId, selectedAddressId, density, label, c.sheet, c.accent, c.me, c.partner, c.label)
         }
@@ -321,7 +379,7 @@ fun PlacesMap(
     }
 }
 
-private fun DrawScope.drawTiles(cam: MapCamera, w: Double, store: TileStore, style: TileStyle, filter: ColorFilter) {
+private fun DrawScope.drawTiles(cam: MapCamera, w: Double, store: TileStore, style: TileStyle, look: MapStyle, filter: ColorFilter?) {
     val tz = floor(cam.zoom).toInt().coerceIn(MIN_ZOOM.toInt(), MAX_ZOOM.toInt())
     val n = 1 shl tz
     val tileSize = w / n
@@ -334,14 +392,14 @@ private fun DrawScope.drawTiles(cam: MapCamera, w: Double, store: TileStore, sty
         val sy0 = size.height / 2.0 + (ty.toDouble() / n - cam.cy) * w
         val dstOff = IntOffset(floor(sx0).toInt(), floor(sy0).toInt())
         val dstSize = IntSize(ceil(sx0 + tileSize).toInt() - dstOff.x, ceil(sy0 + tileSize).toInt() - dstOff.y)
-        val img = store.peek(style, tz, tx, ty, fetch = true)
+        val img = store.peek(style, look, tz, tx, ty, fetch = true)
         if (img != null) {
             drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), dstOff, dstSize, filterQuality = FilterQuality.Medium, colorFilter = filter)
         } else {
             // not here yet: show a blurry stand-in from a coarser tile that is already cached
             for (up in 1..3) {
                 if (tz - up < 0) break
-                val parent = store.peek(style, tz - up, tx shr up, ty shr up, fetch = false) ?: continue
+                val parent = store.peek(style, look, tz - up, tx shr up, ty shr up, fetch = false) ?: continue
                 val part = parent.width shr up
                 val ox = (tx and ((1 shl up) - 1)) * part; val oy = (ty and ((1 shl up) - 1)) * part
                 drawImage(parent, IntOffset(ox, oy), IntSize(part, part), dstOff, dstSize, filterQuality = FilterQuality.Low, colorFilter = filter)
@@ -467,13 +525,7 @@ private fun DrawScope.drawAddresses(
 }
 
 // Colour matrices (4x5, row-major, offsets in 0..255) that restyle the OSM tiles into the app's dusk look.
-// light: a bit desaturated, pulled toward lavender. dark: inverted, then tinted deep violet (land darkest, water a little lighter).
-private val LIGHT_TILE = floatArrayOf(
-    .665f, .277f, .028f, 0f, 8f,
-    .080f, .833f, .027f, 0f, 4f,
-    .085f, .286f, .629f, 0f, 14f,
-    0f, 0f, 0f, 1f, 0f,
-)
+// The Street look: inverted, then tinted deep violet (land darkest, water a little lighter).
 private val DARK_TILE = floatArrayOf(
     -.90f, 0f, 0f, 0f, 247f,
     0f, -.80f, 0f, 0f, 218f,
@@ -481,20 +533,76 @@ private val DARK_TILE = floatArrayOf(
     0f, 0f, 0f, 1f, 0f,
 )
 
-// Minimal-city looks for the heat overlay: the regular tiles are flattened to one soft tone (low contrast, no colour), so streets and
-// labels only whisper and the glow is what you read.
-private val LIGHT_MINIMAL = floatArrayOf(
-    .120f, .235f, .046f, 0f, 152f,
-    .120f, .235f, .046f, 0f, 147f,
-    .120f, .235f, .046f, 0f, 163f,
-    0f, 0f, 0f, 1f, 0f,
-)
-private val DARK_MINIMAL = floatArrayOf(
-    -.090f, -.176f, -.034f, 0f, 104f,
-    -.090f, -.176f, -.034f, 0f, 102f,
-    -.090f, -.176f, -.034f, 0f, 138f,
-    0f, 0f, 0f, 1f, 0f,
-)
-
 /** One recorded route to draw on the map: (lat, lon) points in order. */
 class MapPath(val color: Color, val points: List<Pair<Double, Double>>)
+
+/** A tracked date's starting point on the Heatmap. */
+class DateMark(val lat: Double, val lon: Double, val label: String, val color: Color)
+
+/** Spreads the trail points out (at most one every ~40 m and 900 in all), so long walks warm the map evenly and stay cheap to draw. */
+private fun sampleTrail(trails: List<MapPath>): List<Pair<Double, Double>> {
+    val out = ArrayList<Pair<Double, Double>>()
+    for (t in trails) {
+        var last: Pair<Double, Double>? = null
+        for (p in t.points) {
+            val l = last
+            if (l == null || abs(l.first - p.first) + abs(l.second - p.second) > 0.00045) { out.add(p); last = p }
+        }
+    }
+    if (out.size <= 900) return out
+    val step = out.size / 900.0
+    return List(900) { out[(it * step).toInt()] }
+}
+
+/** Past date routes: a thin, quiet line in the walker's colour. */
+private fun DrawScope.drawTrails(cam: MapCamera, w: Double, trails: List<MapPath>, density: Float) {
+    for (p in trails) {
+        if (p.points.size < 2) continue
+        val path = androidx.compose.ui.graphics.Path()
+        p.points.forEachIndexed { i, (lat, lon) ->
+            val x = (size.width / 2.0 + (Geo.lonToX(lon) - cam.cx) * w).toFloat(); val y = (size.height / 2.0 + (Geo.latToY(lat) - cam.cy) * w).toFloat()
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, p.color.copy(alpha = .55f), style = Stroke(1.6f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+/** The warmth that walking leaves behind: small soft dabs along every trail, which stack up where you walk often. */
+private fun DrawScope.drawTrailHeat(cam: MapCamera, w: Double, pts: List<Pair<Double, Double>>, density: Float, additive: Boolean) {
+    if (pts.isEmpty()) return
+    val blend = if (additive) BlendMode.Plus else BlendMode.SrcOver
+    val r = (14f + 2f * (cam.zoom - 12).coerceIn(0.0, 5.0).toFloat()) * density
+    for (pass in 0..1) {
+        val color = if (pass == 0) HALO else BODY
+        val rr = if (pass == 0) r * 1.8f else r
+        val a = if (pass == 0) (if (additive) .16f else .18f) else (if (additive) .22f else .24f)
+        // one dab per radius of screen distance, so a single walk glows evenly and only walking the same streets again builds heat
+        var last = Offset(Float.NaN, Float.NaN)
+        for ((lat, lon) in pts) {
+            val pos = Offset((size.width / 2.0 + (Geo.lonToX(lon) - cam.cx) * w).toFloat(), (size.height / 2.0 + (Geo.latToY(lat) - cam.cy) * w).toFloat())
+            if (pos.x < -rr || pos.y < -rr || pos.x > size.width + rr || pos.y > size.height + rr) continue
+            if (!last.x.isNaN() && (pos - last).getDistance() < r * .9f) continue
+            last = pos
+            drawCircle(Brush.radialGradient(listOf(color.copy(alpha = a), Color.Transparent), center = pos, radius = rr), radius = rr, center = pos, blendMode = blend)
+        }
+    }
+}
+
+/** A small flag where each date began; the date itself shows from street level, so the overview stays calm. */
+private fun DrawScope.drawDateMarks(cam: MapCamera, w: Double, marks: List<DateMark>, density: Float, ink: Color, plate: Color) {
+    if (marks.isEmpty()) return
+    val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.LEFT; textSize = 10.5f * density; color = ink.toArgb() }
+    val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = plate.toArgb() }
+    for (m in marks) {
+        val pos = Offset((size.width / 2.0 + (Geo.lonToX(m.lon) - cam.cx) * w).toFloat(), (size.height / 2.0 + (Geo.latToY(m.lat) - cam.cy) * w).toFloat())
+        if (pos.x < -60 || pos.y < -60 || pos.x > size.width + 60 || pos.y > size.height + 60) continue
+        drawCircle(plate, 5.5f * density, pos)
+        drawCircle(m.color, 3.5f * density, pos)
+        if (cam.zoom >= 12.5) drawIntoCanvas { cv ->
+            val tw = tp.measureText(m.label)
+            val x = pos.x + 9 * density; val y = pos.y + 3.5f * density
+            cv.nativeCanvas.drawRoundRect(x - 5 * density, y - 11 * density, x + tw + 5 * density, y + 4 * density, 6 * density, 6 * density, bg)
+            cv.nativeCanvas.drawText(m.label, x, y, tp)
+        }
+    }
+}

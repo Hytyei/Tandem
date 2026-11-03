@@ -336,7 +336,7 @@ internal fun TripsCard(vm: AppViewModel, actions: TripActions, onOpen: (Trip) ->
     LaunchedEffect(active?.id, recording) { vm.loadTrips() }
 
     SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
-        Text("📍  Dates we've tracked", style = Type.headline, color = c.label)
+        Text("Tracked dates", style = Type.headline, color = c.label)
         Text("Record where you go together and see how far you walked. Only while a date is running, and only if you both choose to.", style = Type.caption, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
         if (active != null) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.accent.copy(alpha = .10f)).padding(14.dp)) {

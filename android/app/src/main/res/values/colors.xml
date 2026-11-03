@@ -1,10 +1,12 @@
 <resources>
     <color name="white_dim">#CCFFFFFF</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="window_bg">#FFF1EAFF</color>
-    <color name="widget_bg_top">#FFD6CCFF</color>
-    <color name="widget_bg_bottom">#FFFFE1E6</color>
-    <color name="widget_text">#FF231A55</color>
-    <color name="widget_secondary">#FF6A6392</color>
-    <color name="widget_accent">#FFE5365F</color>
+    <!-- Tandem has one look (the night sky), so the window and widgets use it whatever the phone's theme -->
+    <color name="window_bg">#FF0E0B2A</color>
+    <color name="widget_bg_top">#FF221A66</color>
+    <color name="widget_bg_bottom">#FF100C34</color>
+    <color name="widget_text">#FFF6F2FF</color>
+    <color name="widget_secondary">#FFB6AEDC</color>
+    <color name="widget_accent">#FFFF8FA3</color>
+    <color name="widget_gold">#FFFFC857</color>
 </resources>

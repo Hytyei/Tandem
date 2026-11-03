@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -107,8 +108,8 @@ internal fun WhackGame(seed: Long, onDone: (Int) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Hud(total - elapsed, total, "$points pts" + if (streak >= 2) " · 🔥$streak" else "")
-        Text("Whack the moles · avoid the 💣", style = Type.callout, color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Hud(total - elapsed, total, "$points pts" + if (streak >= 2) " · ×$streak" else "")
+        Text("Whack the moles, never the bombs", style = Type.callout, color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(20.dp)) {
             val gap = 12.dp
             val cell = minDp((maxWidth - gap * 2) / 3, (maxHeight - gap * 2) / 3)
@@ -120,8 +121,9 @@ internal fun WhackGame(seed: Long, onDone: (Int) -> Unit) {
                             val act = activeAt(h, elapsed)
                             val s = act?.let { spawns[it] }
                             Box(
-                                Modifier.size(cell).clip(CircleShape).background(Color(0x40000000))
-                                    .border(2.dp, if (s?.kind == 1) Color(0xFFFFC857) else Color(0x33FFFFFF), CircleShape)
+                                Modifier.size(cell).clip(CircleShape)
+                                    .background(Brush.radialGradient(listOf(Color(0xFF07140D), Color(0xFF14301F), Color(0xFF2B5A3A))))
+                                    .border(2.dp, if (s?.kind == 1) Color(0xFFFFC857) else Color(0xFF8FE3A1).copy(alpha = .25f), CircleShape)
                                     .pointerInput(h) { detectTapGestures(onPress = { tap(h) }) },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -213,8 +215,8 @@ internal fun StackGame(seed: Long, onDone: (Int) -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("🧱 $floors floors", style = Type.headline, color = c.label, modifier = Modifier.weight(1f))
-            Text("✨ $perfects perfect · $score pts", style = Type.headline, color = c.accent)
+            Text("$floors floors", style = Type.headline, color = c.label, modifier = Modifier.weight(1f))
+            Text("$perfects perfect · $score pts", style = Type.headline, color = c.accent)
         }
         Box(
             Modifier.weight(1f).fillMaxWidth().onSizeChanged { box = it }
@@ -227,15 +229,26 @@ internal fun StackGame(seed: Long, onDone: (Int) -> Unit) {
                 for (k in 0 until n) {
                     val y = yTop + (n - 1 - k) * lh - shift
                     if (y > h) continue
-                    drawRoundRect(Color.hsv(((k * 16) % 360).toFloat(), .55f, .95f), Offset(lefts[k], y), Size(widths[k], lh - 2f * density), CornerRadius(7f * density))
+                    stackBlock(k, Offset(lefts[k], y), Size(widths[k], lh - 2f * density))
                 }
                 if (!over && n > 0) {
-                    drawRoundRect(Color.hsv(((n * 16) % 360).toFloat(), .55f, 1f), Offset(pos, yTop - lh - shift), Size(widths.last(), lh - 2f * density), CornerRadius(7f * density))
+                    stackBlock(n, Offset(pos, yTop - lh - shift), Size(widths.last(), lh - 2f * density))
                 }
             }
             if (floors == 0) Text("Tap to drop the block", style = Type.callout, color = c.secondary, modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
         }
     }
+}
+
+/** One floor of the tower: the colours walk from ember to dusk as it grows, with a lit top edge. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.stackBlock(k: Int, at: Offset, sz: Size) {
+    val ramp = listOf(Color(0xFFFFB067), Color(0xFFF2785C), Color(0xFFD9577A), Color(0xFF9C5BB8), Color(0xFF6A63D6))
+    val f = (k % 16) / 4f
+    val col = androidx.compose.ui.graphics.lerp(ramp[f.toInt().coerceAtMost(3)], ramp[(f.toInt() + 1).coerceAtMost(4)], f - f.toInt())
+    val r = CornerRadius(6f * density)
+    drawRoundRect(col, at, sz, r)
+    drawRoundRect(Color.White.copy(alpha = .35f), at, Size(sz.width, 2f * density), r)
+    drawRoundRect(Color.Black.copy(alpha = .18f), Offset(at.x, at.y + sz.height - 3f * density), Size(sz.width, 3f * density), r)
 }
 
 // ------------------------------------------------------------------ Flappy Heart
@@ -308,7 +321,7 @@ internal fun FlappyGame(seed: Long, onDone: (Int) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Tap to flap", style = Type.headline, color = c.label, modifier = Modifier.weight(1f))
-            Text("💗 $passed gaps · ${(passed * 10).coerceAtMost(1000)} pts", style = Type.headline, color = c.accent)
+            Text("$passed gaps · ${(passed * 10).coerceAtMost(1000)} pts", style = Type.headline, color = c.accent)
         }
         Box(
             Modifier.weight(1f).fillMaxWidth().onSizeChanged { box = it }.onGloballyPositioned { origin = it.positionInParent() }
@@ -317,7 +330,7 @@ internal fun FlappyGame(seed: Long, onDone: (Int) -> Unit) {
             Canvas(Modifier.fillMaxSize()) {
                 val h = size.height
                 val gapH = (170f - min(passed, 30) * 1.6f) * density
-                val brush = Brush.verticalGradient(listOf(Color(0xFFFF8FA3), Color(0xFF9C8CFF)))
+                val brush = Brush.horizontalGradient(listOf(Color.White.copy(alpha = .92f), Color(0xFFFFD9E6).copy(alpha = .78f)))
                 for (i in 0 until gaps.size) {
                     val px = firstX + i * spacing - scroll
                     if (px > size.width) break
@@ -327,13 +340,14 @@ internal fun FlappyGame(seed: Long, onDone: (Int) -> Unit) {
                     drawRoundRect(brush, Offset(px, gc + gapH / 2f), Size(pipeW, h - (gc + gapH / 2f) + 20f * density), CornerRadius(10f * density))
                 }
                 val tilt = (vy / (900f * density)).coerceIn(-.5f, .8f) * 40f
-                drawContext.canvas.nativeCanvas.apply {
-                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                    paint.textAlign = android.graphics.Paint.Align.CENTER
-                    paint.textSize = radius * 2.6f
-                    save(); rotate(tilt, birdX, y)
-                    drawText(if (dead) "💔" else "💗", birdX, y + radius * .9f, paint)
-                    restore()
+                rotate(tilt, Offset(birdX, y)) {
+                    val body = heartPath(Offset(birdX, y), radius * 1.15f)
+                    drawPath(body, if (dead) Brush.verticalGradient(listOf(Color(0xFF9A8AA0), Color(0xFF5E5068))) else Brush.verticalGradient(listOf(Color(0xFFFF7BA0), Color(0xFFE0305F))))
+                    drawCircle(Color.White.copy(alpha = .6f), radius * .22f, Offset(birdX - radius * .4f, y - radius * .35f))
+                    // a little wing that beats with the climb
+                    val lift = (-vy / (900f * density)).coerceIn(-1f, 1f)
+                    drawArc(Color.White.copy(alpha = .85f), 180f + 30f * lift, 120f, false, Offset(birdX - radius * 1.9f, y - radius * .7f), Size(radius * 1.3f, radius * 1.1f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(2.5f * density, cap = androidx.compose.ui.graphics.StrokeCap.Round))
                 }
             }
             if (!started) Text("Tap to start", style = Type.title, color = c.label, modifier = Modifier.align(Alignment.Center))
@@ -569,11 +583,15 @@ private fun CardView(id: Int, hidden: Boolean = false) {
     val red = cardSuit(id) == 1 || cardSuit(id) == 2
     Box(
         Modifier.size(width = 54.dp, height = 78.dp).graphicsLayer { scaleX = sc; scaleY = sc; alpha = sc.coerceIn(0f, 1f) }.clip(shape)
-            .background(if (hidden) Brush.linearGradient(listOf(Color(0xFF6A5CF0), Color(0xFFEC4899))) else Brush.linearGradient(listOf(Color(0xFFFFFFFF), Color(0xFFF1EEFF))))
+            .background(if (hidden) Brush.verticalGradient(listOf(Color(0xFF7A1E2C), Color(0xFF4A0F1A))) else Brush.verticalGradient(listOf(Color(0xFFFFFDF7), Color(0xFFF1ECE0))))
             .border(1.dp, Color(0x33000000), shape),
         contentAlignment = Alignment.Center,
     ) {
-        if (hidden) Text("✦", fontSize = 26.sp, color = Color.White.copy(alpha = .8f))
+        if (hidden) Canvas(Modifier.fillMaxSize().padding(5.dp)) {
+            drawRoundRect(Color(0xFFF2D27A).copy(alpha = .7f), cornerRadius = CornerRadius(6.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+            val step = 9.dp.toPx(); var yy = step / 2
+            while (yy < size.height) { var xx = step / 2; while (xx < size.width) { drawCircle(Color(0xFFF2D27A).copy(alpha = .35f), 1.4.dp.toPx(), Offset(xx, yy)); xx += step }; yy += step }
+        }
         else Text(cardText(id), style = Type.headline.copy(fontSize = 20.sp), color = if (red) Color(0xFFD62A4A) else Color(0xFF1F1B3D), maxLines = 1)
     }
 }

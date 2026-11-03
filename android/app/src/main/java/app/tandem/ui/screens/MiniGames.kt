@@ -1,6 +1,17 @@
 package app.tandem.ui.screens
 
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -75,23 +86,26 @@ fun RoundRunnerDialog(
         },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
     ) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(c.sky)).systemBarsPadding()) {
+        WithSkin(game) {
+        val c = T.colors
+        GameBackdrop(game, Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().systemBarsPadding()) {
             when (phase) {
-                Phase.Intro -> Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Phase.Intro -> Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Spacer(Modifier.weight(1f))
-                    Text(game.emoji, fontSize = 72.sp)
-                    Spacer(Modifier.height(10.dp))
-                    Text(game.label, style = Type.largeTitle, color = c.label, textAlign = TextAlign.Center)
-                    Text(if (rounds > 1) "Round $round of $rounds" else "Single round", style = Type.callout, color = c.secondary)
-                    Spacer(Modifier.height(18.dp))
-                    Text(game.rules, style = Type.body, color = c.label, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(18.dp))
+                    GameEmblem(game, 112.dp, Modifier.enterRise(0))
+                    Spacer(Modifier.height(20.dp))
+                    Text(game.label, style = Type.largeTitle, color = c.label, textAlign = TextAlign.Center, modifier = Modifier.enterRise(1))
+                    Text(if (rounds > 1) "Round $round of $rounds" else "One round", style = Type.callout, color = c.secondary, modifier = Modifier.enterRise(1))
+                    Spacer(Modifier.height(20.dp))
+                    Text(game.rules, style = Type.callout, color = c.label.copy(alpha = .86f), textAlign = TextAlign.Center, modifier = Modifier.enterRise(2))
+                    Spacer(Modifier.height(20.dp))
                     Text(
-                        if (beat != null) "$partnerName scored $beat. Beat it!" else "You go first this round.",
-                        style = Type.headline, color = c.accent, textAlign = TextAlign.Center,
+                        if (beat != null) "$partnerName scored $beat. Beat it" else "You go first this round",
+                        style = Type.headline, color = c.accent, textAlign = TextAlign.Center, modifier = Modifier.enterRise(3),
                     )
                     Spacer(Modifier.weight(1f))
-                    PrimaryButton("Ready", onClick = { phase = Phase.Count })
+                    PrimaryButton("Ready", onClick = { phase = Phase.Count }, color = c.accent)
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = onClose) { Text("Not now", color = c.secondary) }
                 }
@@ -125,10 +139,10 @@ fun RoundRunnerDialog(
                 }
                 Phase.Done -> Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Spacer(Modifier.weight(1f))
-                    Text(game.emoji, fontSize = 56.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Text(game.doneLabel, style = Type.title, color = c.secondary)
-                    Text("$score", style = Type.numberHuge, color = c.accent)
+                    GameEmblem(game, 72.dp, Modifier.enterRise(0))
+                    Spacer(Modifier.height(16.dp))
+                    Text(game.doneLabel, style = Type.title, color = c.secondary, modifier = Modifier.enterRise(1))
+                    TweenNumber(score, Type.numberHuge.copy(fontSize = 88.sp, lineHeight = 92.sp, fontFeatureSettings = "tnum"), c.accent)
                     Text(game.unit, style = Type.callout, color = c.secondary)
                     if (perf.samples > 0 || perf.hits + perf.misses > 0) {
                         Spacer(Modifier.height(14.dp))
@@ -152,9 +166,11 @@ fun RoundRunnerDialog(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    PrimaryButton("Send score", onClick = { onFinished(score, perf.toBody()) }, loading = sending)
+                    PrimaryButton("Send score", onClick = { onFinished(score, perf.toBody()) }, loading = sending, color = c.accent)
                 }
             }
+        }
+        }
         }
     }
 
@@ -181,10 +197,55 @@ private fun Countdown(onDone: () -> Unit) {
     val c = T.colors
     var n by remember { mutableIntStateOf(3) }
     val up by rememberUpdatedState(onDone)
-    LaunchedEffect(Unit) { for (i in 3 downTo 1) { n = i; delay(800) }; up() }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("$n", style = Type.numberHuge.copy(fontSize = 120.sp, lineHeight = 120.sp), color = c.accent)
+    val beat = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        for (i in 3 downTo 1) {
+            n = i; beat.snapTo(0f)
+            beat.animateTo(1f, tween(800, easing = LinearEasing))
+        }
+        up()
     }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // each number lands fast (ease-out over the first 30%), holds, then lifts away
+        val p = beat.value
+        val inP = (p / .3f).coerceIn(0f, 1f).let { 1f - (1f - it) * (1f - it) * (1f - it) }
+        val outP = ((p - .75f) / .25f).coerceIn(0f, 1f)
+        Canvas(Modifier.size(220.dp)) {
+            drawCircle(c.accent.copy(alpha = .3f * (1f - outP)), size.minDimension / 2 * (.7f + .3f * inP), style = Stroke(2.dp.toPx()))
+            drawArc(
+                c.accent, -90f, 360f * (1f - p), false, topLeft = Offset(size.width * .1f, size.height * .1f), size = Size(size.width * .8f, size.height * .8f),
+                style = Stroke(3.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
+        Text(
+            "$n", style = Type.numberHuge.copy(fontSize = 112.sp, lineHeight = 112.sp), color = c.label,
+            modifier = Modifier.graphicsLayer {
+                val sc = .8f + .2f * inP - .06f * outP
+                scaleX = sc; scaleY = sc; alpha = inP * (1f - outP); translationY = -24f * outP
+            },
+        )
+    }
+}
+
+private val EaseOutStrong = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
+
+/** A number that counts up to [value] once, for the result screen. */
+@Composable
+private fun TweenNumber(value: Int, style: TextStyle, color: Color) {
+    val anim = remember { Animatable(0f) }
+    LaunchedEffect(value) { anim.animateTo(value.toFloat(), tween(900, easing = EaseOutStrong)) }
+    Text("${anim.value.toInt()}", style = style, color = color)
+}
+
+/** One short fade-and-rise for intro content, staggered by [index]. */
+@Composable
+internal fun Modifier.enterRise(index: Int): Modifier {
+    val p = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(index * 60L)
+        p.animateTo(1f, tween(420, easing = EaseOutStrong))
+    }
+    return graphicsLayer { alpha = p.value; translationY = (1f - p.value) * 16.dp.toPx() }
 }
 
 /** Milliseconds since the round started, ticking every frame while [running]; [onTimeUp] fires once at [limitMs]. */
@@ -208,16 +269,25 @@ internal fun rememberClock(running: Boolean, limitMs: Long, onTimeUp: () -> Unit
 @Composable
 internal fun Hud(leftMs: Long, totalMs: Long, right: String) {
     val c = T.colors
+    val secs = (leftMs + 999) / 1000
+    val low = secs <= 5
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("⏱ ${(leftMs + 999) / 1000}s", style = Type.headline, color = c.label, modifier = Modifier.weight(1f))
-            Text(right, style = Type.headline, color = c.accent)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                "%d:%02d".format(secs / 60, secs % 60), style = Type.title.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                color = if (low) c.danger else c.label, modifier = Modifier.weight(1f),
+            )
+            Text(right, style = Type.headline.copy(fontFeatureSettings = "tnum"), color = c.accent)
         }
-        Spacer(Modifier.height(8.dp))
-        LinearProgressIndicator(
-            progress = { (leftMs.toFloat() / totalMs).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
-            color = c.accent, trackColor = c.separator,
-        )
+        Spacer(Modifier.height(10.dp))
+        // a thin fuse that burns down, with a spark at its end
+        Canvas(Modifier.fillMaxWidth().height(6.dp)) {
+            val f = (leftMs.toFloat() / totalMs).coerceIn(0f, 1f)
+            val y = size.height / 2
+            drawLine(c.separator, Offset(0f, y), Offset(size.width, y), 2.dp.toPx(), StrokeCap.Round)
+            drawLine(if (low) c.danger else c.accent, Offset(0f, y), Offset(size.width * f, y), 3.dp.toPx(), StrokeCap.Round)
+            drawCircle(Color.White, 3.dp.toPx(), Offset(size.width * f, y))
+        }
     }
 }
 
@@ -248,7 +318,7 @@ private fun HeartCatchGame(seed: Long, onDone: (Int) -> Unit) {
     val nowMs by rememberUpdatedState(elapsed)
     val c = T.colors
     Column(Modifier.fillMaxSize()) {
-        Hud(total - elapsed, total, "💗 ${hits.size}")
+        Hud(total - elapsed, total, "${hits.size} hearts")
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             spawns.forEachIndexed { i, sp ->
                 if (i !in hits && elapsed >= sp.t && elapsed < sp.t + sp.life) {
@@ -268,7 +338,14 @@ private fun HeartCatchGame(seed: Long, onDone: (Int) -> Unit) {
                                 })
                             },
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.Favorite, "Heart", tint = c.accent, modifier = Modifier.size(56.dp)) }
+                    ) {
+                        Canvas(Modifier.size(60.dp)) {
+                            val ctr = Offset(size.width / 2, size.height / 2)
+                            drawCircle(c.accent.copy(alpha = .35f * (1f - pop) + .12f), size.minDimension / 2 * (.6f + .4f * pop), ctr, style = Stroke(1.5.dp.toPx()))
+                            drawPath(heartPath(ctr + Offset(0f, 2.dp.toPx()), size.minDimension * .34f), Brush.verticalGradient(listOf(Color(0xFFFF8FAE), Color(0xFFE0305F))))
+                            drawCircle(Color.White.copy(alpha = .6f), size.minDimension * .06f, ctr + Offset(-size.minDimension * .13f, -size.minDimension * .1f))
+                        }
+                    }
                 }
             }
         }
@@ -310,7 +387,7 @@ private fun MemoryGame(seed: Long, onDone: (Int) -> Unit) {
     }
     val c = T.colors
     Column(Modifier.fillMaxSize()) {
-        Hud(total - elapsed, total, "${matched.size / 2}/6 pairs · ✗ $mistakes")
+        Hud(total - elapsed, total, "${matched.size / 2}/6 pairs · $mistakes missed")
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             faces.indices.chunked(3).forEach { row ->
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -322,14 +399,25 @@ private fun MemoryGame(seed: Long, onDone: (Int) -> Unit) {
                                 .then(
                                     if (i in matched) Modifier.background(c.accent.copy(alpha = .16f))
                                     else if (shown) Modifier.background(c.cardRaised)
-                                    else Modifier.background(Brush.linearGradient(listOf(c.me, c.accent)))
+                                    else Modifier.background(Brush.verticalGradient(listOf(Color(0xFF3A2F8C), Color(0xFF221A5C))))
                                 )
-                                .border(1.dp, if (i in matched) c.accent else Color.Transparent, shape)
+                                .border(1.dp, if (i in matched) c.accent else c.label.copy(alpha = .14f), shape)
                                 .clickable(remember { MutableInteractionSource() }, indication = null) {
                                     if (!finished && !shown && open.size < 2) open = open + i
                                 },
                             contentAlignment = Alignment.Center,
-                        ) { Text(if (shown) faces[i] else "?", fontSize = if (shown) 44.sp else 30.sp, color = Color.White) }
+                        ) {
+                            if (shown) Text(faces[i], fontSize = 44.sp)
+                            else Canvas(Modifier.size(28.dp)) {
+                                val ctr = Offset(size.width / 2, size.height / 2); val r = size.minDimension / 2
+                                // a four-point star
+                                val star = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(ctr.x, ctr.y - r); quadraticTo(ctr.x, ctr.y, ctr.x + r, ctr.y); quadraticTo(ctr.x, ctr.y, ctr.x, ctr.y + r)
+                                    quadraticTo(ctr.x, ctr.y, ctr.x - r, ctr.y); quadraticTo(ctr.x, ctr.y, ctr.x, ctr.y - r); close()
+                                }
+                                drawPath(star, c.accent.copy(alpha = .8f))
+                            }
+                        }
                     }
                 }
             }
@@ -444,7 +532,7 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
     val c = T.colors
     val bg by animateFloatAsState(if (state == DrawState.Ready) 1f else 0f, label = "drawBg")
     Box(
-        Modifier.fillMaxSize().background(androidx.compose.ui.graphics.lerp(c.sheet, Color(0xFFFFC857), bg))
+        Modifier.fillMaxSize().background(Color(0xFFFFC857).copy(alpha = bg * .92f))
             .pointerInput(Unit) { detectTapGestures(onPress = { tap() }) },
     ) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -453,8 +541,8 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
             Text(
                 when (state) {
                     DrawState.Waiting -> "Wait for gold…"
-                    DrawState.Ready -> "TAP!"
-                    DrawState.Early -> "Too early! 0 points"
+                    DrawState.Ready -> "Now"
+                    DrawState.Early -> "Too early · 0 points"
                     DrawState.Result -> "$lastMs ms"
                 },
                 style = Type.largeTitle.copy(fontSize = 40.sp, lineHeight = 46.sp), textAlign = TextAlign.Center,
@@ -744,12 +832,12 @@ private fun SlidePuzzleGame(seed: Long, onDone: (Int) -> Unit) {
                             Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(18.dp))
                                 .then(
                                     if (v == 0) Modifier.background(c.separator.copy(alpha = .25f))
-                                    else Modifier.background(if (ok) Brush.linearGradient(listOf(c.accent.copy(alpha = .85f), c.me)) else Brush.linearGradient(listOf(c.cardRaised, c.cardRaised)))
+                                    else Modifier.background(if (ok) c.accent.copy(alpha = .85f) else c.cardRaised)
                                         .border(1.dp, if (ok) c.accent else c.separator, RoundedCornerShape(18.dp))
                                         .pressable(haptic = false) { tap(i) }
                                 ),
                             contentAlignment = Alignment.Center,
-                        ) { if (v != 0) Text("$v", style = Type.title.copy(fontSize = 34.sp), color = if (ok) Color.White else c.label) }
+                        ) { if (v != 0) Text("$v", style = Type.title.copy(fontSize = 34.sp), color = if (ok) Color(0xFF10141A) else c.label) }
                     }
                 }
             }

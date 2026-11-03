@@ -38,11 +38,7 @@ internal fun fmt(n: Int) = "%,d".format(n)
 internal fun day(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM"))
 
 @Composable
-internal fun GameTile(game: MiniGame, size: androidx.compose.ui.unit.Dp) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(game.tint.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
-        Text(game.emoji, fontSize = (size.value * 0.5f).sp)
-    }
-}
+internal fun GameTile(game: MiniGame, size: androidx.compose.ui.unit.Dp) = GameEmblem(game, size)
 
 @Composable
 internal fun BestChip(modifier: Modifier, label: String, value: Int?, tint: androidx.compose.ui.graphics.Color) {

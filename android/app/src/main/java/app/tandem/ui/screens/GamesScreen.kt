@@ -18,6 +18,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -103,7 +109,7 @@ fun GamesScreen(vm: AppViewModel) {
                             if (!res.isDone) "Score sent. Now it's $pName's turn."
                             else {
                                 val a = res.roundWins(me.id, partner.id); val b = res.roundWins(partner.id, me.id)
-                                when (res.winnerId) { me.id -> "You won the match $a–$b! 🏆"; partner.id -> "$pName won the match $b–$a"; else -> "It's a draw!" }
+                                when (res.winnerId) { me.id -> "You won the match $a–$b"; partner.id -> "$pName won the match $b–$a"; else -> "It's a draw" }
                             },
                         )
                     }
@@ -162,14 +168,14 @@ private fun PlayHome(vm: AppViewModel, me: User, partner: User, g: GamesResponse
         } else if (g != null) {
             item {
                 Row(
-                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.card).padding(horizontal = 16.dp, vertical = 14.dp),
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.card).padding(horizontal = 16.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(if (waiting.isEmpty()) "🎮" else "✅", fontSize = 24.sp)
+                    Icon(if (waiting.isEmpty()) Icons.Outlined.SportsEsports else Icons.Outlined.HourglassEmpty, null, tint = c.secondary, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(if (waiting.isEmpty()) "No matches running" else "You're all caught up", style = Type.headline, color = c.label)
-                        Text(if (waiting.isEmpty()) "Pick a game below to challenge $pName." else "Waiting for $pName to play.", style = Type.caption, color = c.secondary)
+                        Text(if (waiting.isEmpty()) "Pick a game below to challenge $pName" else "Waiting for $pName to play", style = Type.caption, color = c.secondary)
                     }
                 }
             }
@@ -177,31 +183,38 @@ private fun PlayHome(vm: AppViewModel, me: User, partner: User, g: GamesResponse
 
         // ---------- scoreboard
         item {
-            SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(26.dp), padding = 14.dp) {
+            SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), shape = RoundedCornerShape(24.dp), padding = 20.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(me, 40.dp, ring = c.me)
-                    Spacer(Modifier.width(10.dp))
-                    Text("${myStat.wins}", style = Type.numberHuge.copy(fontSize = 34.sp, lineHeight = 38.sp), color = c.me)
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("match wins", style = Type.caption, color = c.secondary)
-                        Text("${stats.draws} draw${if (stats.draws == 1) "" else "s"}", style = Type.caption, color = c.tertiary)
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { Avatar(me, 24.dp, ring = c.me); Spacer(Modifier.width(8.dp)); Text("You", style = Type.footnote, color = c.secondary) }
+                        Text("${myStat.wins}", style = Type.numberHuge.copy(fontSize = 44.sp, lineHeight = 48.sp, fontFeatureSettings = "tnum"), color = c.label)
                     }
-                    Text("${theirStat.wins}", style = Type.numberHuge.copy(fontSize = 34.sp, lineHeight = 38.sp), color = c.partner)
-                    Spacer(Modifier.width(10.dp))
-                    Avatar(partner, 40.dp, ring = c.partner)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("match wins", style = Type.caption, color = c.secondary)
+                        Text("${stats.draws} draw${if (stats.draws == 1) "" else "s"}", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { Text(pName, style = Type.footnote, color = c.secondary, maxLines = 1); Spacer(Modifier.width(8.dp)); Avatar(partner, 24.dp, ring = c.partner) }
+                        Text("${theirStat.wins}", style = Type.numberHuge.copy(fontSize = 44.sp, lineHeight = 48.sp, fontFeatureSettings = "tnum"), color = c.label)
+                    }
                 }
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.special.copy(alpha = .14f)).padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("🏅", fontSize = 18.sp)
-                    Spacer(Modifier.width(8.dp))
+                // who's ahead, as one bar split in your two colours
+                val total = (myStat.wins + theirStat.wins).coerceAtLeast(1)
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))) {
+                    if (myStat.wins + theirStat.wins == 0) Box(Modifier.fillMaxSize().background(c.label.copy(alpha = .1f)))
+                    else {
+                        if (myStat.wins > 0) Box(Modifier.weight(myStat.wins / total.toFloat()).fillMaxHeight().background(c.me))
+                        if (theirStat.wins > 0) Box(Modifier.weight(theirStat.wins / total.toFloat()).fillMaxHeight().background(c.partner))
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Tandem score", style = Type.footnote, color = c.secondary, modifier = Modifier.weight(1f))
-                    Text(fmt(stats.tandemScore), style = Type.headline, color = c.special)
+                    Text(fmt(stats.tandemScore), style = Type.headline.copy(fontFeatureSettings = "tnum"), color = c.special)
                 }
-                val hot = if (myStat.streak >= 2) "🔥 You're on a ${myStat.streak}-match winning streak" else if (theirStat.streak >= 2) "🔥 $pName is on a ${theirStat.streak}-match winning streak" else null
-                if (hot != null) Text(hot, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.padding(top = 8.dp))
+                val hot = if (myStat.streak >= 2) "You've won ${myStat.streak} matches in a row" else if (theirStat.streak >= 2) "$pName has won ${theirStat.streak} matches in a row" else null
+                if (hot != null) Text(hot, style = Type.footnote, color = c.label, modifier = Modifier.padding(top = 4.dp))
             }
         }
 
@@ -212,10 +225,10 @@ private fun PlayHome(vm: AppViewModel, me: User, partner: User, g: GamesResponse
             val winner = if (goal.winnerId == me.id) "You" else pName
             val loser = if (goal.winnerId == me.id) pName else "You"
             SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), color = c.special.copy(alpha = .16f)) {
-                Text("🏆 $winner won the goal!", style = Type.headline, color = c.label)
+                Text("$winner won the goal", style = Type.headline, color = c.label)
                 Text("${goal.title} — time for $loser to pay up.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 2.dp))
                 Spacer(Modifier.height(8.dp))
-                SoftButton("Paid up ✓", onClick = { vm.settleGoal(goal.id) }, color = c.special)
+                SoftButton("Paid up", onClick = { vm.settleGoal(goal.id) }, color = c.special)
             }
         }
 
@@ -231,13 +244,13 @@ private fun PlayHome(vm: AppViewModel, me: User, partner: User, g: GamesResponse
                         .pressable(haptic = false) { nav.open("game:${m.game}") }.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GameTile(game, 38.dp)
+                    GameTile(game, 40.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(game.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label)
-                        Text(if (mineScore != null) "You scored $mineScore" else "Not started", style = Type.caption, color = c.secondary)
+                        Text(game.label, style = Type.callout.copy(fontWeight = FontWeight.Medium), color = c.label)
+                        Text(if (mineScore != null) "You scored $mineScore" else "Not started", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary)
                     }
-                    Text("⏳", fontSize = 18.sp)
+                    Text("Their turn", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
                 }
             }
         }
@@ -245,23 +258,29 @@ private fun PlayHome(vm: AppViewModel, me: User, partner: User, g: GamesResponse
         // ---------- shortcuts
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LinkTile(Modifier.weight(1f), "🕘", "Recent", if (doneCount == 0) "results" else "$doneCount finished") { nav.open("recent") }
-                LinkTile(Modifier.weight(1f), "🎯", "Goals", if (goalsActive == 0) "stakes" else "$goalsActive active") { nav.open("goals") }
-                LinkTile(Modifier.weight(1f), "📊", "Stats", "speed & wins") { nav.open("stats") }
+                LinkTile(Modifier.weight(1f), Icons.Outlined.History, "Recent", if (doneCount == 0) "results" else "$doneCount finished") { nav.open("recent") }
+                LinkTile(Modifier.weight(1f), Icons.Outlined.Flag, "Goals", if (goalsActive == 0) "stakes" else "$goalsActive active") { nav.open("goals") }
+                LinkTile(Modifier.weight(1f), Icons.Outlined.BarChart, "Stats", "speed & wins") { nav.open("stats") }
             }
         }
 
         // ---------- a tile for every game
         MiniGame.playable.groupBy { it.grp }.forEach { (grp, list) ->
             item { SectionHeader(grp.label) }
-            val rows = list.chunked(2)
+            // an odd-sized group opens with one wide tile, so the grid has a rhythm instead of an orphan at the end
+            val wide = if (list.size % 2 == 1) list.first() else null
+            val rest = if (wide != null) list.drop(1) else list
+            if (wide != null) item {
+                val best = stats.bests.firstOrNull { it.game == wide.key && it.userId == me.id }?.best
+                GameTileCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), wide, turnsByGame[wide.key] ?: 0, best, wide = true) { nav.open("game:${wide.key}") }
+            }
+            val rows = rest.chunked(2)
             items(rows.size) { i ->
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     rows[i].forEach { gm ->
                         val best = stats.bests.firstOrNull { it.game == gm.key && it.userId == me.id }?.best
                         GameTileCard(Modifier.weight(1f), gm, turnsByGame[gm.key] ?: 0, best) { nav.open("game:${gm.key}") }
                     }
-                    if (rows[i].size == 1) Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -271,89 +290,92 @@ private fun PlayHome(vm: AppViewModel, me: User, partner: User, g: GamesResponse
 @Composable
 private fun TurnHeader(count: Int) {
     val c = T.colors
-    val pulse by rememberInfiniteTransition(label = "turnPulse").animateFloat(
-        .55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulse",
-    )
-    Row(Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(c.accent.copy(alpha = pulse)))
+    Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(c.accent))
         Spacer(Modifier.width(8.dp))
-        Text("YOUR TURN", style = Type.footnote.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp), color = c.accent, modifier = Modifier.weight(1f))
-        Text(if (count == 1) "1 game is waiting for you" else "$count games are waiting for you", style = Type.caption, color = c.secondary)
+        Text("Your turn", style = Type.headline, color = c.label, modifier = Modifier.weight(1f))
+        Text(if (count == 1) "1 game waiting" else "$count games waiting", style = Type.footnote, color = c.secondary)
     }
 }
 
-/** The big, glowing card for a match that is waiting for you. */
+/** A match that is waiting for you, set in its game's own scene. */
 @Composable
 private fun TurnCard(m: Match, me: User, partner: User, onPlay: (Int) -> Unit, onOpen: () -> Unit) {
-    val c = T.colors
     val game = MiniGame.from(m.game) ?: return
+    val skin = game.skin()
     val pName = partner.displayName.substringBefore(' ')
     val round = m.nextTurn(me.id, partner.id) ?: return
     val theirs = m.scoreOf(round, partner.id)
-    val pulse by rememberInfiniteTransition(label = "turnGlow").animateFloat(
-        .35f, 1f, infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "glow",
-    )
-    val shape = RoundedCornerShape(26.dp)
-    Row(
+    val shape = RoundedCornerShape(24.dp)
+    GameBackdrop(
+        game,
         Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(shape)
-            .background(Brush.horizontalGradient(listOf(game.tint.copy(alpha = .55f), game.tint.copy(alpha = .22f))))
-            .border(if (theirs != null) 2.dp else 1.dp, if (theirs != null) c.accent.copy(alpha = pulse) else Color.White.copy(alpha = .18f), shape)
-            .pressable(haptic = false) { onPlay(round) }.padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .border(1.dp, Color.White.copy(alpha = .12f), shape).pressable(haptic = false) { onPlay(round) },
+        animate = false,
     ) {
-        Box(Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = .18f)), contentAlignment = Alignment.Center) { Text(game.emoji, fontSize = 30.sp) }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(game.label, style = Type.headline, color = Color.White)
-            Text(
-                if (theirs != null) "$pName scored $theirs. Beat it!" else "You go first",
-                style = Type.callout, color = Color.White.copy(alpha = .9f),
-            )
-            if (m.rounds > 1) Text("Round $round of ${m.rounds}", style = Type.caption, color = Color.White.copy(alpha = .7f))
-        }
-        Box(Modifier.clip(RoundedCornerShape(50)).background(Color.White).padding(horizontal = 18.dp, vertical = 10.dp)) {
-            Text("Play", style = Type.callout.copy(fontWeight = FontWeight.Bold), color = c.accent)
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            GameEmblem(game, 56.dp)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(game.label, style = Type.headline, color = skin.ink)
+                Text(if (theirs != null) "$pName scored $theirs" else "You go first", style = Type.callout, color = skin.ink.copy(alpha = .8f))
+                if (m.rounds > 1) Text("Round $round of ${m.rounds}", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = skin.ink.copy(alpha = .6f))
+            }
+            Box(Modifier.clip(RoundedCornerShape(12.dp)).background(skin.ink).padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Text("Play", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = skin.sky.last())
+            }
         }
     }
 }
 
 @Composable
-private fun LinkTile(modifier: Modifier, emoji: String, title: String, sub: String, onClick: () -> Unit) {
+private fun LinkTile(modifier: Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String, onClick: () -> Unit) {
     val c = T.colors
     Column(
-        modifier.clip(RoundedCornerShape(20.dp)).background(c.card).pressable(haptic = false, onClick = onClick).padding(vertical = 12.dp, horizontal = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier.clip(RoundedCornerShape(16.dp)).background(c.card).border(1.dp, c.label.copy(alpha = .08f), RoundedCornerShape(16.dp))
+            .pressable(haptic = false, onClick = onClick).padding(vertical = 12.dp, horizontal = 12.dp),
     ) {
-        Text(emoji, fontSize = 22.sp)
-        Text(title, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1)
-        Text(sub, style = Type.caption, color = c.secondary, maxLines = 1)
+        Icon(icon, null, tint = c.secondary, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(title, style = Type.callout.copy(fontWeight = FontWeight.Medium), color = c.label, maxLines = 1)
+        Text(sub, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary, maxLines = 1)
     }
 }
 
-/** A game as a tile: colour, big emoji, name, a one-line hint and either your best score or a "Your turn" tag. */
+/** A game as a little poster: its scene, its emblem, its name, and either your best or a "your turn" mark. */
 @Composable
-private fun GameTileCard(modifier: Modifier, game: MiniGame, turns: Int, best: Int?, onClick: () -> Unit) {
+private fun GameTileCard(modifier: Modifier, game: MiniGame, turns: Int, best: Int?, wide: Boolean = false, onClick: () -> Unit) {
     val c = T.colors
-    val shape = RoundedCornerShape(24.dp)
-    Box(
-        modifier.height(134.dp).clip(shape)
-            .background(Brush.verticalGradient(listOf(game.tint.copy(alpha = .36f), game.tint.copy(alpha = .12f))))
-            .border(if (turns > 0) 1.5.dp else 1.dp, if (turns > 0) c.accent else game.tint.copy(alpha = .35f), shape)
+    val skin = game.skin()
+    val shape = RoundedCornerShape(20.dp)
+    GameBackdrop(
+        game,
+        modifier.height(if (wide) 120.dp else 152.dp).clip(shape)
+            .border(1.dp, if (turns > 0) skin.accent else Color.White.copy(alpha = .10f), shape)
             .pressable(haptic = false, onClick = onClick),
+        animate = false,
     ) {
-        Column(Modifier.fillMaxSize().padding(14.dp)) {
-            Text(game.emoji, fontSize = 34.sp)
+        if (wide) Row(Modifier.fillMaxSize().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            GameEmblem(game, 64.dp)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(game.label, style = Type.title, color = skin.ink, maxLines = 1)
+                Text(game.blurb.substringBefore(" · ").replaceFirstChar { it.uppercase() }, style = Type.footnote, color = skin.ink.copy(alpha = .72f), maxLines = 1)
+            }
+        } else Column(Modifier.fillMaxSize().padding(16.dp)) {
+            GameEmblem(game, 48.dp)
             Spacer(Modifier.weight(1f))
-            Text(game.label, style = Type.headline, color = c.label, maxLines = 1)
-            Text(game.blurb.substringBefore(" · "), style = Type.caption, color = c.secondary, maxLines = 1)
+            Text(game.label, style = Type.headline, color = skin.ink, maxLines = 1)
+            Text(game.blurb.substringBefore(" · ").replaceFirstChar { it.uppercase() }, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = skin.ink.copy(alpha = .72f), maxLines = 1)
         }
         if (turns > 0) {
-            Text(
-                if (turns == 1) "Your turn" else "$turns waiting", style = Type.caption.copy(fontWeight = FontWeight.Bold), color = Color.White,
-                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).clip(RoundedCornerShape(50)).background(c.accent).padding(horizontal = 9.dp, vertical = 3.dp),
-            )
+            Row(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(skin.accent))
+                Spacer(Modifier.width(6.dp))
+                Text(if (turns == 1) "Your turn" else "$turns waiting", style = Type.caption, color = skin.ink)
+            }
         } else if (best != null) {
-            Text("★ $best", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.label.copy(alpha = .85f), modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
+            Text("Best ${fmt(best)}", style = Type.caption.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = "tnum"), color = skin.ink.copy(alpha = .72f), modifier = Modifier.align(Alignment.TopEnd).padding(14.dp))
         }
     }
 }

@@ -107,11 +107,17 @@ internal fun BothContent(data: WidgetData) {
     val myMood = st.latestMoods[st.me.id]
     val partnerMood = partner?.let { st.latestMoods[it.id] }
 
-    Box(GlanceModifier.fillMaxSize().clickable(openAppAction())) {
+    val today = java.time.LocalDate.now()
+    fun isToday(e: MoodEntry?) = e != null && java.time.Instant.ofEpochMilli(e.createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate() == today
+    Box(GlanceModifier.fillMaxSize().clickable(openAppAction()), contentAlignment = Alignment.Center) {
         Row(GlanceModifier.fillMaxSize()) {
             PersonHalf(st.me, myMood, data, wide, false, GlanceModifier.defaultWeight().fillMaxHeight())
             Spacer(GlanceModifier.width(4.dp))
             PersonHalf(partner, partnerMood, data, wide, true, GlanceModifier.defaultWeight().fillMaxHeight())
+        }
+        // both of you checked in today: two little stars bridge the halves
+        if (isToday(myMood) && isToday(partnerMood)) {
+            Image(ImageProvider(R.drawable.widget_link), contentDescription = "You both shared a mood today", modifier = GlanceModifier.size(width = 34.dp, height = 20.dp))
         }
     }
 }

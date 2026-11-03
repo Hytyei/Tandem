@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Two little stars, the "both checked in today" mark between the two moods. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="34dp" android:height="20dp" android:viewportWidth="34" android:viewportHeight="20">
+    <path android:fillColor="#E6140C2E" android:pathData="M10,0h14a10,10 0 0,1 0,20h-14a10,10 0 0,1 0,-20z"/>
+    <path android:fillColor="#FF9C8CFF" android:pathData="M8,10a4,4 0 1,0 8,0a4,4 0 1,0 -8,0"/>
+    <path android:fillColor="#FFFF8FA3" android:pathData="M18,10a4,4 0 1,0 8,0a4,4 0 1,0 -8,0"/>
+</vector>

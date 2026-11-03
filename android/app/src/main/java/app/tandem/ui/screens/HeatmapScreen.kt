@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.*
@@ -65,6 +66,9 @@ fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
     val camera = remember { MapCamera() }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var heat by rememberSaveable { mutableStateOf(true) }
+    var showDates by rememberSaveable { mutableStateOf(true) }
+    var styleName by rememberSaveable { mutableStateOf(MapStyle.Chart.name) }
+    val mapStyle = MapStyle.valueOf(styleName)
     var listMode by rememberSaveable { mutableIntStateOf(0) }
     var showAdd by remember { mutableStateOf(false) }
     var addAt by remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -78,6 +82,20 @@ fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
     val selectedAddr = addresses.firstOrNull { it.id == selectedAddrId }
 
     LaunchedEffect(Unit) { vm.loadPlaces(); vm.loadAddresses(); vm.loadTrips() }
+    LaunchedEffect(vm.trips) { vm.loadTripRoutes() }
+    // every tracked date: its routes as trails (in each walker's colour) and a flag where it began
+    val routes = remember(vm.tripRoutes) { vm.tripRoutes.values.sortedByDescending { it.trip.startedAt } }
+    val trails = remember(routes, showDates) {
+        if (!showDates) emptyList() else routes.flatMap { d ->
+            d.paths.map { p -> MapPath(if (p.userId == me.id) c.me else c.partner, p.points.mapNotNull { if (it.size >= 2) it[0] to it[1] else null }) }
+        }
+    }
+    val dateMarks = remember(routes, showDates) {
+        if (!showDates) emptyList() else routes.mapNotNull { d ->
+            val first = d.paths.flatMap { it.points }.filter { it.size >= 3 }.minByOrNull { it[2] } ?: d.paths.firstOrNull()?.points?.firstOrNull() ?: return@mapNotNull null
+            DateMark(first[0], first[1], Instant.ofEpochMilli(d.trip.startedAt).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM")), c.special)
+        }
+    }
     LaunchedEffect(places) {
         if (!fitted && places != null) {
             fitted = true
@@ -123,6 +141,7 @@ fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
             ) {
                 PlacesMap(
                     places = list, camera = camera, modifier = Modifier.fillMaxSize(), selectedId = selectedId, heat = heat,
+                    style = mapStyle, trails = trails, dateMarks = dateMarks,
                     pending = addAt.takeIf { showAdd },
                     onSelect = { selectedId = it },
                     addresses = addresses, meId = me.id, selectedAddressId = selectedAddrId, onSelectAddress = { selectedAddrId = it },
@@ -136,6 +155,7 @@ fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
                     MapButton(Icons.Filled.MyLocation, "My location") { locateWithPermission() }
                     MapButton(Icons.Filled.Home, "Saved addresses") { showAddresses = true }
                     MapButton(Icons.Filled.Whatshot, "Heat", on = heat) { heat = !heat }
+                    MapButton(Icons.Filled.Route, "Tracked dates", on = showDates) { showDates = !showDates }
                 }
                 if (places != null && list.isEmpty()) Text(
                     "Tap + or long-press the map to add the first place you've been together",
@@ -187,6 +207,25 @@ fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
                         Box(Modifier.size(28.dp).pressable(haptic = false) { selectedId = null }, contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.Close, "Close", tint = c.secondary, modifier = Modifier.size(18.dp))
                         }
+                    }
+                }
+            }
+        }
+
+        // ---------- map look
+        item {
+            Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MapStyle.entries.forEach { st ->
+                    val on = st == mapStyle
+                    Row(
+                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (on) c.label.copy(alpha = .12f) else c.card)
+                            .border(1.dp, if (on) c.label.copy(alpha = .3f) else c.label.copy(alpha = .06f), RoundedCornerShape(12.dp))
+                            .pressable(haptic = false) { styleName = st.name }.padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(st.background).border(1.dp, c.label.copy(alpha = .3f), CircleShape))
+                        Spacer(Modifier.width(6.dp))
+                        Text(st.label.substringBefore(' '), style = Type.caption, color = if (on) c.label else c.secondary, maxLines = 1)
                     }
                 }
             }

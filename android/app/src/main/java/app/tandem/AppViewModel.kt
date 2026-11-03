@@ -249,6 +249,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { try { tripDetail = repo.tripDetail(id) } catch (e: AppException) { toast(e.message ?: "Couldn't load that trip") } }
     }
     fun closeTrip() { tripDetail = null }
+
+    /** Routes of finished dates, for the Heatmap. Fetched once per trip (a finished route never changes) and kept for the session. */
+    var tripRoutes by mutableStateOf<Map<String, TripDetail>>(emptyMap()); private set
+    private var loadingRoutes = false
+    fun loadTripRoutes() {
+        val done = trips?.trips.orEmpty().filter { !it.isActive }.take(40)
+        val missing = done.filter { it.id !in tripRoutes }
+        if (missing.isEmpty() || loadingRoutes) return
+        loadingRoutes = true
+        viewModelScope.launch {
+            try {
+                for (t in missing) {
+                    val d = try { repo.tripDetail(t.id) } catch (e: AppException) { null } ?: continue
+                    tripRoutes = tripRoutes + (t.id to d)
+                }
+            } finally { loadingRoutes = false }
+        }
+    }
     fun startTrip(title: String, done: (Trip) -> Unit) {
         viewModelScope.launch {
             busy = true
@@ -379,7 +397,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             state.map { it?.couple?.partner?.id }.distinctUntilChanged().collect {
                 places = null; memories = null; stats = null; games = null
-                addresses = null; notes = null; period = null; trips = null; tripDetail = null
+                addresses = null; notes = null; period = null; trips = null; tripDetail = null; tripRoutes = emptyMap()
             }
         }
     }

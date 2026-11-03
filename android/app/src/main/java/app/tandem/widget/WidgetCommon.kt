@@ -136,7 +136,10 @@ fun WidgetFrame(art: Int? = null, content: @Composable () -> Unit) {
             content()
         }
     } else {
-        Box(modifier = base.background(ImageProvider(R.drawable.widget_bg))) { content() }
+        Box(modifier = base.background(ImageProvider(R.drawable.widget_bg))) {
+            Image(ImageProvider(R.drawable.widget_stars), contentDescription = null, contentScale = ContentScale.Crop, modifier = GlanceModifier.fillMaxSize())
+            content()
+        }
     }
 }
 
@@ -195,6 +198,24 @@ fun MessageWidget(title: String, body: String) {
             Text(body, style = WText.secondary(11), maxLines = 2)
         }
     }
+}
+
+/**
+ * A countdown ring for the next event, drawn as a bitmap (Glance can't draw): the arc fills as the day gets closer
+ * over the last 30 days, in gold for special days and pink for the rest.
+ */
+fun countdownRing(days: Long, special: Boolean, px: Int = 168): Bitmap {
+    val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+    val cv = android.graphics.Canvas(bmp)
+    val stroke = px * .075f
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke; strokeCap = android.graphics.Paint.Cap.ROUND }
+    val oval = android.graphics.RectF(stroke, stroke, px - stroke, px - stroke)
+    paint.color = 0x24FFFFFF
+    cv.drawArc(oval, 0f, 360f, false, paint)
+    val f = (1f - days.coerceIn(0, 30) / 30f).coerceIn(.04f, 1f)
+    paint.color = if (special) 0xFFFFC857.toInt() else 0xFFFF8FA3.toInt()
+    cv.drawArc(oval, -90f, 360f * f, false, paint)
+    return bmp
 }
 
 /** Shared gate: returns an explanatory widget when there's nothing to show yet, else null. */

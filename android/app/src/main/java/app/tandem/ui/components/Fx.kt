@@ -28,7 +28,7 @@ import kotlin.random.Random
 /** The little bursts that play when you touch things in a game. */
 enum class FxKind { Hearts, Stars, Confetti, Boom, Coins, Bad, Ring }
 
-private enum class Shape { Glyph, Chip, Ring, Label }
+private enum class Shape { Glyph, Chip, Ring, Label, Heart, Star, Coin, Cross }
 
 private class Particle(
     var x: Float, var y: Float, var vx: Float, var vy: Float,
@@ -74,12 +74,13 @@ class FxState {
         val r = Random
         when (kind) {
             FxKind.Hearts -> repeat(9) {
-                val g = listOf("💗", "💖", "💕", "❤️", "💜")[r.nextInt(5)]
-                parts.add(Particle(x, y, (r.nextFloat() - .5f) * 280f * d, -(170f + r.nextFloat() * 260f) * d, .9f + r.nextFloat() * .5f, Shape.Glyph, g, size = (15f + r.nextFloat() * 14f) * d, gravity = 150f * d))
+                val col = listOf(Color(0xFFFF6B8E), Color(0xFFFF9DB5), Color(0xFFE0305F), Color(0xFFC9A2FF))[r.nextInt(4)]
+                parts.add(Particle(x, y, (r.nextFloat() - .5f) * 280f * d, -(170f + r.nextFloat() * 260f) * d, .9f + r.nextFloat() * .5f, Shape.Heart, color = col, size = (6f + r.nextFloat() * 6f) * d, gravity = 150f * d, spin = (r.nextFloat() - .5f) * 120f))
             }
             FxKind.Stars -> repeat(10) {
                 val a = r.nextFloat() * 6.2832f; val s = (150f + r.nextFloat() * 260f) * d
-                parts.add(Particle(x, y, cos(a) * s, sin(a) * s, .7f + r.nextFloat() * .4f, Shape.Glyph, listOf("⭐", "✨", "🌟")[r.nextInt(3)], size = (14f + r.nextFloat() * 12f) * d, gravity = 160f * d))
+                val col = listOf(Color(0xFFFFE08A), Color(0xFFFFF4CF), Color(0xFFFFC857))[r.nextInt(3)]
+                parts.add(Particle(x, y, cos(a) * s, sin(a) * s, .7f + r.nextFloat() * .4f, Shape.Star, color = col, size = (5f + r.nextFloat() * 6f) * d, gravity = 160f * d, spin = (r.nextFloat() - .5f) * 300f))
             }
             FxKind.Confetti -> repeat(22) {
                 val a = r.nextFloat() * 6.2832f; val s = (120f + r.nextFloat() * 380f) * d
@@ -87,18 +88,19 @@ class FxState {
                 parts.add(Particle(x, y, cos(a) * s, sin(a) * s - 160f * d, .9f + r.nextFloat() * .5f, Shape.Chip, color = col, size = (4f + r.nextFloat() * 4f) * d, gravity = 620f * d, spin = (r.nextFloat() - .5f) * 700f))
             }
             FxKind.Boom -> {
-                parts.add(Particle(x, y, 0f, 0f, .5f, Shape.Glyph, "💥", size = 56f * d, grow = 40f * d))
+                parts.add(Particle(x, y, 0f, 0f, .45f, Shape.Ring, color = Color(0xFFFFC857), size = 10f * d, grow = 120f * d))
+                parts.add(Particle(x, y, 0f, 0f, .3f, Shape.Coin, color = Color(0xFFFFE6B0), size = 22f * d, grow = -18f * d))
                 repeat(10) {
                     val a = r.nextFloat() * 6.2832f; val s = (140f + r.nextFloat() * 260f) * d
                     parts.add(Particle(x, y, cos(a) * s, sin(a) * s, .55f, Shape.Chip, color = listOf(Color(0xFFFF8A3D), Color(0xFFFFC857), Color(0xFFEF4444))[r.nextInt(3)], size = 5f * d, gravity = 300f * d))
                 }
             }
             FxKind.Coins -> repeat(7) {
-                parts.add(Particle(x, y, (r.nextFloat() - .5f) * 240f * d, -(260f + r.nextFloat() * 240f) * d, .9f + r.nextFloat() * .3f, Shape.Glyph, "🪙", size = (16f + r.nextFloat() * 8f) * d, gravity = 700f * d))
+                parts.add(Particle(x, y, (r.nextFloat() - .5f) * 240f * d, -(260f + r.nextFloat() * 240f) * d, .9f + r.nextFloat() * .3f, Shape.Coin, color = Color(0xFFFFC857), size = (6f + r.nextFloat() * 3f) * d, gravity = 700f * d, spin = (r.nextFloat() - .5f) * 500f))
             }
             FxKind.Bad -> {
                 parts.add(Particle(x, y, 0f, 0f, .45f, Shape.Ring, color = Color(0xFFFF6B7D), size = 12f * d, grow = 90f * d))
-                parts.add(Particle(x, y, 0f, -40f * d, .55f, Shape.Glyph, "✖️", size = 26f * d))
+                parts.add(Particle(x, y, 0f, -40f * d, .55f, Shape.Cross, color = Color(0xFFFF6B7D), size = 9f * d))
             }
             FxKind.Ring -> parts.add(Particle(x, y, 0f, 0f, .5f, Shape.Ring, color = Color(0xFFFFFFFF), size = 14f * d, grow = 110f * d))
         }
@@ -144,6 +146,40 @@ class FxState {
                 }
                 Shape.Ring -> with(scope) {
                     drawCircle(p.color.copy(alpha = .8f * (1f - t)), p.size + p.grow * t, Offset(p.x, p.y), style = Stroke(width = 2.5f * d))
+                }
+                Shape.Heart -> with(scope) {
+                    rotate(p.angle, Offset(p.x, p.y)) {
+                        val sz = p.size
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(p.x, p.y + sz * .7f)
+                            cubicTo(p.x - sz * 1.25f, p.y - sz * .05f, p.x - sz * .6f, p.y - sz * 1.05f, p.x, p.y - sz * .42f)
+                            cubicTo(p.x + sz * .6f, p.y - sz * 1.05f, p.x + sz * 1.25f, p.y - sz * .05f, p.x, p.y + sz * .7f)
+                            close()
+                        }
+                        drawPath(path, p.color.copy(alpha = fade))
+                    }
+                }
+                Shape.Star -> with(scope) {
+                    rotate(p.angle, Offset(p.x, p.y)) {
+                        val r = p.size
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(p.x, p.y - r); quadraticTo(p.x, p.y, p.x + r, p.y); quadraticTo(p.x, p.y, p.x, p.y + r)
+                            quadraticTo(p.x, p.y, p.x - r, p.y); quadraticTo(p.x, p.y, p.x, p.y - r); close()
+                        }
+                        drawPath(path, p.color.copy(alpha = fade))
+                    }
+                }
+                Shape.Coin -> with(scope) {
+                    // a coin seen edge-on as it spins: squash its width with the angle
+                    val sz = (p.size + p.grow * t).coerceAtLeast(1f)
+                    val squash = kotlin.math.abs(cos(p.angle * 0.0174533f)).coerceAtLeast(.15f)
+                    drawOval(p.color.copy(alpha = fade), Offset(p.x - sz * squash, p.y - sz), Size(sz * 2 * squash, sz * 2))
+                    drawOval(Color.White.copy(alpha = .5f * fade), Offset(p.x - sz * squash * .5f, p.y - sz * .7f), Size(sz * squash * .6f, sz * .6f))
+                }
+                Shape.Cross -> with(scope) {
+                    val r = p.size
+                    drawLine(p.color.copy(alpha = fade), Offset(p.x - r, p.y - r), Offset(p.x + r, p.y + r), 3f * d, androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawLine(p.color.copy(alpha = fade), Offset(p.x + r, p.y - r), Offset(p.x - r, p.y + r), 3f * d, androidx.compose.ui.graphics.StrokeCap.Round)
                 }
                 Shape.Label -> scope.drawContext.canvas.nativeCanvas.let { cv ->
                     paint.textSize = p.size

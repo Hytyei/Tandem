@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
 import androidx.glance.appwidget.GlanceAppWidget
@@ -33,7 +34,7 @@ class DiaryWidget : GlanceAppWidget() {
 private fun NoteBlock(e: DiaryEntry, data: WidgetData, lines: Int, modifier: GlanceModifier = GlanceModifier) {
     val st = data.state!!
     val author = if (e.userId == st.me.id) st.me else st.couple.partner
-    Column(modifier) {
+    Column(modifier.background(ImageProvider(R.drawable.widget_surface)).padding(horizontal = 10.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             AvatarDot(author, author?.id?.let { data.avatars[it] }, 18.dp)
             Spacer(GlanceModifier.width(5.dp))
@@ -54,19 +55,22 @@ internal fun DiaryContent(data: WidgetData) {
     WidgetFrame {
         Column(GlanceModifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("DIARY WALL", style = WText.accent(10), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+                Text("Diary wall", style = WText.primary(12, true), maxLines = 1, modifier = GlanceModifier.defaultWeight())
                 RefreshButton()
             }
             if (entries.isEmpty()) {
-                Text("No notes yet — pin the first one", style = WText.secondary(12), maxLines = 3)
+                Spacer(GlanceModifier.height(6.dp))
+                Text("No notes yet. Pin the first one", style = WText.secondary(12), maxLines = 3)
             } else if (wide && entries.size > 1) {
+                Spacer(GlanceModifier.height(6.dp))
                 Row(GlanceModifier.fillMaxWidth()) {
                     NoteBlock(entries[0], data, 3, GlanceModifier.defaultWeight())
-                    Spacer(GlanceModifier.width(12.dp))
+                    Spacer(GlanceModifier.width(8.dp))
                     NoteBlock(entries[1], data, 3, GlanceModifier.defaultWeight())
                 }
             } else {
-                NoteBlock(entries[0], data, if (wide) 3 else 4)
+                Spacer(GlanceModifier.height(6.dp))
+                NoteBlock(entries[0], data, if (wide) 3 else 4, GlanceModifier.fillMaxWidth())
             }
         }
     }
@@ -85,13 +89,17 @@ class EventWidget : GlanceAppWidget() {
     }
 }
 
+/** The days left, set inside a ring that fills as the day gets closer. */
 @Composable
-private fun CountdownBlock(days: Long) {
-    if (days > 1) {
-        Text("$days", style = WText.accent(30), maxLines = 1)
-        Text("days", style = WText.secondary(11), maxLines = 1)
-    } else {
-        Text(countdownLabel(days), style = WText.accent(18), maxLines = 1)
+private fun CountdownBlock(days: Long, special: Boolean) {
+    Box(GlanceModifier.size(64.dp), contentAlignment = Alignment.Center) {
+        Image(ImageProvider(countdownRing(days, special)), contentDescription = null, modifier = GlanceModifier.size(64.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (days > 1) {
+                Text("$days", style = WText.primary(20, true), maxLines = 1)
+                Text(if (days == 1L) "day" else "days", style = WText.secondary(9), maxLines = 1)
+            } else Text(if (days <= 0) "Today" else "Tmrw", style = WText.primary(12, true), maxLines = 1)
+        }
     }
 }
 
@@ -129,8 +137,8 @@ internal fun EventContent(data: WidgetData) {
                 }
             }
             Column(horizontalAlignment = Alignment.End, verticalAlignment = Alignment.CenterVertically, modifier = GlanceModifier.fillMaxHeight()) {
-                RefreshButton()
-                CountdownBlock(days)
+                RefreshButton(size = 22.dp)
+                CountdownBlock(days, first.isSpecial)
             }
         }
     }

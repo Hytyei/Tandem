@@ -5,6 +5,19 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.6.0", title = "v1.6.0 · New moods timeline, map looks & games with their own worlds", date = "2026-11-03",
+        items = listOf(
+            "Moods has a new timeline. Two orbits at the top show the last two weeks: each of you is a lane of coloured moons, and a line joins the days you both checked in. Tap a day to jump to it.",
+            "The days below read as one column with the time on the left, so notes and reactions have room to breathe.",
+            "Heatmap: pick a map look. Star chart, Blueprint, Atlas or the plain Street map, all painted on your phone from OpenStreetMap.",
+            "Your tracked dates are on the Heatmap now. Their routes show as trails, they warm the heat layer where you walked, and a flag marks where each date began. Turn them off with the route button.",
+            "Every game has its own world: its own colours, a painted scene behind the round and a drawn emblem. The Play page, the game pages and the round screens were all redone around them.",
+            "Rounds feel better: a new countdown, a burning fuse for the time left, a score that counts up at the end, and drawn hearts, stars and coins when you hit things.",
+            "Heart Catch, Flappy Heart, Stack, Whack-a-Mole, Memory Match, Quick Draw and Blackjack got new artwork.",
+            "Widgets match the app's night sky: a starfield, notes on cards, a countdown ring for the next event, and two little stars on the moods widget on days you both shared.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.5.0", title = "v1.5.0 · A new Play page, Google sign-in & game alerts", date = "2026-10-30",
         items = listOf(
             "Play is now tile based: every game has its own page with how to play, a new match button, your running matches, stats, the hall of fame and past matches.",

@@ -1,6 +1,8 @@
 package app.tandem.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -40,7 +42,7 @@ internal fun PageHeader(title: String, subtitle: String?, onBack: () -> Unit, tr
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            if (subtitle != null) Text(subtitle.uppercase(), style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, maxLines = 1)
+            if (subtitle != null) Text(subtitle, style = Type.footnote, color = c.secondary, maxLines = 1)
             Text(title, style = Type.title, color = c.label, maxLines = 1)
         }
         trailing?.invoke()
@@ -67,25 +69,29 @@ internal fun GamePage(vm: AppViewModel, game: MiniGame, me: User, partner: User,
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 130.dp)) {
         item { PageHeader(game.label, game.grp.label, nav.back) }
 
-        // ---------- play
+        // ---------- play: the game's own scene, its mark and the one action
         item {
-            SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(28.dp), padding = 18.dp) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GameTile(game, 64.dp)
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(game.blurb, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label)
-                        Text(
-                            if (rulesOpen) "Hide the rules" else "How to play",
-                            style = Type.footnote, color = c.accent,
-                            modifier = Modifier.padding(top = 4.dp).pressable(haptic = false) { rulesOpen = !rulesOpen },
-                        )
+            val skin = game.skin()
+            val shape = RoundedCornerShape(24.dp)
+            GameBackdrop(game, Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(shape).border(1.dp, Color.White.copy(alpha = .10f), shape)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GameEmblem(game, 72.dp)
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(game.blurb.replaceFirstChar { it.uppercase() }, style = Type.callout.copy(fontWeight = FontWeight.Medium), color = skin.ink)
+                            Text(
+                                if (rulesOpen) "Hide the rules" else "How to play",
+                                style = Type.footnote, color = skin.accent,
+                                modifier = Modifier.padding(top = 4.dp).pressable(haptic = false) { rulesOpen = !rulesOpen },
+                            )
+                        }
                     }
+                    if (rulesOpen) Text(game.rules, style = Type.callout, color = skin.ink.copy(alpha = .8f), modifier = Modifier.padding(top = 12.dp))
+                    Spacer(Modifier.height(20.dp))
+                    PrimaryButton("Challenge $pName", onClick = { vm.startMatch(game, 1) { nav.started(it) } }, loading = vm.busy, color = skin.ink)
+                    Text("You play first, then $pName plays the very same round. The higher score wins.", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = skin.ink.copy(alpha = .6f), modifier = Modifier.padding(top = 8.dp).fillMaxWidth(), textAlign = TextAlign.Center)
                 }
-                if (rulesOpen) Text(game.rules, style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 12.dp))
-                Spacer(Modifier.height(16.dp))
-                PrimaryButton("Challenge $pName", onClick = { vm.startMatch(game, 1) { nav.started(it) } }, loading = vm.busy)
-                Text("You play first, then $pName plays the very same round. The higher score wins.", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(top = 8.dp), textAlign = TextAlign.Center)
             }
         }
 
@@ -129,7 +135,7 @@ internal fun GamePage(vm: AppViewModel, game: MiniGame, me: User, partner: User,
                 SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
                     highs.forEachIndexed { k, h ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(listOf("🥇", "🥈", "🥉").getOrElse(k) { "${k + 1}" }, style = Type.callout, modifier = Modifier.width(30.dp))
+                            Text("${k + 1}", style = Type.callout.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), color = if (k == 0) c.special else c.tertiary, modifier = Modifier.width(30.dp))
                             Avatar(if (h.userId == me.id) me else partner, 26.dp, ring = if (h.userId == me.id) c.me else c.partner)
                             Spacer(Modifier.width(8.dp))
                             Text(if (h.userId == me.id) "You" else pName, style = Type.callout, color = c.label, modifier = Modifier.weight(1f))

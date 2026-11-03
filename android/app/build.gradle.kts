@@ -26,8 +26,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // CI passes -PversionCode=<run number> -PversionName=<tag without v>.
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 10
-        versionName = (project.findProperty("versionName") as String?) ?: "1.5.0"
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 11
+        versionName = (project.findProperty("versionName") as String?) ?: "1.6.0"
 
         val api = (project.findProperty("TANDEM_API_URL") as String).trimEnd('/')
         buildConfigField("String", "API_URL", "\"$api\"")
