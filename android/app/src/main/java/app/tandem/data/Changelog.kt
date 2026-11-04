@@ -5,6 +5,15 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.8.0", title = "v1.8.0 · Three new games", date = "2026-11-04",
+        items = listOf(
+            "Star Path: a constellation appears, tap its stars in order before time runs out. Each finished one is worth more, and the next has another star.",
+            "Orbit: a moon circles a planet, tap when it passes through the lit gate. The gate gets narrower and the moon faster, and sometimes it turns around. Three misses and it's over.",
+            "Meteor Drift: slide your light to catch falling stars and dodge the meteors. You both get the very same sky.",
+            "Odd One Out is easier to see: the different dot stands out more, even on the hardest grids.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.7.1", title = "v1.7.1 · Planet fix", date = "2026-11-04",
         items = listOf(
             "Fixed a crash that could happen when opening your planet.",

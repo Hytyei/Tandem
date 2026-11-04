@@ -228,11 +228,18 @@ enum class MiniGame(
     Mole("mole", "Whack-a-Mole", "🐹", Color(0xFF22C55E), "40 seconds · tap the moles, dodge the bombs",
         "Moles pop out of nine holes. Tap them before they hide. A golden mole is worth lots of points, but never touch a bomb. Hits in a row build a combo, and tapping an empty hole breaks it.", "pts"),
 
+    Path("path", "Star Path", "✨", Color(0xFFE9E2FF), "45 seconds · connect the stars in order",
+        "A constellation appears. Tap its stars in order, 1, 2, 3 and on. Every star scores, a finished constellation scores more, and each new one has another star. A wrong star costs a few points.", "pts"),
+
     // ---- arcade duels: same course for both, highest score wins
     Stack("stack", "Stack", "🧱", Color(0xFFF97316), "tap to drop · build the tallest tower",
         "A block slides back and forth. Tap to drop it on the tower. Whatever hangs over is cut off, so the tower gets thinner. A perfect drop keeps its full width and earns a bonus. Miss completely and it's over.", "pts", group = GameGroup.Arcade, doneLabel = "Tower fell"),
     Flap("flap", "Flappy Heart", "💗", Color(0xFFEC4899), "tap to flap · squeeze through the gaps",
         "Tap to make the heart flap and fly through the gaps. Gravity does the rest. Every gap you pass scores. Touch a column of light or the ground and it's over. You both fly the very same course.", "pts", group = GameGroup.Arcade, doneLabel = "Crashed"),
+    Orbit("orbit", "Orbit", "🌙", Color(0xFFB9A7FF), "until three misses · tap in the light",
+        "A moon circles a planet. Tap when it passes through the lit gate. Each hit moves the gate, makes it a little narrower and the moon a little faster, and sometimes it turns around. Dead centre is a perfect hit. Three misses and it's over.", "pts", group = GameGroup.Arcade, doneLabel = "Out of lives"),
+    Drift("drift", "Meteor Drift", "☄️", Color(0xFFFFC56E), "45 seconds · catch stars, dodge meteors",
+        "Slide your finger to move your light. Catch the falling stars and dodge the meteors. Stars add up, a meteor costs a lot. It gets busier as you go, and you both get the very same sky.", "pts", group = GameGroup.Arcade),
 
     // ---- brain teasers: both of you get the very same puzzle (the seed), so it is a fair fight
     Odd("odd", "Odd One Out", "👀", Color(0xFFEC4899), "45 seconds · spot the different one",

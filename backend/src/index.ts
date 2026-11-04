@@ -1494,6 +1494,9 @@ const GAMES: Record<string, { max: number }> = {
   stroop: { max: 1000 },  // Colour Clash: 30 s, tap the ink colour
   word: { max: 1000 },    // Word Duel: 5-letter word in 6 guesses, faster = more
   bj: { max: 5000 },      // Blackjack: chips after 6 hands (start 500)
+  path: { max: 1000 },    // Star Path: tap constellation stars in order, 45 s
+  orbit: { max: 1000 },   // Orbit: tap as the moon passes the gate, 3 lives
+  drift: { max: 1000 },   // Meteor Drift: catch stars, dodge meteors, 45 s
 };
 
 /** Optional "how it was played" numbers that come with a score (fastest / average reaction in ms, hits, misses). Never trusted for anything but stats. */

@@ -148,6 +148,9 @@ fun RoundRunnerDialog(
                         MiniGame.Stroop -> StroopGame(seed, finish)
                         MiniGame.Word -> WordGame(seed, finish)
                         MiniGame.Blackjack -> BlackjackGame(seed, finish)
+                        MiniGame.Path -> StarPathGame(seed, finish)
+                        MiniGame.Orbit -> OrbitGame(seed, finish)
+                        MiniGame.Drift -> DriftGame(seed, finish)
                     }
                     }
                     }
@@ -977,8 +980,8 @@ private fun OddOneOutGame(seed: Long, onDone: (Int) -> Unit) {
     val puzzle = remember(level, seed) {
         val r = Random(seed * 31 + level)
         val base = ODD_HUES[(level / 2 + r.nextInt(2)) % ODD_HUES.size]
-        // the difference shrinks as you go, from easy to only just there
-        val shift = (.34f - level * .022f).coerceAtLeast(.07f)
+        // the difference shrinks as you go, but always stays clear enough to see on a phone screen
+        val shift = (.62f - level * .03f).coerceAtLeast(.24f)
         Triple(base, lerp(base, Color.White, shift), r.nextInt(size * size))   // common, odd, odd position
     }
     LaunchedEffect(wrongCell) { if (wrongCell != null) { delay(350); wrongCell = null } }
@@ -1005,7 +1008,7 @@ private fun OddOneOutGame(seed: Long, onDone: (Int) -> Unit) {
                                 },
                             ) {
                                 val r = this.size.minDimension * .36f
-                                orb(center, r, if (odd) puzzle.second else puzzle.first, .55f)
+                                orb(center, r, if (odd) puzzle.second else puzzle.first, .35f)
                                 if (wrongCell == i) drawCircle(Color(0xFFFF7D96), r * 1.2f, center, style = Stroke(2.dp.toPx()))
                             }
                         }

@@ -63,6 +63,9 @@ internal val MiniGame.light: Color get() = when (this) {
     MiniGame.Blackjack -> Color(0xFF8FD9B0)
     MiniGame.Lights -> Color(0xFFFFD66E)
     MiniGame.Slide -> Color(0xFF8FDCCF)
+    MiniGame.Path -> Color(0xFFE9D7FF)
+    MiniGame.Orbit -> Color(0xFF9FB4FF)
+    MiniGame.Drift -> Color(0xFFFFC56E)
 }
 
 /** Runs [content] with the app's accent swapped for the game's light. Surfaces and text stay the app's own. */
@@ -218,6 +221,17 @@ private fun DrawScope.glyph(game: MiniGame, c: Offset, g: Float, a: Color, ink: 
             rotate(8f, c) { drawRoundRect(a, c - Offset(g * .12f, g * .36f), Size(g * .5f, g * .74f), CornerRadius(g * .08f)) }
         }
         MiniGame.Lights -> for (i in 0..1) for (j in 0..1) drawRoundRect(if (i == j) a else soft.copy(alpha = .4f), c + Offset((j - 1f) * g * .36f + g * .02f, (i - 1f) * g * .36f + g * .02f), Size(g * .32f, g * .32f), CornerRadius(g * .07f))
+        MiniGame.Path -> {
+            val pts = listOf(Offset(-.38f, .22f), Offset(-.1f, -.3f), Offset(.18f, .05f), Offset(.4f, -.28f))
+            for (k in 1 until pts.size) drawLine(soft, c + pts[k - 1] * g, c + pts[k] * g, g * .05f, StrokeCap.Round)
+            pts.forEachIndexed { k, p -> drawCircle(if (k == 3) a else ink, g * .08f, c + p * g) }
+        }
+        MiniGame.Orbit -> { drawCircle(soft, g * .42f, c, style = Stroke(g * .05f)); drawArc(a, -60f, 50f, false, c - Offset(g * .42f, g * .42f), Size(g * .84f, g * .84f), style = Stroke(g * .12f, cap = StrokeCap.Round)); drawCircle(ink, g * .1f, c + Offset(-g * .3f, g * .3f)) }
+        MiniGame.Drift -> {
+            drawPath(sparklePath(c + Offset(-g * .2f, -g * .2f), g * .18f), a)
+            drawCircle(soft, g * .1f, c + Offset(g * .25f, -g * .05f))
+            drawCircle(a, g * .13f, c + Offset(0f, g * .32f))
+        }
         MiniGame.Slide -> for (k in 0..2) drawRoundRect(if (k == 0) a else soft.copy(alpha = .4f), c + Offset((k - 1.5f) * g * .32f + g * .02f, -g * .14f), Size(g * .28f, g * .28f), CornerRadius(g * .06f))
     }
 }
