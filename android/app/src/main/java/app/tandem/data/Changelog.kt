@@ -5,6 +5,12 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.7.1", title = "v1.7.1 · Planet fix", date = "2026-11-04",
+        items = listOf(
+            "Fixed a crash that could happen when opening your planet.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.7.0", title = "v1.7.0 · Your planet, games made of light and new widgets", date = "2026-11-03",
         items = listOf(
             "Meet your planet: a small world the two of you keep alive, on the Today screen. It orbits two suns, one for each of you, and each sun shines brighter the days you share your mood.",

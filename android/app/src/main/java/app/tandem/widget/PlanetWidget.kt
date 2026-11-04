@@ -53,7 +53,7 @@ internal fun PlanetContent(data: WidgetData) {
     val wide = size.width >= 220.dp
     // the dusk, with the planet (and both suns when there's room) painted on top
     val bmp = WidgetArt.dusk(ctx, size.width.value, size.height.value, 0xFF9C8CFF.toInt(), 31)
-    PlanetPainter.draw(Canvas(bmp), bmp.width.toFloat(), bmp.height * if (wide) 1f else .9f, lookOf(p, st.me.id, partner?.id), 6f, showSuns = wide)
+    runCatching { PlanetPainter.draw(Canvas(bmp), bmp.width.toFloat(), bmp.height * if (wide) 1f else .9f, lookOf(p, st.me.id, partner?.id), 6f, showSuns = wide) }
     val spark = partner != null && partner.id in p.sparks && st.me.id !in p.sparks
     Box(GlanceModifier.fillMaxSize().clickable(openAppAction())) {
         Image(ImageProvider(bmp), contentDescription = null, contentScale = ContentScale.FillBounds, modifier = GlanceModifier.fillMaxSize())

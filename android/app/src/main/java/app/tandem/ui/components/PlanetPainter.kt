@@ -42,7 +42,8 @@ object PlanetPainter {
 
     private class Blob(val u: Float, val v: Float, val r: Float, val biome: Int, val shade: Float)
 
-    private val blobCache = HashMap<String, List<Blob>>()
+    // the app screen and the widget (on a background thread) can draw at the same time
+    private val blobCache = java.util.concurrent.ConcurrentHashMap<String, List<Blob>>()
 
     /**
      * Continents: each land biome gets a few landmasses (more for a bigger share), each one a cluster of soft lobes,
@@ -66,6 +67,9 @@ object PlanetPainter {
             }
         }
     }
+
+    /** A soft edge. Android throws on a blur radius of 0, which a not-yet-measured canvas would ask for. */
+    private fun blur(radius: Float) = if (radius >= .5f) BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL) else null
 
     private fun alpha(c: Int, a: Float) = (c and 0xFFFFFF) or ((a.coerceIn(0f, 1f) * 255).toInt() shl 24)
 
@@ -95,6 +99,8 @@ object PlanetPainter {
     }
 
     fun draw(cv: Canvas, w: Float, h: Float, look: PlanetLook, t: Float, showSuns: Boolean = true) {
+        // gradients and blurs throw on a zero radius, so nothing is drawn until there is room for a planet
+        if (min(w, h) < 24f) return
         val cx = w / 2f
         val cy = h * .54f
         val r = min(w, h) * .27f
@@ -149,7 +155,7 @@ object PlanetPainter {
         cv.drawCircle(cx, cy, r, ground)
         // continents drift past as it turns
         val spin = (t * .012f) % 1f
-        val bp = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = BlurMaskFilter(r * .03f, BlurMaskFilter.Blur.NORMAL) }
+        val bp = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = blur(r * .03f) }
         for (b in blobs(look)) {
             val u = (((b.u + spin) % 1f) + 1f) % 1f
             // on a sphere, land near the edge is squeezed and fades into the limb
@@ -164,7 +170,7 @@ object PlanetPainter {
         }
         // aurora ribbons near the poles, if there is aurora at all
         if (look.aurora > 15f) {
-            val ap = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = r * .05f; maskFilter = BlurMaskFilter(r * .05f, BlurMaskFilter.Blur.NORMAL) }
+            val ap = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = r * .05f; maskFilter = blur(r * .05f) }
             ap.color = alpha(AURORA[0], (look.aurora / 100f) * .7f)
             val path = Path(); path.moveTo(cx - r, cy - r * .62f)
             var x = cx - r
@@ -174,13 +180,13 @@ object PlanetPainter {
         // ice caps grow from both poles
         val icy = (look.ice / 100f).coerceIn(0f, 1f)
         if (icy > .02f) {
-            val ip = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = BlurMaskFilter(r * .06f, BlurMaskFilter.Blur.NORMAL); color = alpha(0xFFF2F6FF.toInt(), .92f) }
+            val ip = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = blur(r * .06f); color = alpha(0xFFF2F6FF.toInt(), .92f) }
             val cap = r * (.08f + .9f * icy)
             cv.drawOval(RectF(cx - r * 1.2f, cy - r - cap, cx + r * 1.2f, cy - r + cap), ip)
             cv.drawOval(RectF(cx - r * 1.2f, cy + r - cap * .8f, cx + r * 1.2f, cy + r + cap * .8f), ip)
         }
         // clouds
-        val cp = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = BlurMaskFilter(r * .05f, BlurMaskFilter.Blur.NORMAL); color = alpha(Color.WHITE, .22f * (.4f + atmo)) }
+        val cp = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = blur(r * .05f); color = alpha(Color.WHITE, .22f * (.4f + atmo)) }
         val cr = Random(look.seed + 3)
         repeat(6) {
             val u = ((cr.nextFloat() + spin * 1.6f) % 1f); val lon = (u - .5f) * Math.PI.toFloat()
