@@ -117,7 +117,7 @@ object PlanetSurface {
                 isSea[k] = true
                 val depth = ((sea - e) / (sea - sorted[0]).coerceAtLeast(.001f)).pow(.55f)
                 col = mix(0xFF67A9EE.toInt(), 0xFF16226A.toInt(), depth)
-                if (sea - e < .012f) col = mix(col, 0xFF9CD7F0.toInt(), .45f)          // shallows along the coast
+                col = mix(col, 0xFF8FCBEA.toInt(), (1f - (sea - e) / .025f).coerceIn(0f, 1f) * .4f)   // shallows fade in toward the coast
             } else {
                 val h = ((e - sea) / (top - sea).coerceAtLeast(.001f))
                 col = when (biome[k].toInt()) {
@@ -125,7 +125,7 @@ object PlanetSurface {
                     2 -> mix(0xFF74C994.toInt(), 0xFF2E6A55.toInt(), h * .7f + d * .4f)
                     else -> mix(0xFFAAF1E6.toInt(), 0xFF3B9496.toInt(), h * .7f + d * .4f)
                 }
-                if (e - sea < .006f) col = mix(col, 0xFFE9DDBF.toInt(), .5f)             // a thin beach
+                col = mix(col, 0xFFE3D8BE.toInt(), (1f - (e - sea) / .012f).coerceIn(0f, 1f) * .35f)  // a soft beach
                 if (h > .62f) col = mix(col, 0xFFEDE6F7.toInt(), (h - .62f) * 1.6f)     // high ground goes pale
                 col = shade(col, .9f + d * .2f)
             }
@@ -144,7 +144,7 @@ object PlanetSurface {
 
     // ---------------------------------------------------------------- the sphere
     /** Per-pixel geometry and light for one sphere size and light side; does not change while the planet turns. */
-    private class Frame(val size: Int, val lonBase: FloatArray, val row: IntArray, val light: FloatArray, val spec: FloatArray, val rim: FloatArray, val alpha: FloatArray)
+    private class Frame(val size: Int, val lonBase: FloatArray, val row: FloatArray, val light: FloatArray, val spec: FloatArray, val rim: FloatArray, val alpha: FloatArray)
 
     /** What one size of planet keeps between frames: its geometry, its bitmap, and what that bitmap last showed. */
     private class Slot(val frame: Frame, val bitmap: Bitmap, val pixels: IntArray) {
@@ -156,7 +156,7 @@ object PlanetSurface {
 
     private fun frameFor(size: Int, left: Boolean): Frame {
         val n = size * size
-        val lonBase = FloatArray(n); val row = IntArray(n); val light = FloatArray(n); val spec = FloatArray(n); val rim = FloatArray(n); val alpha = FloatArray(n)
+        val lonBase = FloatArray(n); val row = FloatArray(n); val light = FloatArray(n); val spec = FloatArray(n); val rim = FloatArray(n); val alpha = FloatArray(n)
         // the light comes from the brighter sun, a little above and in front
         var lx = if (left) -.62f else .62f; var ly = .42f; var lz = .66f
         val ll = sqrt(lx * lx + ly * ly + lz * lz); lx /= ll; ly /= ll; lz /= ll
@@ -169,7 +169,7 @@ object PlanetSurface {
             if (r2 > 1f) { alpha[k] = 0f; continue }
             val z = sqrt(1 - r2)
             lonBase[k] = atan2(x, z)
-            row[k] = ((.5f - asin(y.coerceIn(-1f, 1f)) / PI.toFloat()) * TH).toInt().coerceIn(0, TH - 1)
+            row[k] = ((.5f - asin(y.coerceIn(-1f, 1f)) / PI.toFloat()) * TH - .5f).coerceIn(0f, TH - 1.001f)
             val diff = (x * lx + y * ly + z * lz).coerceAtLeast(0f)
             light[k] = .1f + .9f * diff.pow(.85f)
             spec[k] = (x * hx + y * hy + z * hz).coerceAtLeast(0f).pow(48f) * .55f
@@ -199,12 +199,22 @@ object PlanetSurface {
             if (a <= 0f) { pixels[k] = 0; continue }
             var u = (f.lonBase[k] + rotation) / tau; u -= floor(u)
             var cu = (f.lonBase[k] + cloudTurn) / tau; cu -= floor(cu)
-            val idx = f.row[k] * TW + (u * TW).toInt().coerceIn(0, TW - 1)
-            val cidx = f.row[k] * TW + (cu * TW).toInt().coerceIn(0, TW - 1)
-            val base = map.color[idx]
-            var r = ((base shr 16) and 0xFF).toFloat(); var g = ((base shr 8) and 0xFF).toFloat(); var b = (base and 0xFF).toFloat()
+            // smooth (bilinear) sampling, so coastlines and clouds don't show the map's pixels
+            val ry = f.row[k]; val y0 = ry.toInt(); val ty = ry - y0; val y1 = y0 + 1
+            val gx = u * TW - .5f; val gx0 = floor(gx).toInt(); val tx = gx - gx0
+            val xa = (gx0 + TW) % TW; val xb = (gx0 + 1 + TW) % TW
+            val c00 = map.color[y0 * TW + xa]; val c10 = map.color[y0 * TW + xb]; val c01 = map.color[y1 * TW + xa]; val c11 = map.color[y1 * TW + xb]
+            fun ch(sh: Int): Float {
+                val top = ((c00 shr sh) and 0xFF) * (1 - tx) + ((c10 shr sh) and 0xFF) * tx
+                val bot = ((c01 shr sh) and 0xFF) * (1 - tx) + ((c11 shr sh) and 0xFF) * tx
+                return top * (1 - ty) + bot * ty
+            }
+            var r = ch(16); var g = ch(8); var b = ch(0)
+            val idx = (if (ty < .5f) y0 else y1) * TW + if (tx < .5f) xa else xb
+            val cgx = cu * TW - .5f; val cx0 = floor(cgx).toInt(); val ctx = cgx - cx0
+            val ca = (cx0 + TW) % TW; val cb = (cx0 + 1 + TW) % TW
+            val cl = (map.cloud[y0 * TW + ca] * (1 - ctx) + map.cloud[y0 * TW + cb] * ctx) * (1 - ty) + (map.cloud[y1 * TW + ca] * (1 - ctx) + map.cloud[y1 * TW + cb] * ctx) * ty
             // clouds sit over the ground
-            val cl = map.cloud[cidx]
             r += (245 - r) * cl; g += (247 - g) * cl; b += (255 - b) * cl
             // sunlight, a glint on the sea, and a blue rim of air
             val lit = f.light[k]

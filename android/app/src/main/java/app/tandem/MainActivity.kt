@@ -282,7 +282,7 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
             // no clip here: a clipped tab would cut off its own badge, and the badged tab draws above its neighbours
             Row(
                 Modifier.zIndex(if ((counts[t] ?: 0) > 0 || badge == t) 1f else 0f).background(bg, RoundedCornerShape(26.dp)).pressable(haptic = !on) { onSelect(t) }
-                    .padding(horizontal = if (on) 10.dp else 6.dp, vertical = 11.dp).animateContentSize(spring(0.8f, Spring.StiffnessMediumLow)),
+                    .padding(horizontal = if (on) 10.dp else 6.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box {
@@ -296,9 +296,9 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
                     else if (badge == t) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).clip(RoundedCornerShape(50)).background(c.accent)
                         .border(1.5.dp, c.sheet, RoundedCornerShape(50)))
                 }
-                if (on) {
-                    Spacer(Modifier.width(4.dp))
-                    Text(t.label, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = tint, maxLines = 1)
+                // only the label grows and shrinks (an animated size clips, and would cut off the badge on the icon)
+                AnimatedVisibility(on, enter = fadeIn(tween(180)) + expandHorizontally(spring(0.8f, Spring.StiffnessMediumLow)), exit = fadeOut(tween(120)) + shrinkHorizontally(spring(0.8f, Spring.StiffnessMediumLow))) {
+                    Row { Spacer(Modifier.width(4.dp)); Text(t.label, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = tint, maxLines = 1) }
                 }
             }
         }

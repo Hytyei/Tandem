@@ -5,6 +5,18 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.9.0", title = "v1.9.0 · A living planet, full meters and new stats", date = "2026-11-05",
+        items = listOf(
+            "Your planet has a real surface now: continents with coastlines and mountains, seas that deepen, lands that sit where they belong, ice caps, drifting clouds and sunlight from the brighter of your two suns.",
+            "Today: what you're both into is a row of posters and covers, and the meters face off head to head with what each one means.",
+            "A meter that stays at 100 two times in a row is at full capacity: it glows gold, light runs along it and sparks rise off the end.",
+            "Diary: notes are grouped by day, pictures show as a mosaic, and short notes read like quotes.",
+            "Heatmap: see where your visits go by kind of place, your favourites as big ranked cards, and every place as a tile you can filter.",
+            "Play stats are charts now: who's winning as a ring, the race over time, speed and accuracy, and wins for every game. Each game's page shows your scores over time.",
+            "The number on the Play tab is no longer cut off.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.8.0", title = "v1.8.0 · Three new games", date = "2026-11-04",
         items = listOf(
             "Star Path: a constellation appears, tap its stars in order before time runs out. Each finished one is worth more, and the next has another star.",
