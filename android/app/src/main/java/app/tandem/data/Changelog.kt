@@ -5,6 +5,12 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "1.9.1", title = "v1.9.1 · Orbit fix", date = "2026-11-05",
+        items = listOf(
+            "Orbit: taps after your first hit now count when the moon is in the light. The moon also speeds up as you go, as it was meant to.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.9.0", title = "v1.9.0 · A living planet, full meters and new stats", date = "2026-11-05",
         items = listOf(
             "Your planet has a real surface now: continents with coastlines and mountains, seas that deepen, lands that sit where they belong, ice caps, drifting clouds and sunlight from the brighter of your two suns.",

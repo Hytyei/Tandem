@@ -139,9 +139,13 @@ internal fun OrbitGame(seed: Long, onDone: (Int) -> Unit) {
     val fx = LocalFx.current
     val c = T.colors
     val scope = rememberCoroutineScope()
-    val gate = gates[hits.coerceAtMost(gates.lastIndex)]
-    val half = (.46f - hits * .012f).coerceAtLeast(.16f)       // half the gate's width, in radians
-    val speed = (1.5f + hits * .07f).coerceAtMost(4.6f)        // radians a second
+    // These are read fresh wherever they are used (the tap handler and the frame loop are made once, so a value
+    // captured here would stay stuck at the first gate)
+    fun gateNow() = gates[hits.coerceAtMost(gates.lastIndex)]
+    fun halfNow() = (.46f - hits * .012f).coerceAtLeast(.16f)       // half the gate's width, in radians
+    fun speedNow() = (1.5f + hits * .07f).coerceAtMost(4.6f)        // radians a second
+    val gate = gateNow()
+    val half = halfNow()
 
     LaunchedEffect(over) {
         if (over) return@LaunchedEffect
@@ -150,7 +154,7 @@ internal fun OrbitGame(seed: Long, onDone: (Int) -> Unit) {
             val t = withFrameMillis { it }
             val dt = if (last == 0L) .016f else ((t - last) / 1000f).coerceIn(0f, .05f)
             last = t
-            angle = (angle + dir * speed * dt) % (2 * PI).toFloat()
+            angle = (angle + dir * speedNow() * dt) % (2 * PI).toFloat()
             flash = (flash - dt * 3f).coerceAtLeast(0f)
         }
     }
@@ -159,12 +163,13 @@ internal fun OrbitGame(seed: Long, onDone: (Int) -> Unit) {
         if (over) return
         val rad = box.width.coerceAtMost(box.height) * .36f
         val mx = origin.x + box.width / 2f + cos(angle) * rad; val my = origin.y + box.height / 2f + sin(angle) * rad
-        val d = gap(angle, gate.at)
-        if (d <= half) {
-            val perfect = d < half * .3f
+        val g0 = gateNow(); val w0 = halfNow()
+        val d = gap(angle, g0.at)
+        if (d <= w0) {
+            val perfect = d < w0 * .3f
             val g = 10 + if (perfect) 5 else 0
             points += g; hits++; perf.hit(); flash = 1f
-            if (gate.flip) dir = -dir
+            if (g0.flip) dir = -dir
             fx.burstAt(if (perfect) FxKind.Confetti else FxKind.Stars, mx, my, if (perfect) "Perfect" else "+$g")
             if (hits >= 80) { over = true; scope.launch { delay(700); onDone(points.coerceAtMost(1000)) } }
         } else {
