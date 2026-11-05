@@ -25,6 +25,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -278,8 +279,9 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
             val on = t == selected
             val bg by animateColorAsState(if (on) c.accentSoft else Color.Transparent, tween(220), label = "tabBg")
             val tint by animateColorAsState(if (on) c.accent else c.secondary, tween(220), label = "tabTint")
+            // no clip here: a clipped tab would cut off its own badge, and the badged tab draws above its neighbours
             Row(
-                Modifier.clip(RoundedCornerShape(26.dp)).background(bg).pressable(haptic = !on) { onSelect(t) }
+                Modifier.zIndex(if ((counts[t] ?: 0) > 0 || badge == t) 1f else 0f).background(bg, RoundedCornerShape(26.dp)).pressable(haptic = !on) { onSelect(t) }
                     .padding(horizontal = if (on) 10.dp else 6.dp, vertical = 11.dp).animateContentSize(spring(0.8f, Spring.StiffnessMediumLow)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -287,7 +289,7 @@ private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifie
                     Icon(painterResource(t.icon), contentDescription = t.label, tint = tint, modifier = Modifier.size(23.dp))
                     val n = counts[t] ?: 0
                     if (n > 0 && !on) Box(
-                        Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-6).dp).defaultMinSize(minWidth = 16.dp, minHeight = 16.dp).clip(RoundedCornerShape(50)).background(c.accent)
+                        Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-5).dp).defaultMinSize(minWidth = 16.dp, minHeight = 16.dp).clip(RoundedCornerShape(50)).background(c.accent)
                             .border(1.5.dp, c.sheet, RoundedCornerShape(50)).padding(horizontal = 4.dp),
                         contentAlignment = Alignment.Center,
                     ) { Text(if (n > 9) "9+" else "$n", style = Type.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = Color.White) }

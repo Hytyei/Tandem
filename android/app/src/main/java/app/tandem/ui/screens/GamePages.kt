@@ -128,6 +128,16 @@ internal fun GamePage(vm: AppViewModel, game: MiniGame, me: User, partner: User,
             }
         }
 
+        // ---------- your scores in this game, match by match
+        val history = done.sortedBy { it.finishedAt }.takeLast(20)
+        if (history.size >= 2) item {
+            ChartCard("Your scores over time", "The last ${history.size} matches of ${game.label}") {
+                DuoLines(history.map { m -> m.scoreOf(1, me.id)?.toFloat() }, history.map { m -> m.scoreOf(1, partner.id)?.toFloat() }, c.me, c.partner)
+                Spacer(Modifier.height(10.dp))
+                ChartLegend("You" to c.me, pName to c.partner)
+            }
+        }
+
         // ---------- hall of fame
         if (highs.isNotEmpty()) {
             item { SectionHeader("Hall of fame") }
@@ -221,58 +231,107 @@ internal fun GoalsPage(vm: AppViewModel, me: User, partner: User, g: GamesRespon
 
 // ------------------------------------------------------------------ overall stats
 @Composable
-internal fun StatsPage(me: User, partner: User, stats: GameStats, nav: PlayNav) {
+private fun ChartCard(title: String, sub: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    val c = T.colors
+    val shape = RoundedCornerShape(24.dp)
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(shape).background(c.card).border(1.dp, Color.White.copy(alpha = .07f), shape).padding(18.dp)) {
+        Text(title, style = Type.headline, color = c.label)
+        if (sub != null) Text(sub, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary, modifier = Modifier.padding(top = 2.dp))
+        Spacer(Modifier.height(14.dp))
+        content()
+    }
+}
+
+@Composable
+internal fun StatsPage(me: User, partner: User, stats: GameStats, g: GamesResponse?, nav: PlayNav) {
     val c = T.colors
     val pName = partner.displayName.substringBefore(' ')
     val my = stats.players.firstOrNull { it.userId == me.id } ?: PlayerStat(me.id)
     val th = stats.players.firstOrNull { it.userId == partner.id } ?: PlayerStat(partner.id)
+    val done = g?.matches.orEmpty().filter { it.isDone }.sortedBy { it.finishedAt }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 130.dp)) {
-        item { PageHeader("Stats", "You & $pName", nav.back) }
+        item { PageHeader("Stats", "You and $pName", nav.back) }
+
+        // ---------- who's winning: one ring, the score in the middle
         item {
-            SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("You", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.me, modifier = Modifier.weight(1f))
-                    Text("Head to head", style = Type.footnote, color = c.secondary)
-                    Text(pName, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.partner, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1)
+            ChartCard("Head to head", "${stats.done} matches played") {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    DuelRing(my.wins, th.wins, stats.draws, c.me, c.partner, "match wins")
                 }
-                Spacer(Modifier.height(8.dp))
-                val a = my.wins; val b = th.wins
-                Row(Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(50)).background(c.separator.copy(alpha = .15f))) {
-                    if (a + b == 0) Spacer(Modifier.weight(1f))
-                    else {
-                        if (a > 0) Box(Modifier.weight(a.toFloat()).fillMaxHeight().background(c.me))
-                        if (b > 0) Box(Modifier.weight(b.toFloat()).fillMaxHeight().background(c.partner))
+                Spacer(Modifier.height(14.dp))
+                ChartLegend("You" to c.me, pName to c.partner, "Draws" to Color.White.copy(alpha = .3f), modifier = Modifier.align(Alignment.CenterHorizontally))
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    StatFigure(Modifier.weight(1f), "${my.streak}", "your streak", c.me)
+                    StatFigure(Modifier.weight(1f), "${my.bestStreak} · ${th.bestStreak}", "best streaks", c.label)
+                    StatFigure(Modifier.weight(1f), "${th.streak}", "$pName's streak", c.partner)
+                }
+            }
+        }
+
+        // ---------- the race over time: wins added up match by match
+        if (done.size >= 2) item {
+            var a = 0f; var b = 0f
+            val mine = done.map { m -> if (m.winnerId == me.id) a++; a }
+            val theirs = done.map { m -> if (m.winnerId == partner.id) b++; b }
+            ChartCard("The race", "Match wins added up, over your last ${done.size} matches") {
+                DuoLines(mine, theirs, c.me, c.partner)
+                Spacer(Modifier.height(10.dp))
+                ChartLegend("You" to c.me, pName to c.partner)
+            }
+        }
+
+        // ---------- points and rounds, side by side
+        item {
+            ChartCard("Points and rounds") {
+                val maxPts = maxOf(my.points, th.points).toFloat()
+                DuelBar("points", my.points.toFloat(), th.points.toFloat(), maxPts, c.me, c.partner, fmt(my.points), fmt(th.points))
+                DuelBar("rounds", my.rounds.toFloat(), th.rounds.toFloat(), maxOf(my.rounds, th.rounds).toFloat(), c.me, c.partner, "${my.rounds}", "${th.rounds}")
+            }
+        }
+
+        // ---------- speed and accuracy
+        val pa = stats.perf.filter { it.userId == me.id }; val pb = stats.perf.filter { it.userId == partner.id }
+        if (pa.isNotEmpty() || pb.isNotEmpty()) item {
+            fun fastest(rows: List<PerfRow>) = rows.filter { it.bestMs > 0 }.minOfOrNull { it.bestMs }
+            fun avg(rows: List<PerfRow>): Int? { val n = rows.sumOf { it.n }; return if (n == 0) null else (rows.sumOf { it.avgMs.toLong() * it.n } / n).toInt() }
+            fun accuracy(rows: List<PerfRow>): Float? { val h = rows.sumOf { it.hits }; val m = rows.sumOf { it.misses }; return if (h + m == 0) null else h.toFloat() / (h + m) }
+            ChartCard("Speed and accuracy", "Shorter bars are faster") {
+                val fa = fastest(pa); val fb = fastest(pb); val aa = avg(pa); val ab = avg(pb)
+                val maxMs = listOfNotNull(fa, fb, aa, ab).maxOrNull()?.toFloat() ?: 1f
+                DuelBar("fastest touch", (fa ?: 0).toFloat(), (fb ?: 0).toFloat(), maxMs, c.me, c.partner, ms(fa), ms(fb))
+                DuelBar("average reaction", (aa ?: 0).toFloat(), (ab ?: 0).toFloat(), maxMs, c.me, c.partner, ms(aa), ms(ab))
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    RingGauge(accuracy(pa), c.me, "Your accuracy")
+                    RingGauge(accuracy(pb), c.partner, "$pName's accuracy")
+                }
+            }
+        }
+
+        // ---------- wins by game
+        val played = MiniGame.playable.filter { gm -> stats.bests.any { it.game == gm.key } }
+        item {
+            ChartCard("Wins by game", if (played.isEmpty()) "Play a game to see it here" else null) {
+                val wins = played.map { gm ->
+                    Triple(gm, stats.gameWins.firstOrNull { it.game == gm.key && it.userId == me.id }?.n ?: 0, stats.gameWins.firstOrNull { it.game == gm.key && it.userId == partner.id }?.n ?: 0)
+                }.sortedByDescending { it.second + it.third }
+                val max = wins.maxOfOrNull { maxOf(it.second, it.third) }?.toFloat() ?: 1f
+                wins.forEach { (gm, a, b) ->
+                    Box(Modifier.pressable(haptic = false) { nav.open("game:${gm.key}") }) {
+                        DuelBar(gm.label, a.toFloat(), b.toFloat(), max, c.me, c.partner, "$a", "$b", leading = { GameMark(gm, 20.dp) })
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                StatRow("match wins", "$a", "$b")
-                StatRow("matches played", "${stats.done}", "${stats.done}")
-                StatRow("rounds played", "${my.rounds}", "${th.rounds}")
-                StatRow("points scored", fmt(my.points), fmt(th.points))
-                StatRow("current streak", "${my.streak}", "${th.streak}")
-                StatRow("best streak", "${my.bestStreak}", "${th.bestStreak}")
             }
         }
-        item { SpeedCard(stats, me, partner) }
-        item { SectionHeader("Wins by game") }
-        val played = MiniGame.playable.filter { gm -> stats.bests.any { it.game == gm.key } }
-        if (played.isEmpty()) item { Text("Play a game to see it here.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)) }
-        items(played.size) { i ->
-            val gm = played[i]
-            val mw = stats.gameWins.firstOrNull { it.game == gm.key && it.userId == me.id }?.n ?: 0
-            val tw = stats.gameWins.firstOrNull { it.game == gm.key && it.userId == partner.id }?.n ?: 0
-            Row(
-                Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.card)
-                    .pressable(haptic = false) { nav.open("game:${gm.key}") }.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GameMark(gm, 36.dp)
-                Spacer(Modifier.width(12.dp))
-                Text(gm.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f))
-                Text("$mw", style = Type.headline, color = c.me)
-                Text("  –  ", style = Type.callout, color = c.tertiary)
-                Text("$tw", style = Type.headline, color = c.partner)
-            }
-        }
+    }
+}
+
+@Composable
+private fun StatFigure(modifier: Modifier, value: String, label: String, color: Color) {
+    val c = T.colors
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = Type.title.copy(fontSize = 20.sp, fontFeatureSettings = "tnum"), color = color, maxLines = 1)
+        Text(label, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary, maxLines = 1)
     }
 }

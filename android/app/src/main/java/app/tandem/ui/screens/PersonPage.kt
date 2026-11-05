@@ -2,6 +2,7 @@ package app.tandem.ui.screens
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -155,7 +156,7 @@ fun PersonPage(vm: AppViewModel, mine: Boolean, onBack: () -> Unit) {
                 if (shown.isNotEmpty()) {
                     SectionHeader("Today's meters")
                     SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-                        shown.forEach { m -> MeterBar(m, p.meters[m.key] ?: 0, p.prevMeters[m.key]?.let { prev -> (p.meters[m.key] ?: 0) - prev } ?: 0, "${m.key}-${p.metersAt}") }
+                        shown.forEach { m -> MeterBar(m, p.meters[m.key] ?: 0, p.prevMeters[m.key]?.let { prev -> (p.meters[m.key] ?: 0) - prev } ?: 0, "${m.key}-${p.metersAt}", maxed = p.meters[m.key] == 100 && p.prevMeters[m.key] == 100) }
                         if (p.metersAt > 0) Text("updated ${timeAgo(p.metersAt)}", style = Type.caption, color = c.tertiary, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
@@ -200,23 +201,20 @@ internal fun NowRow(emoji: String, label: String, text: String, info: MediaInfo?
 }
 
 @Composable
-private fun MeterBar(m: Meter, value: Int, delta: Int = 0, flashKey: Any = m.key) {
+private fun MeterBar(m: Meter, value: Int, delta: Int = 0, flashKey: Any = m.key, maxed: Boolean = false) {
     val c = T.colors
-    val f by animateFloatAsState(value / 100f, tween(900), label = "meter")
-    Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(m.emoji, fontSize = 18.sp)
+            Canvas(Modifier.size(8.dp)) { drawCircle(m.tint) }
             Spacer(Modifier.width(8.dp))
-            Text(m.label, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f))
-            DeltaBadge(delta, flashKey)
-            Spacer(Modifier.width(6.dp))
-            Text("$value%", style = Type.callout.copy(fontWeight = FontWeight.Bold), color = m.tint)
+            Text(m.label, style = Type.callout.copy(fontWeight = FontWeight.Medium), color = c.label, modifier = Modifier.weight(1f))
+            if (maxed) FullMark() else DeltaBadge(delta, flashKey)
+            Spacer(Modifier.width(8.dp))
+            Text("$value", style = Type.title.copy(fontSize = 20.sp, fontFeatureSettings = "tnum"), color = if (maxed) Color(0xFFFFD58A) else c.label)
         }
         Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(50)).background(m.tint.copy(alpha = .16f))) {
-            Box(Modifier.fillMaxWidth(f.coerceIn(0.02f, 1f)).fillMaxHeight().clip(RoundedCornerShape(50)).background(Brush.horizontalGradient(listOf(m.tint.copy(alpha = .65f), m.tint))))
-        }
-        Text(m.caption(value), style = Type.caption, color = c.secondary, modifier = Modifier.padding(top = 3.dp))
+        MeterTrack(value, m.tint, maxed)
+        Text(m.caption(value), style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary, modifier = Modifier.padding(top = 4.dp))
     }
 }
 

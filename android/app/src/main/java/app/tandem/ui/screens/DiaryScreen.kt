@@ -70,41 +70,50 @@ fun DiaryScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
             item { LargeTitle("Diary", subtitle = "Our feed") }
         item { switcher() }
 
-            // "What's on your mind?" composer card
+            // the composer: a quiet card that invites a note
             item {
+                val shape = RoundedCornerShape(24.dp)
                 Row(
-                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(c.card)
-                        .pressable { compose = true }.padding(horizontal = 14.dp, vertical = 12.dp),
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(shape).background(c.card).border(1.dp, Color.White.copy(alpha = .07f), shape)
+                        .pressable { compose = true }.padding(horizontal = 14.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Avatar(data.me, 38.dp, ring = c.me)
+                    Avatar(data.me, 36.dp, ring = c.me)
                     Spacer(Modifier.width(12.dp))
-                    Text("What's on your mind?", style = Type.callout, color = c.secondary, modifier = Modifier.weight(1f))
-                    Icon(Icons.Filled.AddPhotoAlternate, null, tint = c.accent)
+                    Column(Modifier.weight(1f)) {
+                        Text("Write a note", style = Type.title.copy(fontSize = 18.sp), color = c.label)
+                        Text("A memory, a thought, a thank you", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary)
+                    }
+                    Icon(Icons.Filled.AddPhotoAlternate, "Add photos", tint = c.secondary, modifier = Modifier.size(22.dp))
                 }
             }
 
             if (data.diary.isEmpty()) item {
-                EmptyState("Nothing here yet", "Write the first note — a memory, a thought, a thank you. You can add photos and pick any date.")
+                EmptyState("Nothing here yet", "Write the first note: a memory, a thought, a thank you. You can add photos and pick any date.")
             }
-            items(data.diary, key = { it.id }) { e ->
-                val mine = e.userId == data.me.id
-                PostCard(
-                    e, if (mine) data.me else data.couple.partner, mine, data.me.id,
-                    onReact = { emoji -> vm.react("diary", e.id, emoji) },
-                    onEdit = { editing = e },
-                    onDelete = { deleting = e },
-                    onOpenImage = { i -> viewer = e.images to i },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+            // notes under the day they belong to, newest first
+            val byDay = data.diary.groupBy { it.day() }
+            byDay.forEach { (day, notes) ->
+                item(key = "d-$day") { FeedDay(day) }
+                items(notes, key = { it.id }) { e ->
+                    val mine = e.userId == data.me.id
+                    PostCard(
+                        e, if (mine) data.me else data.couple.partner, mine, data.me.id,
+                        onReact = { emoji -> vm.react("diary", e.id, emoji) },
+                        onEdit = { editing = e },
+                        onDelete = { deleting = e },
+                        onOpenImage = { i -> viewer = e.images to i },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
 
         Box(
-            Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 112.dp).size(60.dp).clip(CircleShape)
-                .background(Brush.linearGradient(listOf(c.accent, Color(0xFFFF6A5E)))).pressable { compose = true },
+            Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 112.dp).size(58.dp).clip(CircleShape)
+                .background(Color(0xFFF6F2FF)).pressable { compose = true },
             contentAlignment = Alignment.Center,
-        ) { Icon(Icons.Filled.Add, contentDescription = "New note", tint = Color.White, modifier = Modifier.size(30.dp)) }
+        ) { Icon(Icons.Filled.Add, contentDescription = "New note", tint = Color(0xFF1A1240), modifier = Modifier.size(28.dp)) }
     }
 
     if (compose) DiarySheet(vm, existing = null, onDismiss = { compose = false })
@@ -124,124 +133,130 @@ fun DiaryScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** The day a group of notes belongs to: the date large in serif, the weekday and month beside it. */
+@Composable
+private fun FeedDay(day: LocalDate) {
+    val c = T.colors
+    val today = LocalDate.now()
+    val label = when (day) { today -> "Today"; today.minusDays(1) -> "Yesterday"; else -> day.format(DateTimeFormatter.ofPattern("EEEE")) }
+    Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("${day.dayOfMonth}", style = Type.numberHuge.copy(fontSize = 34.sp, lineHeight = 36.sp), color = c.label)
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(label, style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = c.label)
+            Text(day.format(DateTimeFormatter.ofPattern(if (day.year == today.year) "MMMM" else "MMMM yyyy")), style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary)
+        }
+    }
+}
+
+/** A quiet glass label (a place, what you did). */
+@Composable
+private fun NoteTag(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null, tint: Color? = null) {
+    val c = T.colors
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .06f)).border(1.dp, Color.White.copy(alpha = .08f), RoundedCornerShape(50)).padding(horizontal = 11.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) { Icon(icon, null, tint = tint ?: c.secondary, modifier = Modifier.size(13.dp)); Spacer(Modifier.width(5.dp)) }
+        Text(text, style = Type.caption.copy(fontWeight = FontWeight.Medium), color = c.label, maxLines = 1)
+    }
+}
+
+/** The pictures of a note as a mosaic: one wide, two side by side, or one large with two stacked beside it. */
+@Composable
+private fun PhotoMosaic(ids: List<String>, onOpen: (Int) -> Unit) {
+    val c = T.colors
+    val repo = (LocalContext.current.applicationContext as TandemApp).repo
+    val r = RoundedCornerShape(16.dp)
+    @Composable
+    fun Pic(i: Int, m: Modifier, more: Int = 0) {
+        Box(m.clip(r).background(c.separator).pressable(haptic = false) { onOpen(i) }) {
+            AsyncImage(model = repo.diaryImageUrl(ids[i]), contentDescription = "Photo ${i + 1}", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            if (more > 0) Box(Modifier.fillMaxSize().background(Color(0x99120D34)), contentAlignment = Alignment.Center) {
+                Text("+$more", style = Type.title, color = Color.White)
+            }
+        }
+    }
+    when (ids.size) {
+        1 -> Pic(0, Modifier.fillMaxWidth().aspectRatio(4f / 3f))
+        2 -> Row(Modifier.fillMaxWidth().aspectRatio(2f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Pic(0, Modifier.weight(1f).fillMaxHeight()); Pic(1, Modifier.weight(1f).fillMaxHeight())
+        }
+        else -> Row(Modifier.fillMaxWidth().aspectRatio(1.5f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Pic(0, Modifier.weight(2f).fillMaxHeight())
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Pic(1, Modifier.weight(1f).fillMaxWidth())
+                Pic(2, Modifier.weight(1f).fillMaxWidth(), more = ids.size - 3)
+            }
+        }
+    }
+}
+
 @Composable
 private fun PostCard(
     e: DiaryEntry, author: User?, mine: Boolean, meId: String, onReact: (String?) -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onOpenImage: (Int) -> Unit, modifier: Modifier = Modifier,
 ) {
     val c = T.colors
-    val repo = (LocalContext.current.applicationContext as TandemApp).repo
-    val shape = RoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(24.dp)
     val day = remember(e) { e.day() }
-    val written = remember(e.createdAt) { Instant.ofEpochMilli(e.createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate() }
-    val dayText = remember(day) {
-        val today = LocalDate.now()
-        when (day) {
-            today -> "Today"
-            today.minusDays(1) -> "Yesterday"
-            else -> day.format(DateTimeFormatter.ofPattern(if (day.year == today.year) "EEEE, d MMMM" else "EEEE, d MMMM yyyy"))
-        }
-    }
+    val written = remember(e.createdAt) { Instant.ofEpochMilli(e.createdAt).atZone(java.time.ZoneId.systemDefault()) }
     var menu by remember { mutableStateOf(false) }
+    val mood = Mood.from(e.mood)
+    val type = DateType.from(e.dateType)
+    // a short note reads like a quote; a long one like a letter
+    val short = e.text.length <= 140
 
     Column(
-        modifier.fillMaxWidth().clip(shape).background(c.card)
-            .border(1.dp, if (c.isDark) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .7f), shape).padding(bottom = 14.dp),
+        modifier.fillMaxWidth().clip(shape).background(c.card).border(1.dp, Color.White.copy(alpha = .07f), shape).padding(14.dp),
     ) {
-        // header
-        Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Avatar(author, 42.dp, ring = if (mine) c.me else c.partner)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(author, 32.dp, ring = if (mine) c.me else c.partner)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(author?.displayName ?: "", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CalendarMonth, null, tint = c.secondary, modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(dayText, style = Type.caption, color = c.secondary)
-                    if (day != written) Text("  ·  written ${timeAgo(e.createdAt)}", style = Type.caption, color = c.tertiary)
-                    if (e.updatedAt > 0) Text("  ·  edited", style = Type.caption, color = c.tertiary)
-                }
+                Text(author?.displayName?.substringBefore(' ') ?: "", style = Type.callout.copy(fontWeight = FontWeight.Medium), color = c.label, maxLines = 1)
+                Text(
+                    (if (day != written.toLocalDate()) "Written ${timeAgo(e.createdAt)}" else written.format(DateTimeFormatter.ofPattern("HH:mm"))) + if (e.updatedAt > 0) " · edited" else "",
+                    style = Type.caption.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = "tnum"), color = c.tertiary,
+                )
             }
+            if (mood != null) { Art(mood.art, 30.dp); Spacer(Modifier.width(4.dp)) }
             if (mine) Box {
-                Box(Modifier.size(40.dp).pressable(haptic = false) { menu = true }, contentAlignment = Alignment.Center) {
+                Box(Modifier.size(36.dp).pressable(haptic = false) { menu = true }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.MoreHoriz, "More", tint = c.secondary)
                 }
                 DropdownMenu(menu, { menu = false }, containerColor = c.sheet) {
-                    DropdownMenuItem(
-                        text = { Text("Edit") }, leadingIcon = { Icon(Icons.Filled.Edit, null, tint = c.secondary) },
-                        onClick = { menu = false; onEdit() },
-                    )
+                    DropdownMenuItem(text = { Text("Edit") }, leadingIcon = { Icon(Icons.Filled.Edit, null, tint = c.secondary) }, onClick = { menu = false; onEdit() })
                     DropdownMenuItem(text = { Text("Delete", color = c.danger) }, onClick = { menu = false; onDelete() })
                 }
             }
         }
 
-        // pictures
         if (e.images.isNotEmpty()) {
-            val pager = rememberPagerState { e.images.size }
-            Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f)) {
-                HorizontalPager(pager, Modifier.fillMaxSize(), pageSpacing = 4.dp) { page ->
-                    AsyncImage(
-                        model = repo.diaryImageUrl(e.images[page]), contentDescription = "Photo ${page + 1}",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().background(c.separator).pressable(haptic = false) { onOpenImage(page) },
-                    )
-                }
-                if (e.images.size > 1) {
-                    Text(
-                        "${pager.currentPage + 1}/${e.images.size}", style = Type.caption, color = Color.White,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).clip(RoundedCornerShape(50)).background(Color(0x99000000)).padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                    Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        repeat(e.images.size) { i ->
-                            Box(Modifier.size(if (i == pager.currentPage) 8.dp else 6.dp).clip(CircleShape).background(Color.White.copy(alpha = if (i == pager.currentPage) 1f else .55f)))
-                        }
-                    }
-                }
-            }
             Spacer(Modifier.height(12.dp))
+            PhotoMosaic(e.images, onOpenImage)
         }
 
-        // rating
-        if (e.rating != null) {
-            Row(Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                HeartRating(e.rating, size = 18.dp)
-                Spacer(Modifier.width(8.dp))
-                Text(ratingLabel(e.rating), style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
-            }
-        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            e.text,
+            style = if (short) Type.title.copy(fontSize = 20.sp, lineHeight = 27.sp, fontWeight = FontWeight.Normal) else Type.body,
+            color = c.label,
+        )
 
-        // text + chips (mood, what you did)
-        Text(e.text, style = Type.body, color = c.label, modifier = Modifier.padding(horizontal = 16.dp))
-        val mood = Mood.from(e.mood)
-        val type = DateType.from(e.dateType)
-        if (mood != null || type != null || e.placeName != null) {
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.padding(horizontal = 14.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                e.placeName?.let { n ->
-                    Row(Modifier.clip(RoundedCornerShape(50)).background(c.special.copy(alpha = .16f)).padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Place, null, tint = c.special, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text(n, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 1)
-                    }
+        if (e.rating != null || mood != null || type != null || e.placeName != null) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (e.rating != null) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 4.dp)) {
+                    HeartRating(e.rating, size = 15.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(ratingLabel(e.rating), style = Type.caption.copy(fontWeight = FontWeight.Medium), color = c.accent)
                 }
-                type?.let { t ->
-                    Row(Modifier.clip(RoundedCornerShape(50)).background(c.accent.copy(alpha = .14f)).padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(t.emoji, style = Type.caption)
-                        Spacer(Modifier.width(6.dp))
-                        Text(t.label, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.label)
-                    }
-                }
-                mood?.let { m ->
-                    Row(Modifier.clip(RoundedCornerShape(50)).background(m.tint.copy(alpha = .16f)).padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Art(m.art, 28.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Feeling ${m.label.lowercase()}", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.label)
-                    }
-                }
+                e.placeName?.let { NoteTag(it, Icons.Filled.Place, c.special) }
+                type?.let { NoteTag(it.label) }
+                mood?.let { NoteTag("Feeling ${it.label.lowercase()}") }
             }
         }
-        ReactionBar(e.reactions, meId, canReact = !mine, onReact = onReact, modifier = Modifier.padding(horizontal = 14.dp).padding(top = 10.dp))
+        ReactionBar(e.reactions, meId, canReact = !mine, onReact = onReact, modifier = Modifier.padding(top = 10.dp))
     }
 }
 

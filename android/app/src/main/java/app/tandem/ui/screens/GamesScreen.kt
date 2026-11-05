@@ -84,7 +84,7 @@ fun GamesScreen(vm: AppViewModel) {
         when {
             r == "recent" -> RecentPage(me, partner, g, nav)
             r == "goals" -> GoalsPage(vm, me, partner, g, nav)
-            r == "stats" -> StatsPage(me, partner, stats, nav)
+            r == "stats" -> StatsPage(me, partner, stats, g, nav)
             r.startsWith("game:") -> {
                 val game = MiniGame.from(r.removePrefix("game:"))
                 if (game != null) GamePage(vm, game, me, partner, g, stats, nav) else PlayHome(vm, me, partner, g, stats, nav)

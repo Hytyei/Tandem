@@ -13,6 +13,13 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.SportsEsports
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -394,68 +401,87 @@ private fun ActivityPicker(selected: Activity?, onSelect: (Activity) -> Unit) {
 }
 
 // ================================================================== you vs your partner (home)
-/** What each of you is into right now and today's meters, head to head. Tap the card for their page, or "Edit mine" to update yours. */
+private fun kindIcon(k: NowKind): androidx.compose.ui.graphics.vector.ImageVector = when (k) {
+    NowKind.Series -> Icons.Outlined.Tv
+    NowKind.Movie -> Icons.Outlined.Movie
+    NowKind.Playing -> Icons.Outlined.SportsEsports
+    NowKind.Reading -> Icons.AutoMirrored.Outlined.MenuBook
+    NowKind.Obsessed -> Icons.Outlined.MusicNote
+}
+
+/**
+ * What each of you is into right now and today's meters. The picks are a row of posters and covers (the richest
+ * thing on the page, so the rest stays quiet); the meters sit underneath, head to head.
+ */
 @Composable
 private fun PartnerSnapshot(me: User, partner: User, onOpen: () -> Unit, onEdit: () -> Unit) {
     val c = T.colors
     val name = partner.displayName.substringBefore(' ')
-    val kinds = NowKind.entries.filter { me.profile.nowText(it.key).isNotBlank() || partner.profile.nowText(it.key).isNotBlank() }
+    val picks = NowKind.entries.flatMap { k -> listOf(me to k, partner to k) }.filter { (u, k) -> u.profile.nowText(k.key).isNotBlank() }
+    val missingMine = NowKind.entries.filter { me.profile.nowText(it.key).isBlank() }
     val hasMeters = Meter.entries.any { it.key in me.profile.meters || it.key in partner.profile.meters }
-    SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().pressable(onClick = onOpen)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(partner, 34.dp, ring = c.partner)
-            Spacer(Modifier.width(10.dp))
-            Text("You vs $name", style = Type.headline, color = c.label, modifier = Modifier.weight(1f), maxLines = 1)
-            Text("Their page  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
+    val shape = RoundedCornerShape(26.dp)
+    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(shape).background(c.card).border(1.dp, Color.White.copy(alpha = .07f), shape).padding(vertical = 18.dp)) {
+        Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Avatar(me, 30.dp, ring = c.me)
+            Box(Modifier.offset(x = (-8).dp)) { Avatar(partner, 30.dp, ring = c.partner) }
+            Text("You and $name", style = Type.title, color = c.label, modifier = Modifier.weight(1f), maxLines = 1)
+            Text("Their page", style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = c.accent, modifier = Modifier.pressable(haptic = false, onClick = onOpen))
         }
-        if (kinds.isEmpty() && !hasMeters) {
-            Text("Nothing here yet. Add what you're watching, playing, reading or listening to, and your meters, and $name sees it right here.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 10.dp))
+        if (picks.isEmpty() && !hasMeters) {
+            Text("Add what you're watching, playing, reading or listening to, and your meters, and $name sees it right here.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(horizontal = 18.dp).padding(top = 10.dp))
         }
-        if (kinds.isNotEmpty()) {
-            Text("RIGHT NOW", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
-            kinds.forEach { k ->
-                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    Text("${k.emoji}  ${k.label}", style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(5.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NowCard(Modifier.weight(1f), me, k, c.me, mine = true, onAdd = onEdit)
-                        NowCard(Modifier.weight(1f), partner, k, c.partner, mine = false, onAdd = onOpen)
-                    }
-                }
+        if (picks.isNotEmpty() || missingMine.isNotEmpty()) {
+            Text("Into right now", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(horizontal = 18.dp).padding(top = 16.dp, bottom = 10.dp))
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(picks.size) { i -> val (u, k) = picks[i]; PosterCard(u, k, if (u.id == me.id) c.me else c.partner, onClick = if (u.id == me.id) onEdit else onOpen) }
+                if (missingMine.isNotEmpty()) item { AddPickCard(onEdit) }
             }
         }
         if (hasMeters) {
-            Text("METERS", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
-            MetersVs(me, partner)
+            HorizontalDivider(color = Color.White.copy(alpha = .06f), modifier = Modifier.padding(horizontal = 18.dp).padding(top = 20.dp, bottom = 16.dp))
+            Row(Modifier.padding(horizontal = 18.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("You", style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = c.me, modifier = Modifier.weight(1f))
+                Text("Meters", style = Type.footnote, color = c.secondary)
+                Text(name, style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = c.partner, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1)
+            }
+            Box(Modifier.padding(horizontal = 18.dp)) { MetersVs(me, partner) }
         }
-        Spacer(Modifier.height(12.dp))
-        SoftButton("Edit mine", onClick = onEdit, modifier = Modifier.fillMaxWidth())
+        Box(Modifier.padding(horizontal = 18.dp).padding(top = 18.dp)) { SoftButton("Edit mine", onClick = onEdit, modifier = Modifier.fillMaxWidth()) }
     }
 }
 
-/** One person's pick for one slot: poster or cover, title, what it is. Empty slots invite you to add yours. */
+/** One pick as a poster: the cover fills the card, the title sits on a soft shade at the bottom, the owner's face in the corner. */
 @Composable
-private fun NowCard(modifier: Modifier, user: User, kind: NowKind, tone: androidx.compose.ui.graphics.Color, mine: Boolean, onAdd: () -> Unit) {
+private fun PosterCard(user: User, kind: NowKind, tone: Color, onClick: () -> Unit) {
     val c = T.colors
     val text = user.profile.nowText(kind.key)
     val info = user.profile.mediaFor(kind.key)
-    val shape = RoundedCornerShape(16.dp)
-    if (text.isBlank()) {
-        Box(modifier.heightIn(min = 70.dp).clip(shape).background(c.separator.copy(alpha = .08f)).let { if (mine) it.pressable(haptic = false, onClick = onAdd) else it }, contentAlignment = Alignment.Center) {
-            Text(if (mine) "+ Add yours" else "–", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = if (mine) c.accent else c.tertiary)
+    val shape = RoundedCornerShape(18.dp)
+    Box(Modifier.width(118.dp).height(176.dp).clip(shape).background(c.cardRaised).border(1.dp, Color.White.copy(alpha = .08f), shape).pressable(haptic = false, onClick = onClick)) {
+        if (info != null && info.img.isNotBlank()) AsyncImage(model = info.img, contentDescription = info.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        else Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(tone.copy(alpha = .38f), tone.copy(alpha = .08f)))), contentAlignment = Alignment.Center) {
+            Icon(kindIcon(kind), null, tint = Color.White.copy(alpha = .8f), modifier = Modifier.size(34.dp).offset(y = (-18).dp))
         }
-        return
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE0120D34)), startY = 160f)))
+        Box(Modifier.align(Alignment.TopStart).padding(8.dp)) { Avatar(user, 22.dp, ring = tone) }
+        Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
+            Text(kind.short, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = Color.White.copy(alpha = .72f))
+            Text(info?.title?.ifBlank { null } ?: text, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
-    Row(modifier.heightIn(min = 70.dp).clip(shape).background(tone.copy(alpha = .10f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (info != null && info.img.isNotBlank()) AsyncImage(
-            model = info.img, contentDescription = info.title, contentScale = ContentScale.Crop,
-            modifier = Modifier.width(42.dp).height(60.dp).clip(RoundedCornerShape(8.dp)).background(c.separator),
-        ) else Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(tone.copy(alpha = .18f)), contentAlignment = Alignment.Center) { Text(kind.emoji, fontSize = 20.sp) }
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(info?.title?.ifBlank { null } ?: text, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val sub = info?.sub?.takeIf { it.isNotBlank() }
-            if (sub != null) Text(sub, style = Type.caption.copy(fontSize = 11.sp), color = c.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
+}
+
+@Composable
+private fun AddPickCard(onClick: () -> Unit) {
+    val c = T.colors
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        Modifier.width(118.dp).height(176.dp).clip(shape).border(1.dp, Color.White.copy(alpha = .14f), shape).pressable(haptic = false, onClick = onClick).padding(12.dp),
+        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(Icons.Filled.Add, null, tint = c.accent, modifier = Modifier.size(26.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("Add what you're into", style = Type.footnote, color = c.secondary, textAlign = TextAlign.Center)
     }
 }

@@ -7,6 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,7 +73,7 @@ fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
     var showDates by rememberSaveable { mutableStateOf(true) }
     var styleName by rememberSaveable { mutableStateOf(MapStyle.Chart.name) }
     val mapStyle = MapStyle.valueOf(styleName)
-    var listMode by rememberSaveable { mutableIntStateOf(0) }
+    var catFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var showAdd by remember { mutableStateOf(false) }
     var addAt by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var editing by remember { mutableStateOf<Place?>(null) }
@@ -231,43 +235,64 @@ fun HeatmapScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
             }
         }
 
-        // ---------- numbers
+        // ---------- the numbers, and where your visits go
         if (list.isNotEmpty()) item {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NumberChip(Modifier.weight(1f), "${list.size}", if (list.size == 1) "place" else "places", c.accent)
-                NumberChip(Modifier.weight(1f), "${list.sumOf { it.visits }}", "visits", c.me)
-                NumberChip(Modifier.weight(1f), overall?.let { one(it) } ?: "–", "avg rating", c.special)
+            val shape = RoundedCornerShape(24.dp)
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth().clip(shape).background(c.card).border(1.dp, Color.White.copy(alpha = .07f), shape).padding(18.dp)) {
+                Row(Modifier.fillMaxWidth()) {
+                    Figure(Modifier.weight(1f), "${list.size}", if (list.size == 1) "place" else "places")
+                    Figure(Modifier.weight(1f), "${list.sumOf { it.visits }}", "visits")
+                    Figure(Modifier.weight(1f), overall?.let { one(it) } ?: "–", "avg rating")
+                }
+                val byCat = PlaceCategory.entries.map { cat -> cat to list.filter { PlaceCategory.from(it.category) == cat }.sumOf { it.visits } }.filter { it.second > 0 }.sortedByDescending { it.second }
+                val total = byCat.sumOf { it.second }.coerceAtLeast(1)
+                Text("Where you go", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+                Row(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(50)), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    byCat.forEach { (cat, n) -> Box(Modifier.weight(n.toFloat()).fillMaxHeight().background(cat.tint)) }
+                }
+                FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    byCat.take(6).forEach { (cat, n) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(cat.tint))
+                            Spacer(Modifier.width(6.dp))
+                            Text("${cat.label} ${n * 100 / total}%", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary)
+                        }
+                    }
+                }
             }
         }
 
         // ---------- live-tracked dates
         item { TripsCard(vm, tripActions) { t -> vm.openTrip(t.id) } }
 
-        // ---------- lists
+        // ---------- your favourites: the best rated, large
+        val ranked = list.filter { it.count > 0 }.sortedWith(compareByDescending<Place> { it.avg ?: 0.0 }.thenByDescending { it.count }.thenByDescending { it.visits })
+        if (ranked.isNotEmpty()) {
+            item { SectionHeader("Your favourites") }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(ranked.take(5).size) { i -> FavouriteCard(ranked[i], i + 1) { detailId = ranked[i].id } }
+                }
+            }
+        }
+
+        // ---------- every place, as tiles you can filter by kind
         if (list.isNotEmpty()) {
-            item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { Segmented(listOf("By category", "Top rated"), listMode, { listMode = it }) } }
-            if (listMode == 1) {
-                val ranked = list.filter { it.count > 0 }.sortedWith(compareByDescending<Place> { it.avg ?: 0.0 }.thenByDescending { it.count }.thenByDescending { it.visits })
-                val unrated = list.filter { it.count == 0 }.sortedByDescending { it.visits }
-                if (ranked.isEmpty()) item { EmptyState("No reviews yet", "Open a place and give it 1–5 stars. Places are ranked by the average of your two reviews.") }
-                else {
-                    item { SectionHeader("Ranked by your reviews") }
-                    items(ranked.size, key = { "r-" + ranked[it].id }) { i ->
-                        PlaceRow(ranked[i], me, partner, rank = i + 1) { detailId = ranked[i].id }
-                    }
+            val cats = PlaceCategory.entries.filter { cat -> list.any { PlaceCategory.from(it.category) == cat } }
+            item { SectionHeader("All places") }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { FilterPill("All", null, catFilter == null) { catFilter = null } }
+                    items(cats.size) { i -> val cat = cats[i]; FilterPill(cat.label, cat.tint, catFilter == cat.key) { catFilter = if (catFilter == cat.key) null else cat.key } }
                 }
-                if (unrated.isNotEmpty()) {
-                    item { SectionHeader("Not rated yet") }
-                    items(unrated.size, key = { "u-" + unrated[it].id }) { i -> PlaceRow(unrated[i], me, partner, rank = null) { detailId = unrated[i].id } }
-                }
-            } else {
-                PlaceCategory.entries.forEach { cat ->
-                    val inCat = list.filter { PlaceCategory.from(it.category) == cat }
-                        .sortedWith(compareByDescending<Place> { it.avg ?: -1.0 }.thenByDescending { it.visits })
-                    if (inCat.isNotEmpty()) {
-                        item(key = "h-" + cat.key) { SectionHeader("${cat.emoji}  ${cat.label} · ${inCat.size}") }
-                        items(inCat.size, key = { "c-" + inCat[it].id }) { i -> PlaceRow(inCat[i], me, partner, rank = null) { detailId = inCat[i].id } }
-                    }
+            }
+            val shown = list.filter { catFilter == null || PlaceCategory.from(it.category).key == catFilter }
+                .sortedWith(compareByDescending<Place> { it.avg ?: -1.0 }.thenByDescending { it.visits })
+            val rows = shown.chunked(2)
+            items(rows.size, key = { "pr-" + rows[it].first().id }) { r ->
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    rows[r].forEach { p -> PlaceTile(Modifier.weight(1f), p) { detailId = p.id } }
+                    if (rows[r].size == 1) Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -302,11 +327,76 @@ private fun MapButton(icon: ImageVector, desc: String, on: Boolean = false, onCl
 }
 
 @Composable
-private fun NumberChip(modifier: Modifier, value: String, label: String, tint: Color) {
+private fun Figure(modifier: Modifier, value: String, label: String) {
     val c = T.colors
-    Column(modifier.clip(RoundedCornerShape(18.dp)).background(tint.copy(alpha = .12f)).padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = Type.title, color = tint)
-        Text(label, style = Type.caption, color = c.secondary)
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = Type.title.copy(fontSize = 24.sp, fontFeatureSettings = "tnum"), color = c.label)
+        Text(label, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary)
+    }
+}
+
+@Composable
+private fun FilterPill(label: String, tint: Color?, on: Boolean, onClick: () -> Unit) {
+    val c = T.colors
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(if (on) Color.White.copy(alpha = .14f) else c.card)
+            .border(1.dp, if (on) Color.White.copy(alpha = .3f) else Color.White.copy(alpha = .07f), RoundedCornerShape(50))
+            .pressable(haptic = false, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (tint != null) { Box(Modifier.size(8.dp).clip(CircleShape).background(tint)); Spacer(Modifier.width(7.dp)) }
+        Text(label, style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = if (on) c.label else c.secondary, maxLines = 1)
+    }
+}
+
+/** A favourite place, large: its rank in serif, lit in its category's colour, with the rating and how often you went. */
+@Composable
+private fun FavouriteCard(p: Place, rank: Int, onClick: () -> Unit) {
+    val c = T.colors
+    val cat = PlaceCategory.from(p.category)
+    val shape = RoundedCornerShape(22.dp)
+    Column(
+        Modifier.width(168.dp).height(196.dp).clip(shape).background(c.card)
+            .drawBehind { drawCircle(Brush.radialGradient(listOf(cat.tint.copy(alpha = .38f), Color.Transparent), center = Offset(size.width * .85f, 0f), radius = size.width), size.width, Offset(size.width * .85f, 0f)) }
+            .border(1.dp, cat.tint.copy(alpha = .25f), shape).pressable(haptic = false, onClick = onClick).padding(16.dp),
+    ) {
+        Text("$rank", style = Type.numberHuge.copy(fontSize = 44.sp, lineHeight = 46.sp), color = if (rank == 1) Color(0xFFFFD58A) else c.label)
+        Spacer(Modifier.weight(1f))
+        Text(cat.label, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary, maxLines = 1)
+        Text(p.name, style = Type.title.copy(fontSize = 18.sp, lineHeight = 22.sp), color = c.label, maxLines = 2)
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            StarRating(p.avg, size = 12.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(one(p.avg ?: 0.0) + " · ${p.visits}×", style = Type.caption.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = "tnum"), color = c.secondary)
+        }
+    }
+}
+
+/** One place in the grid: a glass tile with a faint glow in its category's colour. */
+@Composable
+private fun PlaceTile(modifier: Modifier, p: Place, onClick: () -> Unit) {
+    val c = T.colors
+    val cat = PlaceCategory.from(p.category)
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier.height(132.dp).clip(shape).background(c.card)
+            .drawBehind { drawCircle(Brush.radialGradient(listOf(cat.tint.copy(alpha = .22f), Color.Transparent), center = Offset(0f, 0f), radius = size.width * .9f), size.width * .9f, Offset.Zero) }
+            .border(1.dp, Color.White.copy(alpha = .07f), shape).pressable(haptic = false, onClick = onClick).padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(cat.tint))
+            Spacer(Modifier.width(6.dp))
+            Text(cat.label, style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary, maxLines = 1)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(p.name, style = Type.callout.copy(fontWeight = FontWeight.Medium), color = c.label, maxLines = 2)
+        Spacer(Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (p.count > 0) { StarRating(p.avg, size = 11.dp); Spacer(Modifier.width(6.dp)); Text(one(p.avg ?: 0.0), style = Type.caption.copy(fontFeatureSettings = "tnum"), color = c.label) }
+            else Text("Not rated", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
+            Spacer(Modifier.weight(1f))
+            Text("${p.visits}×", style = Type.caption.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = "tnum"), color = c.secondary)
+        }
     }
 }
 
@@ -314,40 +404,6 @@ private fun NumberChip(modifier: Modifier, value: String, label: String, tint: C
 private fun CategoryTile(cat: PlaceCategory, size: Dp) {
     Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(cat.tint.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
         Text(cat.emoji, fontSize = (size.value * 0.5f).sp)
-    }
-}
-
-@Composable
-private fun PlaceRow(p: Place, me: User, partner: User?, rank: Int?, onClick: () -> Unit) {
-    val c = T.colors
-    val cat = PlaceCategory.from(p.category)
-    val mine = p.reviewOf(me.id)?.rating
-    val theirs = partner?.let { p.reviewOf(it.id)?.rating }
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.card).pressable(onClick = onClick).padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (rank != null) {
-            val medal = when (rank) { 1 -> Color(0xFFFFC857); 2 -> Color(0xFFC0C6D4); 3 -> Color(0xFFD99A6C); else -> c.separator.copy(alpha = .3f) }
-            Box(Modifier.size(34.dp).clip(CircleShape).background(medal), contentAlignment = Alignment.Center) {
-                Text("$rank", style = Type.callout.copy(fontWeight = FontWeight.Bold), color = if (rank <= 3) Color(0xFF3A2A00) else c.label)
-            }
-            Spacer(Modifier.width(8.dp))
-        }
-        CategoryTile(cat, 42.dp)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(p.name, style = Type.headline, color = c.label, maxLines = 1)
-            val sub = buildString {
-                append(cat.label); append(" · "); append(p.visits); append(if (p.visits == 1) " visit" else " visits")
-                if (mine != null || theirs != null) { append(" · You ${mine ?: "–"}"); if (partner != null) append(", ${partner.displayName.substringBefore(' ')} ${theirs ?: "–"}") }
-            }
-            Text(sub, style = Type.caption, color = c.secondary, maxLines = 2)
-        }
-        if (p.count > 0) Column(horizontalAlignment = Alignment.End) {
-            Text(one(p.avg ?: 0.0), style = Type.title, color = c.special)
-            StarRating(p.avg, size = 11.dp)
-        } else Text("Rate", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
     }
 }
 

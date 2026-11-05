@@ -55,6 +55,8 @@ internal fun planetSeed(created: String) = (created.hashCode() and 0x7FFFFFFF) %
 internal fun PlanetView(look: PlanetLook, modifier: Modifier, showSuns: Boolean = true) {
     var t by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) { val start = withFrameMillis { it }; while (true) { val now = withFrameMillis { it }; t = (now - start) / 1000f } }
+    // the surface map takes a moment to make, so it is made off the main thread; a plain sea shows until then
+    LaunchedEffect(look) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { PlanetSurface.prepare(look) } } }
     // a drawing problem must never take the whole app down: skip the frame instead
     Canvas(modifier) { drawIntoCanvas { runCatching { PlanetPainter.draw(it.nativeCanvas, size.width, size.height, look, t, showSuns) } } }
 }
