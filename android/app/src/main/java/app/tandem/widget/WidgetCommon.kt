@@ -45,7 +45,7 @@ val RESPONSIVE: SizeMode = SizeMode.Exact
 /** The four widget types. [receiver] is the broadcast receiver class the home screen binds each one to. */
 enum class WidgetKind(val receiver: Class<*>) {
     Partner(PartnerMoodReceiver::class.java), Both(BothMoodReceiver::class.java), Diary(DiaryReceiver::class.java), Event(EventReceiver::class.java),
-    Planet(PlanetReceiver::class.java),
+    Planet(PlanetReceiver::class.java), Pets(PetReceiver::class.java),
 }
 
 /**
@@ -65,7 +65,8 @@ fun WidgetContentFor(kind: WidgetKind, data: WidgetData) {
         WidgetKind.Both -> BothContent(data)
         WidgetKind.Diary -> DiaryContent(data)
         WidgetKind.Event -> EventContent(data)
-        WidgetKind.Planet -> PlanetContent(data)
+        WidgetKind.Planet -> GalaxyContent(data)
+        WidgetKind.Pets -> PetContent(data)
     }
 }
 
@@ -77,7 +78,7 @@ object WidgetUpdater {
         for (kind in WidgetKind.entries) {
             val widget: GlanceAppWidget = when (kind) {
                 WidgetKind.Partner -> PartnerMoodWidget(); WidgetKind.Both -> BothMoodWidget()
-                WidgetKind.Diary -> DiaryWidget(); WidgetKind.Event -> EventWidget(); WidgetKind.Planet -> PlanetWidget()
+                WidgetKind.Diary -> DiaryWidget(); WidgetKind.Event -> EventWidget(); WidgetKind.Planet -> PlanetWidget(); WidgetKind.Pets -> PetWidget()
             }
             for (appWidgetId in awm.getAppWidgetIds(ComponentName(context, kind.receiver))) {
                 try { widget.update(context, glance.getGlanceIdBy(appWidgetId)) } catch (_: Exception) { }

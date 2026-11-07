@@ -45,15 +45,16 @@ interface TandemApi {
     @DELETE("events/{id}") suspend fun deleteEvent(@Path("id") id: String)
 
     @GET("sync") suspend fun sync(): SyncResponse
-    @GET("planet") suspend fun planet(@Query("tz") tzMinutes: Int): PlanetResponse
-    @POST("planet/name") suspend fun planetName(@Body b: PlanetNameBody): PlanetResponse
-    @POST("planet/terraform") suspend fun planetTerraform(@Body b: PlanetBiomeBody): PlanetResponse
-    @POST("planet/build") suspend fun planetBuild(@Body b: PlanetBuildBody): PlanetResponse
-    @POST("planet/repair") suspend fun planetRepair(@Body b: PlanetIdBody): PlanetResponse
-    @POST("planet/warm") suspend fun planetWarm(@Body b: PlanetEmptyBody = PlanetEmptyBody()): PlanetResponse
-    @POST("planet/spark") suspend fun planetSpark(@Body b: PlanetTextBody): PlanetResponse
-    @POST("planet/hibernate") suspend fun planetHibernate(@Body b: PlanetDaysBody): PlanetResponse
-    @POST("planet/wake") suspend fun planetWake(@Body b: PlanetEmptyBody = PlanetEmptyBody()): PlanetResponse
+    @GET("cosmos") suspend fun cosmos(@Query("tz") tzMinutes: Int): CosmosResponse
+    @POST("cosmos/pets/adopt") suspend fun petAdopt(@Query("tz") tzMinutes: Int, @Body b: AdoptBody): CosmosResponse
+    @POST("cosmos/pets/feed") suspend fun petFeed(@Query("tz") tzMinutes: Int, @Body b: PetBody): CosmosResponse
+    @POST("cosmos/pets/water") suspend fun petWater(@Query("tz") tzMinutes: Int, @Body b: PetBody): CosmosResponse
+    @POST("cosmos/pets/cuddle") suspend fun petCuddle(@Query("tz") tzMinutes: Int, @Body b: PetBody): CosmosResponse
+    @POST("cosmos/pets/pat") suspend fun petPat(@Query("tz") tzMinutes: Int, @Body b: PetBody): CosmosResponse
+    @POST("cosmos/pets/rename") suspend fun petRename(@Query("tz") tzMinutes: Int, @Body b: PetNameBody): CosmosResponse
+    @POST("cosmos/pets/release") suspend fun petRelease(@Query("tz") tzMinutes: Int, @Body b: PetBody): CosmosResponse
+    @POST("cosmos/galaxy/reroll") suspend fun galaxyReroll(@Query("tz") tzMinutes: Int, @Body b: CosmosEmptyBody = CosmosEmptyBody()): CosmosResponse
+    @POST("cosmos/galaxy/choose") suspend fun galaxyChoose(@Query("tz") tzMinutes: Int, @Body b: SeedBody): CosmosResponse
     @GET("stats") suspend fun statsDetail(@Query("tz") tzMinutes: Int): StatsDetail
     @GET("memories") suspend fun memories(@Query("date") today: String): Memories
 

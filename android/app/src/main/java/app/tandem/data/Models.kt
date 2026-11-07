@@ -136,7 +136,7 @@ data class SyncResponse(
     val stats: Stats? = null,
     val trip: Trip? = null,               // the live-tracked date that is in progress, if any
     val awaiting: List<AwaitingGame> = emptyList(),   // matches where it is the caller's turn (see AwaitingGame)
-    val planet: PlanetSummary? = null,   // the couple's planet as it was last seen
+    val cosmos: CosmosSummary? = null,   // pets and the galaxy as they were last seen
 )
 
 /** A running match the caller can play now. [partnerPlayed] = the partner already played this round, so the partner is waiting for you. */

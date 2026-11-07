@@ -5,6 +5,18 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "2.0.0", title = "v2.0.0 · Pets and your own galaxy", date = "2026-11-07",
+        items = listOf(
+            "Adopt a pet together: cats, dogs, hamsters, rabbits and parrots in 23 breeds, each in three coats. They breathe, blink and get up to their own little things: cats lick their paws and knead, dogs wag and pant, hamsters stuff their cheeks, rabbits hop, parrots bob and flap.",
+            "Everything you do in Tandem fills your own storage with food, drink and love. Feed, water and cuddle your pets from it, and give a free pat every half hour.",
+            "Pets have their own small voices (mute them on the pet page) and opinions, which they share in speech bubbles. They notice who looks after them more.",
+            "Up to three pets. The first is free; more pets cost stardust and get hungry faster. A neglected pet sulks, it never dies.",
+            "The planet is now a galaxy: tens of thousands of stars on black, unique to the two of you. Turn it with your finger and pinch to come closer.",
+            "Stardust comes from moods, notes, pictures, games, dates, streaks and milestones, and your galaxy grows with all of it. Spend a comet to re-roll it and choose between three new ones.",
+            "New home screen widget for your pets; the planet widget now shows your galaxy.",
+        ),
+    ),
+    ReleaseNotes(
         version = "1.9.1", title = "v1.9.1 · Orbit fix", date = "2026-11-05",
         items = listOf(
             "Orbit: taps after your first hit now count when the moon is in the light. The moon also speeds up as you go, as it was meant to.",

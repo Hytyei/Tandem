@@ -65,7 +65,7 @@ private fun greeting(): String = when (LocalTime.now().hour) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit, openPartnerPage: () -> Unit = {}, openPlanet: () -> Unit = {}) {
+fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit, openPartnerPage: () -> Unit = {}, openGalaxy: () -> Unit = {}, openPets: () -> Unit = {}) {
     val c = T.colors
     val s by vm.state.collectAsState()
     val data = s ?: return
@@ -122,8 +122,15 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
                 MiniStat(Modifier.weight(1f), Icons.Filled.CalendarMonth, st.activeDays.toLong(), "active days", c.special)
             }
 
-            // ---------- the planet the two of you keep alive
-            if (partner != null) PlanetCard(data.planet, me.id, partner.id, openPlanet, Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth().staggerIn(2))
+            // ---------- your pets and your galaxy
+            if (partner != null) app.tandem.ui.pets.PetsCard(
+                data.cosmos, me.displayName.substringBefore(' '), partner.displayName.substringBefore(' '), me.id, partner.id, openPets,
+                Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth().staggerIn(2),
+            )
+            if (partner != null) app.tandem.ui.galaxy.GalaxyCard(
+                data.cosmos?.seed, data.cosmos?.lifetime ?: 300, data.cosmos?.stardust ?: 0, data.cosmos?.comets ?: 0, openGalaxy,
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth().staggerIn(3),
+            )
 
             // ---------- Mood shares
             SectionHeader("Right now")

@@ -50,7 +50,7 @@ object Notifier {
     private const val ID_UPDATE = 1005
     private const val ID_TRIP = 1006
     private const val ID_GAME = 1007
-    private const val ID_PLANET = 1010
+    private const val ID_PET = 1010
     private const val ID_TEST = 1099
 
     fun enabled(context: Context) = NotificationManagerCompat.from(context).areNotificationsEnabled()
@@ -173,18 +173,22 @@ object Notifier {
             }
         }
         sp.edit().putStringSet("games_noticed", waitingKeys).apply()
-        // the planet: a spark from your partner, and the world getting worse (each announced once)
-        data.planet?.let { p ->
-            val sparked = partner.id in p.sparks && me !in p.sparks
-            if (sparked && !sp.getBoolean("planet_spark", false)) notes += Note(ID_PLANET, name, "Sent you a spark on ${p.name}. Send one back", "Today")
-            val rank = listOf("thriving", "dimming", "winter", "drift")
-            val now = rank.indexOf(p.stage); val before = rank.indexOf(sp.getString("planet_stage", "thriving"))
-            if (now > before) notes += Note(ID_PLANET + 1, p.name, when (p.stage) {
-                "dimming" -> "${p.quiet} quiet days. It's dimming. Share your moods to warm it"
-                "winter" -> "Winter has come after ${p.quiet} quiet days. It needs you both"
-                else -> "It's drifting from its suns. Each week of silence loses something for good"
+        // pets: one note when a pet starts needing you (each change announced once)
+        data.cosmos?.pets?.forEachIndexed { i, pet ->
+            val low = minOf(pet.hunger, pet.thirst, pet.love)
+            val need = when {
+                pet.mood == "sulking" -> "sulking"
+                low < 25 -> when (low) { pet.hunger -> "hungry"; pet.thirst -> "thirsty"; else -> "lonely" }
+                else -> ""
+            }
+            val key = "pet_need_${pet.id}"
+            if (need.isNotEmpty() && sp.getString(key, "") != need) notes += Note(ID_PET + i, pet.name, when (need) {
+                "sulking" -> "Is sulking. It's been a while. A cuddle would help"
+                "hungry" -> "Is hungry and would like you to know it"
+                "thirsty" -> "Is thirsty. The water bowl is very empty"
+                else -> "Misses you both. Come say hi"
             }, "Today")
-            sp.edit().putBoolean("planet_spark", sparked).putString("planet_stage", if (p.stage == "sleeping") "thriving" else p.stage).apply()
+            sp.edit().putString(key, need).apply()
         }
 
         for (n in notes) {

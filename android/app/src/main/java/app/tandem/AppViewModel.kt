@@ -251,18 +251,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun closeTrip() { tripDetail = null }
 
     /** Routes of finished dates, for the Heatmap. Fetched once per trip (a finished route never changes) and kept for the session. */
-    // ---- the couple's planet
-    var planet by mutableStateOf<PlanetResponse?>(null); private set
-    fun loadPlanet() { viewModelScope.launch { try { planet = repo.planet() } catch (e: AppException) { if (planet == null) toast(e.message ?: "Couldn't reach your planet") } } }
-    private fun planetRun(done: () -> Unit = {}, block: suspend () -> PlanetResponse) = busyRun(done) { planet = block(); runCatching { repo.refresh() } }
-    fun planetName(name: String, moonId: String? = null, done: () -> Unit = {}) = planetRun(done) { repo.planetName(name, moonId) }
-    fun planetTerraform(biome: String) = planetRun { repo.planetTerraform(biome) }
-    fun planetBuild(kind: String, done: () -> Unit = {}) = planetRun(done) { repo.planetBuild(kind) }
-    fun planetRepair(id: String) = planetRun { repo.planetRepair(id) }
-    fun planetWarm() = planetRun { repo.planetWarm() }
-    fun planetSpark(text: String, done: () -> Unit = {}) = planetRun(done) { repo.planetSpark(text) }
-    fun planetHibernate(days: Int, done: () -> Unit = {}) = planetRun(done) { repo.planetHibernate(days) }
-    fun planetWake() = planetRun { repo.planetWake() }
+    // ---- the couple's cosmos: pets and the galaxy
+    var cosmos by mutableStateOf<CosmosResponse?>(null); private set
+    fun loadCosmos() { viewModelScope.launch { try { cosmos = repo.cosmos() } catch (e: AppException) { if (cosmos == null) toast(e.message ?: "Couldn't reach your pets") } } }
+    /** Care is quick and frequent, so it doesn't block the screen; the pet reacts at once and the server catches up. */
+    private fun cosmosRun(done: (Boolean) -> Unit = {}, block: suspend () -> CosmosResponse) {
+        viewModelScope.launch {
+            try { cosmos = block(); done(true); runCatching { repo.refresh() } }
+            catch (e: AppException) { toast(e.message ?: "Something went wrong"); done(false) }
+        }
+    }
+    fun petAdopt(species: String, breed: String, coat: Int, name: String, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.petAdopt(species, breed, coat, name) }
+    fun petFeed(id: String, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.petFeed(id) }
+    fun petWater(id: String, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.petWater(id) }
+    fun petCuddle(id: String, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.petCuddle(id) }
+    fun petPat(id: String, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.petPat(id) }
+    fun petRename(id: String, name: String, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.petRename(id, name) }
+    fun petRelease(id: String, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.petRelease(id) }
+    fun galaxyReroll(done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.galaxyReroll() }
+    fun galaxyChoose(seed: Long, done: (Boolean) -> Unit = {}) = cosmosRun(done) { repo.galaxyChoose(seed) }
 
     var tripRoutes by mutableStateOf<Map<String, TripDetail>>(emptyMap()); private set
     private var loadingRoutes = false
@@ -410,7 +417,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             state.map { it?.couple?.partner?.id }.distinctUntilChanged().collect {
                 places = null; memories = null; stats = null; games = null
-                addresses = null; notes = null; period = null; trips = null; tripDetail = null; tripRoutes = emptyMap(); planet = null
+                addresses = null; notes = null; period = null; trips = null; tripDetail = null; tripRoutes = emptyMap(); cosmos = null
             }
         }
     }

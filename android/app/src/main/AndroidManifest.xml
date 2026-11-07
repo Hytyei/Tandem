@@ -56,6 +56,10 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_planet" />
         </receiver>
+        <receiver android:name=".widget.PetReceiver" android:exported="true" android:label="@string/widget_pets_label">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_pets" />
+        </receiver>
 
         <!-- Live-tracked dates: only runs after you start or join one, with a persistent notification -->
         <service android:name=".work.TrackingService" android:exported="false" android:foregroundServiceType="location" />

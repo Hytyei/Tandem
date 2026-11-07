@@ -175,6 +175,40 @@ ok("planet: one sleep a month", r.status === 409, r);
 r = await call("GET", "/sync", B);
 ok("planet: sync carries a summary", r.body.planet && r.body.planet.name === "Lumen" && r.body.planet.sparks.includes(aId), r.body.planet);
 
+// the couple's cosmos: pets and the galaxy
+r = await call("GET", "/cosmos?tz=210", A);
+ok("cosmos: made on first visit", r.status === 200 && r.body.cosmos.pets.length === 0 && r.body.cosmos.comets === 1 && r.body.me.food >= 5 && r.body.adoptCost === 0 && r.body.species.cat.includes("persian"), r.body);
+const dust0 = r.body.cosmos.stardust;
+r = await call("POST", "/cosmos/pets/adopt", A, { species: "cat", breed: "persian", name: "Mochi", coat: 2 });
+ok("cosmos: adopt the first pet for free", r.status === 200 && r.body.cosmos.pets.length === 1 && r.body.cosmos.pets[0].coat === 2 && r.body.cosmos.pets[0].mood === "happy" && r.body.adoptCost === 200, r.body);
+const petA = r.body.cosmos.pets[0].id;
+r = await call("POST", "/cosmos/pets/adopt", A, { species: "cat", breed: "dragon", name: "X" });
+ok("cosmos: unknown breed", r.status === 400, r);
+r = await call("POST", "/cosmos/pets/adopt", B, { species: "dog", breed: "shiba", name: "Kuma" });
+ok("cosmos: the second pet costs stardust", r.status === 409, r);
+const foodB = (await call("GET", "/cosmos", B)).body.me.food;
+r = await call("POST", "/cosmos/pets/feed", B, { petId: petA });
+ok("cosmos: feed from your own storage", r.status === 200 && r.body.me.food === foodB - 1 && r.body.cosmos.pets[0].bond[bId] > r.body.cosmos.pets[0].bond[aId], r.body);
+r = await call("POST", "/cosmos/pets/pat", A, { petId: petA });
+ok("cosmos: a free pat", r.status === 200 && r.body.cosmos.pets[0].patReadyAt > Date.now(), r.body);
+r = await call("POST", "/cosmos/pets/feed", A, { petId: "nope" });
+ok("cosmos: no such pet", r.status === 404, r);
+const loveA = (await call("GET", "/cosmos", A)).body.me.love;
+r = await call("POST", "/moods", A, { mood: "happy" });
+r = await call("GET", "/cosmos", A);
+ok("cosmos: sharing a mood earns stardust and fills storage", r.body.cosmos.stardust === dust0 + 3 && r.body.me.love === Math.min(99, loveA + 2), { s: r.body.cosmos.stardust, d0: dust0, me: r.body.me });
+r = await call("POST", "/cosmos/galaxy/reroll", B, {});
+ok("cosmos: re-roll spends a comet for three choices", r.status === 200 && r.body.cosmos.comets === 0 && r.body.cosmos.candidates.length === 3, r.body.cosmos);
+const pick = r.body.cosmos.candidates[2];
+r = await call("POST", "/cosmos/galaxy/choose", A, { seed: pick });
+ok("cosmos: keep one", r.status === 200 && r.body.cosmos.seed === pick && r.body.cosmos.candidates.length === 0, r.body.cosmos);
+r = await call("POST", "/cosmos/galaxy/reroll", B, {});
+ok("cosmos: no comet, no re-roll", r.status === 409, r);
+r = await call("POST", "/cosmos/pets/rename", B, { petId: petA, name: "Mochi Jr" });
+ok("cosmos: rename", r.status === 200 && r.body.cosmos.pets[0].name === "Mochi Jr", r);
+r = await call("GET", "/sync", B);
+ok("cosmos: sync carries a summary", r.body.cosmos && r.body.cosmos.pets.length === 1 && r.body.cosmos.seed === pick, r.body.cosmos);
+
 // removing a partner keeps history; a new partner starts blank; the same pair gets history back
 r = await call("POST", "/couple/leave", A);
 ok("A removes partner", r.status === 200, r);
@@ -194,7 +228,7 @@ r = await call("POST", "/couple", B); const code3 = r.body.inviteCode;
 r = await call("POST", "/couple/join", A, { code: code3 });
 ok("same pair reconnects", r.status === 200 && r.body.paired && r.body.partner.id === bId, r);
 r = await call("GET", "/sync", A);
-ok("history restored for the same pair", r.body.moods.length === 3 && r.body.diary.length === 2 && r.body.events.length === 4, { m: r.body.moods.length, d: r.body.diary.length, e: r.body.events.length });
+ok("history restored for the same pair", r.body.moods.length === 4 && r.body.diary.length === 2 && r.body.events.length === 4, { m: r.body.moods.length, d: r.body.diary.length, e: r.body.events.length });
 r = await call("GET", "/diary/image/" + picId, B);
 ok("pictures restored too", r.status === 200, r.status);
 

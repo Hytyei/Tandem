@@ -9,7 +9,7 @@
     "db:init": "wrangler d1 execute tandem --remote --file=schema.sql",
     "db:init:local": "wrangler d1 execute tandem --local --file=schema.sql",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-transform-types --experimental-sqlite --no-warnings test/smoke.mjs && node --experimental-transform-types --no-warnings test/planet.mjs"
+    "test": "node --experimental-transform-types --experimental-sqlite --no-warnings test/smoke.mjs && node --experimental-transform-types --no-warnings test/planet.mjs && node --experimental-transform-types --no-warnings test/cosmos.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",

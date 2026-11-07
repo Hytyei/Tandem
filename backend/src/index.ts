@@ -1,5 +1,6 @@
 // Tandem API — Cloudflare Worker + D1. No external dependencies.
 import * as Planet from "./planet.ts";
+import * as Cosmos from "./cosmos.ts";
 
 export interface Env {
   DB: D1Database;
@@ -874,6 +875,7 @@ async function sync(c: Ctx): Promise<Response> {
     stats,
     trip: await activeTrip(c.env, coupleId),
     planet: await planetSummary(c, coupleId),
+    cosmos: await cosmosSummary(c, coupleId),
   });
 }
 
@@ -2015,6 +2017,113 @@ const planetSpark = (c: Ctx) => planetAction(c, (s, today, _sh, b) => { Planet.s
 const planetHibernate = (c: Ctx) => planetAction(c, (s, today, _sh, b) => Planet.hibernate(s, Number(b.days), today));
 const planetWake = (c: Ctx) => planetAction(c, (s, today) => Planet.wake(s, today));
 
+
+// ------------------------------------------------------------- the couple's cosmos: pets and the galaxy (see src/cosmos.ts)
+const cosmosRand = () => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] / 4294967296; };
+
+/** Everything either of you did since [since], as cosmos events. */
+async function cosmosEvents(env: Env, coupleId: string, since: number): Promise<Cosmos.Event[]> {
+  const [moods, notes, pics, rounds, trips] = await Promise.all([
+    env.DB.prepare("SELECT user_id, created_at FROM moods WHERE couple_id = ? AND created_at > ?").bind(coupleId, since).all<any>(),
+    env.DB.prepare("SELECT user_id, created_at FROM diary WHERE couple_id = ? AND created_at > ?").bind(coupleId, since).all<any>(),
+    env.DB.prepare("SELECT user_id, created_at FROM diary_images WHERE couple_id = ? AND created_at > ?").bind(coupleId, since).all<any>(),
+    env.DB.prepare("SELECT s.user_id, s.created_at FROM game_scores s JOIN game_matches m ON m.id = s.match_id WHERE m.couple_id = ? AND s.created_at > ?").bind(coupleId, since).all<any>(),
+    env.DB.prepare("SELECT started_by, ended_at FROM trips WHERE couple_id = ? AND status = 'done' AND ended_at > ?").bind(coupleId, since).all<any>(),
+  ]);
+  const ev = (kind: Cosmos.Kind, rows: any[], user = "user_id", at = "created_at") => rows.map((r) => ({ kind, user: r[user], at: r[at] }));
+  return [...ev("mood", moods.results), ...ev("note", notes.results), ...ev("pic", pics.results), ...ev("round", rounds.results), ...ev("trip", trips.results, "started_by", "ended_at")];
+}
+
+async function cosmosTotals(env: Env, coupleId: string, anniversary: string | null) {
+  const t = await env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM moods WHERE couple_id = ?1) AS moods, (SELECT COUNT(*) FROM diary WHERE couple_id = ?1) AS notes, " +
+    "(SELECT COUNT(*) FROM trips WHERE couple_id = ?1 AND status = 'done') AS trips, " +
+    "(SELECT COUNT(*) FROM game_scores s JOIN game_matches m ON m.id = s.match_id WHERE m.couple_id = ?1) AS rounds"
+  ).bind(coupleId).first<any>();
+  const days = anniversary && isDate(anniversary) ? Math.max(0, Math.floor((now() - Date.parse(anniversary + "T00:00:00Z")) / 86_400_000)) : 0;
+  return { days, moods: t?.moods ?? 0, notes: t?.notes ?? 0, trips: t?.trips ?? 0, rounds: t?.rounds ?? 0 };
+}
+
+/** Loads the cosmos (making it the first time, carrying the planet's stardust), counts new activity, ages the pets, saves. */
+async function loadCosmos(c: Ctx): Promise<{ s: Cosmos.Cosmos; version: number; coupleId: string }> {
+  const coupleId = requireCouple(c.user);
+  const couple = await c.env.DB.prepare("SELECT user_a, user_b, anniversary FROM couples WHERE id = ?").bind(coupleId).first<any>();
+  if (!couple?.user_a || !couple?.user_b) throw new HttpError(409, "Pets and the galaxy need both of you");
+  const tzParam = parseInt(c.url.searchParams.get("tz") ?? "", 10);
+  const tz = Number.isFinite(tzParam) ? Math.max(-720, Math.min(840, tzParam)) : 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const row = await c.env.DB.prepare("SELECT state, version FROM cosmos WHERE couple_id = ?").bind(coupleId).first<any>();
+    let s: Cosmos.Cosmos; let version = 0;
+    if (row) { s = JSON.parse(row.state); version = row.version; }
+    else {
+      const planet = await c.env.DB.prepare("SELECT state FROM planets WHERE couple_id = ?").bind(coupleId).first<any>();
+      let carry = 0; try { carry = planet ? Math.max(0, Math.floor(JSON.parse(planet.state).stardust ?? 0)) : 0; } catch { carry = 0; }
+      s = Cosmos.newCosmos([couple.user_a, couple.user_b], now(), tz, carry, cosmosRand);
+    }
+    const t = now();
+    Cosmos.applyEvents(s, await cosmosEvents(c.env, coupleId, s.scannedAt));
+    Cosmos.applyMilestones(s, await cosmosTotals(c.env, coupleId, couple.anniversary), t);
+    Cosmos.tickPets(s, t);
+    if (!row) {
+      const ins = await c.env.DB.prepare("INSERT OR IGNORE INTO cosmos (couple_id, state, version, updated_at) VALUES (?,?,1,?)").bind(coupleId, JSON.stringify(s), t).run();
+      if (!ins.meta.changes) continue;
+      return { s, version: 1, coupleId };
+    }
+    const up = await c.env.DB.prepare("UPDATE cosmos SET state = ?, version = version + 1, updated_at = ? WHERE couple_id = ? AND version = ?").bind(JSON.stringify(s), t, coupleId, version).run();
+    if (!up.meta.changes) continue;
+    return { s, version: version + 1, coupleId };
+  }
+  throw new HttpError(409, "Your cosmos is busy, try again");
+}
+
+function cosmosJson(s: Cosmos.Cosmos, me: string) {
+  return {
+    cosmos: { ...s, counts: undefined, pets: s.pets.map((p) => ({ ...p, mood: Cosmos.mood(p), patReadyAt: (p.pats[me] ?? 0) + Cosmos.PAT_EVERY })) },
+    me: s.stores[me] ?? { food: 0, drink: 0, love: 0 },
+    species: Cosmos.SPECIES,
+    adoptCost: Cosmos.ADOPT_COST[s.pets.length] ?? null,
+    maxPets: Cosmos.MAX_PETS,
+  };
+}
+
+async function cosmosGet(c: Ctx): Promise<Response> {
+  const { s } = await loadCosmos(c);
+  return json(cosmosJson(s, c.user.id));
+}
+
+async function cosmosAction(c: Ctx, apply: (s: Cosmos.Cosmos, body: any) => void): Promise<Response> {
+  const body = await readJson(c.req);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { s, version, coupleId } = await loadCosmos(c);
+    try { apply(s, body); }
+    catch (e) { if (e instanceof Cosmos.CosmosError) throw new HttpError(e.status, e.message); throw e; }
+    const up = await c.env.DB.prepare("UPDATE cosmos SET state = ?, version = version + 1, updated_at = ? WHERE couple_id = ? AND version = ?").bind(JSON.stringify(s), now(), coupleId, version).run();
+    if (up.meta.changes) return json(cosmosJson(s, c.user.id));
+  }
+  throw new HttpError(409, "Your cosmos is busy, try again");
+}
+
+const petId = (b: any) => String(b?.petId ?? "");
+const cosmosAdopt = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.adopt(s, String(b.species ?? ""), String(b.breed ?? ""), str(b.name, "name", 1, 24), uid().slice(0, 12), now(), Number(b.coat ?? 0)));
+const cosmosFeed = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.feed(s, c.user.id, petId(b)));
+const cosmosWater = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.water(s, c.user.id, petId(b)));
+const cosmosCuddle = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.cuddle(s, c.user.id, petId(b)));
+const cosmosPat = (c: Ctx) => cosmosAction(c, (s, b) => { Cosmos.pat(s, c.user.id, petId(b), now()); });
+const cosmosRename = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.rename(s, petId(b), str(b.name, "name", 1, 24)));
+const cosmosRelease = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.release(s, petId(b), now()));
+const cosmosReroll = (c: Ctx) => cosmosAction(c, (s) => Cosmos.reroll(s, cosmosRand));
+const cosmosChoose = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.choose(s, Number(b.seed), now()));
+
+/** The cosmos for /sync: counted up at most every two minutes, since /sync runs often. */
+async function cosmosSummary(c: Ctx, coupleId: string) {
+  const row = await c.env.DB.prepare("SELECT state, updated_at FROM cosmos WHERE couple_id = ?").bind(coupleId).first<any>();
+  try {
+    // made on the first sync once you're both here, so Today shows your galaxy straight away
+    if (!row || now() - row.updated_at > 120_000) return Cosmos.summary((await loadCosmos(c)).s);
+    return Cosmos.summary(JSON.parse(row.state));
+  } catch { return null; }
+}
+
 // ------------------------------------------------------------- router
 type Handler = (c: Ctx) => Promise<Response>;
 const routes: { method: string; re: RegExp; h: Handler }[] = [];
@@ -2054,6 +2163,16 @@ route("POST", "/planet/warm", planetWarm);
 route("POST", "/planet/spark", planetSpark);
 route("POST", "/planet/hibernate", planetHibernate);
 route("POST", "/planet/wake", planetWake);
+route("GET", "/cosmos", cosmosGet);
+route("POST", "/cosmos/pets/adopt", cosmosAdopt);
+route("POST", "/cosmos/pets/feed", cosmosFeed);
+route("POST", "/cosmos/pets/water", cosmosWater);
+route("POST", "/cosmos/pets/cuddle", cosmosCuddle);
+route("POST", "/cosmos/pets/pat", cosmosPat);
+route("POST", "/cosmos/pets/rename", cosmosRename);
+route("POST", "/cosmos/pets/release", cosmosRelease);
+route("POST", "/cosmos/galaxy/reroll", cosmosReroll);
+route("POST", "/cosmos/galaxy/choose", cosmosChoose);
 route("POST", "/events", eventPost);
 route("PUT", "/events/:id", eventPut);
 route("DELETE", "/events/:id", eventDelete);
