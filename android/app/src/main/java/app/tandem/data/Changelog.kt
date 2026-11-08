@@ -5,6 +5,13 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "2.1.1", title = "v2.1.1 · Our little world", date = "2026-11-08",
+        items = listOf(
+            "Your pets and your galaxy now live together on Today, under your moods: the galaxy glows in the sky and your pets sit on a little hill beneath it.",
+            "Sleeping pets stay quiet instead of chatting in their sleep, and their little z's no longer sit on their ears.",
+        ),
+    ),
+    ReleaseNotes(
         version = "2.1.0", title = "v2.1.0 · Galaxy fix, new stats and achievements", date = "2026-11-08",
         items = listOf(
             "Your galaxy now shows on every phone (it could stay black on some), and it hangs in the app's own dusk sky instead of on plain black.",

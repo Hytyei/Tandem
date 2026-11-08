@@ -645,9 +645,10 @@ fun DrawScope.petZzz(t: Float, strength: Float, color: Color) {
     val u = size.minDimension / 100f
     for (i in 0 until 3) {
         val ph = (t * .3f + i / 3f) % 1f
-        val x = size.width / 2f + (16f + ph * 12f + i * 2f) * u
-        val y = size.height * .3f - ph * 20f * u
-        val s = (3f + ph * 3f) * u
+        // beside the head, clear of the ears, drifting up and away
+        val x = size.width / 2f + (30f + ph * 10f + i * 1.5f) * u
+        val y = size.height * .26f - ph * 16f * u
+        val s = (2.2f + ph * 2.4f) * u
         val a = sin(ph * 3.1416f) * strength
         drawPath(Path().apply { moveTo(x - s, y - s); lineTo(x + s, y - s); lineTo(x - s, y + s); lineTo(x + s, y + s) }, color.copy(alpha = a), style = Stroke(1.6f * u, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }

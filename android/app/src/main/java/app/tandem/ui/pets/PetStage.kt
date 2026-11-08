@@ -227,6 +227,7 @@ fun PetStage(
     night: Boolean = false,
     sketch: Boolean = true,
     voice: ((String) -> Unit)? = null,
+    onAsleep: ((Boolean) -> Unit)? = null,
     onTap: (() -> Unit)? = null,
 ) {
     val reduced = rememberReducedMotion()
@@ -235,7 +236,12 @@ fun PetStage(
     var t by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(life) {
         val start = withFrameNanos { it }
-        while (true) withFrameNanos { now -> t = (now - start) / 1e9f; life.step(t, mood, night, reduced) }
+        var wasAsleep = false
+        while (true) withFrameNanos { now ->
+            t = (now - start) / 1e9f; life.step(t, mood, night, reduced)
+            val asleep = life.asleep > .5f
+            if (asleep != wasAsleep) { wasAsleep = asleep; onAsleep?.invoke(asleep) }
+        }
     }
     LaunchedEffect(reaction?.id) { reaction?.let { life.react(it.kind, t) } }
     val tap = if (onTap != null) Modifier.pointerInput(life) { detectTapGestures { life.react("poke", t); onTap() } } else Modifier

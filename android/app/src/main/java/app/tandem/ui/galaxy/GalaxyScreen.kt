@@ -257,23 +257,3 @@ private fun EarnSheet(log: List<CosmosEntry>, onDismiss: () -> Unit) {
         }
     }
 }
-
-/** Today's galaxy card: the galaxy on black, how many stars, the wallet. */
-@Composable
-fun GalaxyCard(seed: Long?, lifetime: Int, stardust: Int, comets: Int, onOpen: () -> Unit, modifier: Modifier = Modifier) {
-    val c = T.colors
-    val shape = RoundedCornerShape(24.dp)
-    Box(
-        modifier.height(168.dp).clip(shape).background(Brush.verticalGradient(c.sky)).drawBehind { well(.9f) }
-            .border(1.dp, Color.White.copy(alpha = .08f), shape).pressable(haptic = false, onClick = onOpen),
-    ) {
-        if (seed != null) GalaxyThumb(seed, lifetime, Modifier.fillMaxHeight().aspectRatio(1f).align(Alignment.CenterEnd).padding(end = 4.dp), px = 360, yaw = 40f)
-        Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
-            Text("Your galaxy", style = Type.title, color = c.label)
-            Text(
-                if (seed == null) "Earn stardust to make it grow" else "${fmt(GalaxyGen.starsFor(GalaxyGen.growth(lifetime)))} stars · ${fmt(stardust)} stardust" + if (comets > 0) " · $comets ${if (comets == 1) "comet" else "comets"}" else "",
-                style = Type.footnote, color = c.secondary,
-            )
-        }
-    }
-}
