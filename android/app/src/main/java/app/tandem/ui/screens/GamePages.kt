@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -103,55 +104,57 @@ internal fun GamePage(vm: AppViewModel, game: MiniGame, me: User, partner: User,
             }
         }
 
-        // ---------- stats
-        item { SectionHeader("Stats") }
+        // ---------- head to head in this game
+        item { SectionHeader("Head to head") }
         item {
-            SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BestChip(Modifier.weight(1f), "Your best", mb?.best, c.me)
-                    BestChip(Modifier.weight(1f), "$pName's best", tb?.best, c.partner)
-                    BestChip(Modifier.weight(1f), "Together", if (mb == null && tb == null) null else (mb?.best ?: 0) + (tb?.best ?: 0), c.special)
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Text("You", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.me, modifier = Modifier.weight(1f))
-                    Text(pName, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.partner, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1)
-                }
-                StatRow("match wins", "$mw", "$tw")
-                StatRow("rounds played", "${mb?.plays ?: 0}", "${tb?.plays ?: 0}")
-                StatRow("average score", if (mb != null && mb.plays > 0) "${mb.total / mb.plays}" else "–", if (tb != null && tb.plays > 0) "${tb.total / tb.plays}" else "–")
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()) {
+                val lead = when { mw > tw -> "You lead by ${mw - tw}"; tw > mw -> "$pName leads by ${tw - mw}"; mw + tw == 0 -> "No finished matches yet"; else -> "All square" }
+                VersusHero(me, partner, mw, tw, 0, "match wins", footer = lead)
+            }
+        }
+        item {
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), title = "Side by side", sub = "You on the left, $pName on the right") {
+                fun f(v: Int?) = v?.toFloat() ?: 0f
+                val avgMe = mb?.takeIf { it.plays > 0 }?.let { it.total / it.plays }
+                val avgThem = tb?.takeIf { it.plays > 0 }?.let { it.total / it.plays }
+                DuelBar("best score", f(mb?.best), f(tb?.best), maxOf(f(mb?.best), f(tb?.best)), c.me, c.partner, mb?.best?.let { fmt(it) } ?: "–", tb?.best?.let { fmt(it) } ?: "–")
+                DuelBar("average score", f(avgMe), f(avgThem), maxOf(f(avgMe), f(avgThem)), c.me, c.partner, avgMe?.let { fmt(it) } ?: "–", avgThem?.let { fmt(it) } ?: "–")
+                DuelBar("rounds played", f(mb?.plays), f(tb?.plays), maxOf(f(mb?.plays), f(tb?.plays)), c.me, c.partner, "${mb?.plays ?: 0}", "${tb?.plays ?: 0}")
                 if ((mp?.n ?: 0) > 0 || (tp?.n ?: 0) > 0) {
-                    StatRow("fastest touch", ms(mp?.bestMs), ms(tp?.bestMs))
-                    StatRow("average reaction", ms(mp?.avgMs), ms(tp?.avgMs))
+                    val m1 = listOfNotNull(mp?.bestMs, tp?.bestMs, mp?.avgMs, tp?.avgMs).maxOrNull()?.toFloat() ?: 1f
+                    DuelBar("fastest touch", f(mp?.bestMs), f(tp?.bestMs), m1, c.me, c.partner, ms(mp?.bestMs), ms(tp?.bestMs))
+                    DuelBar("average reaction", f(mp?.avgMs), f(tp?.avgMs), m1, c.me, c.partner, ms(mp?.avgMs), ms(tp?.avgMs))
                 }
-                if ((mp?.hits ?: 0) + (mp?.misses ?: 0) > 0 || (tp?.hits ?: 0) + (tp?.misses ?: 0) > 0) StatRow("accuracy", acc(mp), acc(tp))
+                fun accF(p: PerfRow?) = if (p == null || p.hits + p.misses == 0) 0f else p.hits.toFloat() / (p.hits + p.misses)
+                if ((mp?.hits ?: 0) + (mp?.misses ?: 0) > 0 || (tp?.hits ?: 0) + (tp?.misses ?: 0) > 0) DuelBar("accuracy", accF(mp), accF(tp), 1f, c.me, c.partner, acc(mp), acc(tp))
             }
         }
 
         // ---------- your scores in this game, match by match
         val history = done.sortedBy { it.finishedAt }.takeLast(20)
         if (history.size >= 2) item {
-            ChartCard("Your scores over time", "The last ${history.size} matches of ${game.label}") {
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), title = "Scores over time", sub = "Your last ${history.size} matches of ${game.label}") {
                 DuoLines(history.map { m -> m.scoreOf(1, me.id)?.toFloat() }, history.map { m -> m.scoreOf(1, partner.id)?.toFloat() }, c.me, c.partner)
                 Spacer(Modifier.height(10.dp))
                 ChartLegend("You" to c.me, pName to c.partner)
             }
         }
 
-        // ---------- hall of fame
+        // ---------- hall of fame: the top three get a podium
         if (highs.isNotEmpty()) {
             item { SectionHeader("Hall of fame") }
             item {
-                SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
-                    highs.forEachIndexed { k, h ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("${k + 1}", style = Type.callout.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), color = if (k == 0) c.special else c.tertiary, modifier = Modifier.width(30.dp))
-                            Avatar(if (h.userId == me.id) me else partner, 26.dp, ring = if (h.userId == me.id) c.me else c.partner)
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (h.userId == me.id) "You" else pName, style = Type.callout, color = c.label, modifier = Modifier.weight(1f))
-                            Text(day(h.at), style = Type.caption, color = c.tertiary)
+                GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()) {
+                    Podium(highs.take(3).map { Triple(if (it.userId == me.id) me else partner, it.score, it.at) }, me)
+                    highs.drop(3).forEachIndexed { k, h ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${k + 4}", style = Type.footnote.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), color = c.tertiary, modifier = Modifier.width(28.dp))
+                            Avatar(if (h.userId == me.id) me else partner, 24.dp, ring = if (h.userId == me.id) c.me else c.partner)
                             Spacer(Modifier.width(10.dp))
-                            Text(fmt(h.score), style = Type.callout.copy(fontWeight = FontWeight.Bold), color = c.accent)
+                            Text(if (h.userId == me.id) "You" else pName, style = Type.callout, color = c.secondary, modifier = Modifier.weight(1f))
+                            Text(day(h.at), style = Type.footnote, color = c.tertiary)
+                            Spacer(Modifier.width(12.dp))
+                            Text(fmt(h.score), style = Type.callout.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), color = c.label)
                         }
                     }
                 }
@@ -220,12 +223,48 @@ internal fun RecentPage(me: User, partner: User, g: GamesResponse?, nav: PlayNav
 // ------------------------------------------------------------------ goals
 @Composable
 internal fun GoalsPage(vm: AppViewModel, me: User, partner: User, g: GamesResponse?, nav: PlayNav) {
+    val c = T.colors
     val goals = g?.goals.orEmpty()
+    val live = goals.filter { it.status != "settled" }.sortedBy { if (it.status == "won") 0 else 1 }
+    val settled = goals.filter { it.status == "settled" }.sortedByDescending { it.settledAt }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 130.dp)) {
-        item { PageHeader("Goals", "Put something on the line", nav.back) }
-        item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { PrimaryButton("New goal", onClick = nav.newGoal) } }
-        if (goals.isEmpty()) item { EmptyState("No goals yet", "Put something on the line: the first one to 3 match wins gets lunch paid by the other.") }
-        items(goals.size, key = { goals[it].id }) { i -> GoalCard(goals[i], me, partner, vm) }
+        item {
+            PageHeader("Goals", "Something on the line", nav.back) {
+                Box(Modifier.size(42.dp).clip(CircleShape).background(c.card).pressable(onClick = nav.newGoal), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Add, "New goal", tint = c.label, modifier = Modifier.size(22.dp))
+                }
+            }
+        }
+        if (g == null) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator(color = c.accent) } }
+        else if (goals.isEmpty()) item {
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), padding = 20.dp) {
+                Text("A race with stakes", style = Type.title, color = c.label)
+                Text("Pick what the loser owes, like dinner or the dishes, and how many match wins or points it takes. Every game you play counts toward it.", style = Type.callout, color = c.secondary, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
+                RaceTrack(me, partner, 2, 1, 3)
+                Spacer(Modifier.height(20.dp))
+                PrimaryButton("Set your first goal", onClick = nav.newGoal, color = LitIvory)
+            }
+        }
+        items(live.size, key = { live[it].id }) { i -> GoalCard(live[i], me, partner, vm) }
+        if (settled.isNotEmpty()) {
+            item { SectionHeader("Settled") }
+            item {
+                GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), padding = 16.dp) {
+                    val pName = partner.displayName.substringBefore(' ')
+                    settled.forEachIndexed { k, gl ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(if (gl.winnerId == me.id) me else partner, 26.dp, ring = if (gl.winnerId == me.id) c.me else c.partner)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(gl.title, style = Type.callout, color = c.label, maxLines = 1)
+                                Text("${if (gl.winnerId == me.id) "You" else pName} won · paid ${day(gl.settledAt)}", style = Type.footnote, color = c.tertiary)
+                            }
+                        }
+                        if (k < settled.lastIndex) androidx.compose.material3.HorizontalDivider(color = c.label.copy(alpha = .06f), modifier = Modifier.padding(start = 38.dp))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -252,76 +291,100 @@ internal fun StatsPage(me: User, partner: User, stats: GameStats, g: GamesRespon
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 130.dp)) {
         item { PageHeader("Stats", "You and $pName", nav.back) }
 
-        // ---------- who's winning: one ring, the score in the middle
+        // ---------- who's winning
         item {
-            ChartCard("Head to head", "${stats.done} matches played") {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    DuelRing(my.wins, th.wins, stats.draws, c.me, c.partner, "match wins")
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().staggerIn(0), padding = 20.dp) {
+                val streak = when {
+                    my.streak >= 2 -> "You have won ${my.streak} in a row"
+                    th.streak >= 2 -> "$pName has won ${th.streak} in a row"
+                    else -> "${stats.done} matches played" + if (stats.draws > 0) ", ${stats.draws} drawn" else ""
                 }
-                Spacer(Modifier.height(14.dp))
-                ChartLegend("You" to c.me, pName to c.partner, "Draws" to Color.White.copy(alpha = .3f), modifier = Modifier.align(Alignment.CenterHorizontally))
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    StatFigure(Modifier.weight(1f), "${my.streak}", "your streak", c.me)
-                    StatFigure(Modifier.weight(1f), "${my.bestStreak} · ${th.bestStreak}", "best streaks", c.label)
-                    StatFigure(Modifier.weight(1f), "${th.streak}", "$pName's streak", c.partner)
+                VersusHero(me, partner, my.wins, th.wins, stats.draws, "match wins", footer = streak)
+                Row(Modifier.fillMaxWidth().padding(top = 18.dp)) {
+                    Figure("${my.bestStreak}", "your best streak", Modifier.weight(1f))
+                    Figure("${th.bestStreak}", "best streak for $pName", Modifier.weight(1f), align = Alignment.End)
                 }
             }
         }
 
-        // ---------- the race over time: wins added up match by match
+        // ---------- the race over time
         if (done.size >= 2) item {
             var a = 0f; var b = 0f
             val mine = done.map { m -> if (m.winnerId == me.id) a++; a }
             val theirs = done.map { m -> if (m.winnerId == partner.id) b++; b }
-            ChartCard("The race", "Match wins added up, over your last ${done.size} matches") {
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().staggerIn(1), title = "The race", sub = "Match wins added up over your last ${done.size} matches") {
                 DuoLines(mine, theirs, c.me, c.partner)
                 Spacer(Modifier.height(10.dp))
                 ChartLegend("You" to c.me, pName to c.partner)
             }
         }
 
-        // ---------- points and rounds, side by side
-        item {
-            ChartCard("Points and rounds") {
-                val maxPts = maxOf(my.points, th.points).toFloat()
-                DuelBar("points", my.points.toFloat(), th.points.toFloat(), maxPts, c.me, c.partner, fmt(my.points), fmt(th.points))
-                DuelBar("rounds", my.rounds.toFloat(), th.rounds.toFloat(), maxOf(my.rounds, th.rounds).toFloat(), c.me, c.partner, "${my.rounds}", "${th.rounds}")
-            }
-        }
-
-        // ---------- speed and accuracy
+        // ---------- every comparison in one language
         val pa = stats.perf.filter { it.userId == me.id }; val pb = stats.perf.filter { it.userId == partner.id }
-        if (pa.isNotEmpty() || pb.isNotEmpty()) item {
+        item {
             fun fastest(rows: List<PerfRow>) = rows.filter { it.bestMs > 0 }.minOfOrNull { it.bestMs }
             fun avg(rows: List<PerfRow>): Int? { val n = rows.sumOf { it.n }; return if (n == 0) null else (rows.sumOf { it.avgMs.toLong() * it.n } / n).toInt() }
             fun accuracy(rows: List<PerfRow>): Float? { val h = rows.sumOf { it.hits }; val m = rows.sumOf { it.misses }; return if (h + m == 0) null else h.toFloat() / (h + m) }
-            ChartCard("Speed and accuracy", "Shorter bars are faster") {
-                val fa = fastest(pa); val fb = fastest(pb); val aa = avg(pa); val ab = avg(pb)
-                val maxMs = listOfNotNull(fa, fb, aa, ab).maxOrNull()?.toFloat() ?: 1f
-                DuelBar("fastest touch", (fa ?: 0).toFloat(), (fb ?: 0).toFloat(), maxMs, c.me, c.partner, ms(fa), ms(fb))
-                DuelBar("average reaction", (aa ?: 0).toFloat(), (ab ?: 0).toFloat(), maxMs, c.me, c.partner, ms(aa), ms(ab))
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RingGauge(accuracy(pa), c.me, "Your accuracy")
-                    RingGauge(accuracy(pb), c.partner, "$pName's accuracy")
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().staggerIn(2), title = "Side by side", sub = "Shorter is faster for reaction times") {
+                DuelBar("points", my.points.toFloat(), th.points.toFloat(), maxOf(my.points, th.points).toFloat(), c.me, c.partner, fmt(my.points), fmt(th.points))
+                DuelBar("rounds played", my.rounds.toFloat(), th.rounds.toFloat(), maxOf(my.rounds, th.rounds).toFloat(), c.me, c.partner, "${my.rounds}", "${th.rounds}")
+                if (pa.isNotEmpty() || pb.isNotEmpty()) {
+                    val fa = fastest(pa); val fb = fastest(pb); val aa = avg(pa); val ab = avg(pb)
+                    val maxMs = listOfNotNull(fa, fb, aa, ab).maxOrNull()?.toFloat() ?: 1f
+                    DuelBar("fastest touch", (fa ?: 0).toFloat(), (fb ?: 0).toFloat(), maxMs, c.me, c.partner, ms(fa), ms(fb))
+                    DuelBar("average reaction", (aa ?: 0).toFloat(), (ab ?: 0).toFloat(), maxMs, c.me, c.partner, ms(aa), ms(ab))
+                    val xa = accuracy(pa); val xb = accuracy(pb)
+                    DuelBar("accuracy", xa ?: 0f, xb ?: 0f, 1f, c.me, c.partner, xa?.let { "${(it * 100).toInt()}%" } ?: "–", xb?.let { "${(it * 100).toInt()}%" } ?: "–")
                 }
             }
         }
 
-        // ---------- wins by game
+        // ---------- by game: who wins what
         val played = MiniGame.playable.filter { gm -> stats.bests.any { it.game == gm.key } }
+        item { SectionHeader("By game") }
         item {
-            ChartCard("Wins by game", if (played.isEmpty()) "Play a game to see it here" else null) {
+            GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().staggerIn(3), padding = 16.dp) {
+                if (played.isEmpty()) Text("Play a game to see it here", style = Type.callout, color = c.secondary)
                 val wins = played.map { gm ->
                     Triple(gm, stats.gameWins.firstOrNull { it.game == gm.key && it.userId == me.id }?.n ?: 0, stats.gameWins.firstOrNull { it.game == gm.key && it.userId == partner.id }?.n ?: 0)
                 }.sortedByDescending { it.second + it.third }
-                val max = wins.maxOfOrNull { maxOf(it.second, it.third) }?.toFloat() ?: 1f
-                wins.forEach { (gm, a, b) ->
-                    Box(Modifier.pressable(haptic = false) { nav.open("game:${gm.key}") }) {
-                        DuelBar(gm.label, a.toFloat(), b.toFloat(), max, c.me, c.partner, "$a", "$b", leading = { GameMark(gm, 20.dp) })
+                wins.forEachIndexed { k, (gm, a, b) ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).pressable(haptic = false) { nav.open("game:${gm.key}") }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        GameMark(gm, 30.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(gm.label, style = Type.callout, color = c.label, maxLines = 1)
+                            SplitBar(a, b, 0, c.me, c.partner, Modifier.padding(top = 6.dp), height = 4.dp)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Text("$a – $b", style = Type.footnote.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), color = c.secondary, modifier = Modifier.width(52.dp), textAlign = TextAlign.End)
                     }
+                    if (k < wins.lastIndex) androidx.compose.material3.HorizontalDivider(color = c.label.copy(alpha = .06f), modifier = Modifier.padding(start = 42.dp))
                 }
+            }
+        }
+    }
+}
+
+/** The top three scores standing on a small podium: first in the middle and tallest, lit gold. */
+@Composable
+internal fun Podium(top: List<Triple<User, Int, Long>>, me: User) {
+    val c = T.colors
+    val order = listOf(1, 0, 2).filter { it < top.size }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        order.forEach { i ->
+            val (u, score, at) = top[i]
+            val h = when (i) { 0 -> 92.dp; 1 -> 66.dp; else -> 50.dp }
+            val g = grow(1f, 700, i * 90)
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Avatar(u, if (i == 0) 40.dp else 32.dp, ring = if (u.id == me.id) c.me else c.partner)
+                Text(fmt(score), style = Type.headline.copy(fontFeatureSettings = "tnum"), color = if (i == 0) c.special else c.label, modifier = Modifier.padding(top = 6.dp))
+                Text(day(at), style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
+                Box(
+                    Modifier.padding(top = 8.dp).fillMaxWidth().height(h * g).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf((if (i == 0) c.special else Color.White).copy(alpha = if (i == 0) .30f else .10f), Color.Transparent))),
+                    contentAlignment = Alignment.TopCenter,
+                ) { Text("${i + 1}", style = Type.title, color = if (i == 0) c.special else c.secondary, modifier = Modifier.padding(top = 8.dp)) }
             }
         }
     }

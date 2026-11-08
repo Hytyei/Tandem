@@ -113,46 +113,55 @@ internal fun MatchCard(
     }
 }
 
+/**
+ * A goal as a race: the stakes in the serif, one lane each with your face moving toward the finish, and a
+ * plain sentence about who needs what. A won goal glows gold until it is paid.
+ */
 @Composable
 internal fun GoalCard(goal: GameGoal, me: User, partner: User, vm: AppViewModel) {
     val c = T.colors
     val pName = partner.displayName.substringBefore(' ')
-    val unit = if (goal.metric == "wins") "match wins" else "points"
-    val dim = goal.status == "settled"
+    val wins = goal.metric == "wins"
+    val unit = if (wins) "match wins" else "points"
+    val mine = goal.progress[me.id] ?: 0
+    val theirs = goal.progress[partner.id] ?: 0
+    val won = goal.status == "won"
     var confirmDelete by remember { mutableStateOf(false) }
-    SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                when (goal.status) { "active" -> androidx.compose.material.icons.Icons.Outlined.Flag; "won" -> androidx.compose.material.icons.Icons.Outlined.EmojiEvents; else -> androidx.compose.material.icons.Icons.Outlined.CheckCircle },
-                null, tint = if (goal.status == "won") c.special else c.secondary, modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(10.dp))
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(shape)
+            .background(if (won) c.special.copy(alpha = .10f) else c.card)
+            .border(1.dp, if (won) c.special.copy(alpha = .45f) else androidx.compose.ui.graphics.Color.White.copy(alpha = .07f), shape)
+            .padding(20.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
-                Text(goal.title, style = Type.headline, color = if (dim) c.secondary else c.label)
-                Text("First to ${fmt(goal.target)} $unit", style = Type.caption, color = c.secondary)
+                Text(goal.title, style = Type.title, color = c.label)
+                Text("First to ${fmt(goal.target)} $unit · since ${day(goal.createdAt)}", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp))
             }
+            Text(
+                "Delete", style = Type.footnote, color = c.tertiary,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).pressable(haptic = false) { confirmDelete = true }.padding(horizontal = 6.dp, vertical = 4.dp),
+            )
         }
-        Spacer(Modifier.height(10.dp))
-        listOf(me to c.me, partner to c.partner).forEach { (u, color) ->
-            val p = goal.progress[u.id] ?: 0
-            Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (u.id == me.id) "You" else pName, style = Type.caption, color = c.secondary, modifier = Modifier.width(56.dp), maxLines = 1)
-                LinearProgressIndicator(
-                    progress = { (p.toFloat() / goal.target).coerceIn(0f, 1f) },
-                    modifier = Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(50)), color = color, trackColor = c.separator,
-                )
-                Text("${fmt(p)}", style = Type.caption.copy(fontWeight = FontWeight.Bold), color = color, modifier = Modifier.width(60.dp), textAlign = TextAlign.End)
-            }
-        }
-        when (goal.status) {
-            "won" -> Text("${if (goal.winnerId == me.id) "You" else pName} won. Time to pay up", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.special, modifier = Modifier.padding(top = 8.dp))
-            "settled" -> Text("${if (goal.winnerId == me.id) "You" else pName} won · settled ${day(goal.settledAt)}", style = Type.footnote, color = c.tertiary, modifier = Modifier.padding(top = 8.dp))
-            else -> Text("Counting since ${day(goal.createdAt)}", style = Type.footnote, color = c.tertiary, modifier = Modifier.padding(top = 8.dp))
-        }
-        Row {
-            if (goal.status == "won") SoftButton("Paid up", onClick = { vm.settleGoal(goal.id) }, color = c.special)
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { confirmDelete = true }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Delete", style = Type.caption, color = c.tertiary) }
+        Spacer(Modifier.height(18.dp))
+        RaceTrack(me, partner, mine, theirs, goal.target, format = { if (wins) "$it" else fmt(it) })
+        Spacer(Modifier.height(14.dp))
+        if (won) {
+            val iWon = goal.winnerId == me.id
+            Text(if (iWon) "You won. $pName owes you" else "$pName won. You owe them", style = Type.callout.copy(fontWeight = FontWeight.Medium), color = c.special)
+            Spacer(Modifier.height(12.dp))
+            PrimaryButton("Paid up", onClick = { vm.settleGoal(goal.id) }, color = c.special)
+        } else {
+            val needMe = (goal.target - mine).coerceAtLeast(0); val needThem = (goal.target - theirs).coerceAtLeast(0)
+            Text(
+                when {
+                    needMe < needThem -> "You need ${fmt(needMe)} more. $pName needs ${fmt(needThem)}"
+                    needThem < needMe -> "$pName needs ${fmt(needThem)} more. You need ${fmt(needMe)}"
+                    else -> "Neck and neck. You both need ${fmt(needMe)} more"
+                },
+                style = Type.footnote, color = c.secondary,
+            )
         }
     }
     if (confirmDelete) AlertDialog(

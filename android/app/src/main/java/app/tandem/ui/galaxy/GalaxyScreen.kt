@@ -23,7 +23,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import app.tandem.ui.components.DreamBackground
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -50,7 +54,7 @@ import java.util.Locale
 
 private val Ivory = Color(0xFFF6F2FF)
 private val Gold = Color(0xFFFFD58A)
-private val Glass = Color(0xFF0E0B1C).copy(alpha = .72f)
+private val Glass = Color(0xFF1A1550).copy(alpha = .62f)
 
 private fun fmt(n: Int) = String.format(Locale.US, "%,d", n)
 
@@ -73,23 +77,29 @@ fun GalaxyScreen(vm: AppViewModel, onBack: () -> Unit) {
     val shown = preview ?: cos?.seed
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var glView by remember { mutableStateOf<GalaxyView?>(null) }
+    var glFailed by remember { mutableStateOf(false) }
     DisposableEffect(lifecycle, glView) {
         val obs = LifecycleEventObserver { _, e -> when (e) { Lifecycle.Event.ON_PAUSE -> glView?.onPause(); Lifecycle.Event.ON_RESUME -> glView?.onResume(); else -> {} } }
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs) }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            factory = { ctx -> GalaxyView(ctx, reduced).also { v -> v.onReady = { stars = it }; glView = v } },
+    // the app's dusk, with a deeper well of night where the galaxy hangs so its light reads
+    DreamBackground {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) { well(1f) }
+        if (!glFailed) AndroidView(
+            factory = { ctx -> GalaxyView(ctx, reduced).also { v -> v.onReady = { stars = it }; v.onFailed = { glFailed = true }; glView = v } },
             modifier = Modifier.fillMaxSize(),
             update = { v -> if (shown != null && cos != null) v.show(shown, cos.lifetime) },
             onRelease = { it.onPause() },
-        )
+        ) else if (shown != null && cos != null) {
+            LaunchedEffect(shown, cos.lifetime) { stars = GalaxyGen.starsFor(GalaxyGen.growth(cos.lifetime)) }
+            GalaxyThumb(shown, cos.lifetime, Modifier.align(Alignment.Center).fillMaxWidth().aspectRatio(1f), px = 900)
+        }
 
         // ---------- top: back, what it is, the wallet
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 14.dp, end = 20.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(42.dp).clip(CircleShape).background(Glass).pressable(haptic = false, onClick = onBack), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(42.dp).clip(CircleShape).background(c.card).pressable(haptic = false, onClick = onBack), contentAlignment = Alignment.Center) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = c.label, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(12.dp))
@@ -103,7 +113,7 @@ fun GalaxyScreen(vm: AppViewModel, onBack: () -> Unit) {
             if (cos != null) Text("${fmt(cos.stardust)} stardust", style = Type.footnote.copy(fontFamily = FontFamily.Monospace), color = Gold)
         }
 
-        if (res == null || cos == null) { CircularProgressIndicator(Modifier.align(Alignment.Center), color = c.accent); return@Box }
+        if (res == null || cos == null) { CircularProgressIndicator(Modifier.align(Alignment.Center), color = c.accent); return@DreamBackground }
 
         // a re-roll waiting to be chosen opens the choice straight away
         LaunchedEffect(cos.candidates) { if (cos.candidates.isNotEmpty()) choosing = true }
@@ -177,7 +187,7 @@ private fun ChoosePanel(current: Long, candidates: List<Long>, lifetime: Int, se
                 val on = s == selected
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
-                        Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black)
+                        Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brush.verticalGradient(c.sky)).drawBehind { well(.9f) }
                             .border(if (on) 2.dp else 1.dp, if (on) Ivory else Color.White.copy(alpha = .1f), RoundedCornerShape(16.dp))
                             .pressable(haptic = false) { onPreview(s) },
                     ) { GalaxyThumb(s, lifetime, Modifier.fillMaxSize()) }
@@ -188,6 +198,13 @@ private fun ChoosePanel(current: Long, candidates: List<Long>, lifetime: Int, se
         Spacer(Modifier.height(14.dp))
         PrimaryButton(if (selected == current) "Keep the one we have" else "Keep this one", onClick = { busy = true; onKeep(selected) }, loading = busy, color = Ivory)
     }
+}
+
+/** A deep, cool well of night in the middle of the dusk, for the galaxy to hang in. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.well(strength: Float) {
+    val ctr = Offset(size.width / 2f, size.height * .46f)
+    val r = maxOf(size.width, size.height) * .55f
+    drawCircle(Brush.radialGradient(listOf(Color(0xFF05031A).copy(alpha = .78f * strength), Color(0xFF0B0828).copy(alpha = .45f * strength), Color.Transparent), center = ctr, radius = r), r, ctr)
 }
 
 /** A still galaxy, painted off the main thread. */
@@ -246,7 +263,10 @@ private fun EarnSheet(log: List<CosmosEntry>, onDismiss: () -> Unit) {
 fun GalaxyCard(seed: Long?, lifetime: Int, stardust: Int, comets: Int, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val c = T.colors
     val shape = RoundedCornerShape(24.dp)
-    Box(modifier.height(168.dp).clip(shape).background(Color.Black).border(1.dp, Color.White.copy(alpha = .08f), shape).pressable(haptic = false, onClick = onOpen)) {
+    Box(
+        modifier.height(168.dp).clip(shape).background(Brush.verticalGradient(c.sky)).drawBehind { well(.9f) }
+            .border(1.dp, Color.White.copy(alpha = .08f), shape).pressable(haptic = false, onClick = onOpen),
+    ) {
         if (seed != null) GalaxyThumb(seed, lifetime, Modifier.fillMaxHeight().aspectRatio(1f).align(Alignment.CenterEnd).padding(end = 4.dp), px = 360, yaw = 40f)
         Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
             Text("Your galaxy", style = Type.title, color = c.label)

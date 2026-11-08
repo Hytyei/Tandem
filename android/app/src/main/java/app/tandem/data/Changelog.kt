@@ -5,6 +5,16 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "2.1.0", title = "v2.1.0 · Galaxy fix, new stats and achievements", date = "2026-11-08",
+        items = listOf(
+            "Your galaxy now shows on every phone (it could stay black on some), and it hangs in the app's own dusk sky instead of on plain black.",
+            "Achievements are a night sky you fill in together: every achievement is a star, each kind its own constellation. The ones you're closest to come first, and every medal opens to show how far along you are.",
+            "Stats got calmer and clearer: the days-together constellation, six key numbers, a mirrored month of moods, and ranked lists of what you do together.",
+            "Play stats and every game's page now show you two head to head, with every comparison side by side and a podium for the best scores.",
+            "Goals are races: both of you moving toward the finish line, with a plain line on who needs how many more.",
+        ),
+    ),
+    ReleaseNotes(
         version = "2.0.0", title = "v2.0.0 · Pets and your own galaxy", date = "2026-11-07",
         items = listOf(
             "Adopt a pet together: cats, dogs, hamsters, rabbits and parrots in 23 breeds, each in three coats. They breathe, blink and get up to their own little things: cats lick their paws and knead, dogs wag and pant, hamsters stuff their cheeks, rabbits hop, parrots bob and flap.",

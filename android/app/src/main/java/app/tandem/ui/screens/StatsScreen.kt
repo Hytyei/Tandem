@@ -1,8 +1,5 @@
 package app.tandem.ui.screens
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -11,8 +8,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -23,7 +20,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,7 +35,11 @@ import java.time.LocalDate
 import java.time.Period
 import java.time.format.DateTimeFormatter
 
-/** The single stats page: days together as a node graph, key numbers with flat icons, and a few small charts. */
+/**
+ * Your story in numbers. The days-together constellation leads; everything under it is quiet: six figures,
+ * a mirrored month of moods (you above the line, your partner below), how your moods are mixed, and what
+ * you've done together as ranked lists.
+ */
 @Composable
 fun StatsScreen(vm: AppViewModel, onBack: () -> Unit, openAchievements: () -> Unit) {
     val c = T.colors
@@ -47,151 +50,125 @@ fun StatsScreen(vm: AppViewModel, onBack: () -> Unit, openAchievements: () -> Un
 
     val me = data.me
     val partner = data.couple.partner
+    val pName = partner?.displayName?.substringBefore(' ') ?: "Your partner"
     val days = daysTogether(data.couple.anniversary)
     val st = data.stats ?: Stats()
 
     Box(Modifier.fillMaxSize().background(c.background)) {
         DreamBackground {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().padding(bottom = 32.dp)) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(44.dp).clip(CircleShape).background(c.card).pressable(onClick = onBack), contentAlignment = Alignment.Center) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = c.label)
-                    }
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().padding(bottom = 40.dp)) {
+                Row(Modifier.padding(start = 14.dp, end = 20.dp, top = 14.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BackDisc(onBack)
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("OUR STORY IN NUMBERS", style = Type.caption.copy(letterSpacing = 0.6.sp), color = c.secondary)
-                        Text("Stats", style = Type.largeTitle, color = c.label)
+                        Text("Stats", style = Type.title, color = c.label)
+                        Text("You and $pName", style = Type.footnote, color = c.secondary)
                     }
                 }
 
-                // ---------- Days together (node graph)
-                SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(0), padding = 20.dp) {
+                // ---------- days together, the one bright thing
+                GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().staggerIn(0), padding = 20.dp) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         if (days != null) {
-                            ConstellationDays(days, Modifier.fillMaxWidth(), height = 250.dp)
-                            Spacer(Modifier.height(10.dp))
-                            Text(if (days == 1L) "day together" else "days together", style = Type.title, color = c.label)
+                            ConstellationDays(days, Modifier.fillMaxWidth(), height = 230.dp)
+                            Text(if (days == 1L) "day together" else "days together", style = Type.title, color = c.label, modifier = Modifier.padding(top = 6.dp))
                             parseDate(data.couple.anniversary)?.let { since ->
                                 val p = Period.between(since, LocalDate.now())
                                 val parts = listOfNotNull(
                                     p.years.takeIf { it > 0 }?.let { "$it ${if (it == 1) "year" else "years"}" },
                                     p.months.takeIf { it > 0 }?.let { "$it ${if (it == 1) "month" else "months"}" },
                                 ).joinToString(", ")
-                                Text(
-                                    "Since " + since.format(DateTimeFormatter.ofPattern("d MMMM yyyy")) + if (parts.isNotEmpty()) "  ·  $parts" else "",
-                                    style = Type.footnote, color = c.secondary,
-                                )
+                                Text("Since " + since.format(DateTimeFormatter.ofPattern("d MMMM yyyy")) + if (parts.isNotEmpty()) " · $parts" else "", style = Type.footnote, color = c.secondary)
                             }
-                            MilestoneBar(days)
-                        } else {
-                            Text("Set your anniversary in Profile to start counting", style = Type.callout, color = c.secondary)
-                        }
+                            NextMilestone(days)
+                        } else Text("Set your anniversary in Profile to start counting", style = Type.callout, color = c.secondary)
                     }
                 }
 
-                // ---------- Key numbers (flat, solid-colour icons)
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Metric(Modifier.weight(1f).staggerIn(1), Icons.Filled.EmojiEmotions, "Moods shared", st.moods.toLong(), c.accent)
-                    Metric(Modifier.weight(1f).staggerIn(2), Icons.Filled.Edit, "Diary notes", st.diary.toLong(), c.me)
-                    Metric(Modifier.weight(1f).staggerIn(3), Icons.Filled.CalendarMonth, "Active days", st.activeDays.toLong(), c.special)
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Metric(Modifier.weight(1f).staggerIn(4), Icons.Filled.LocalFireDepartment, "Day streak", (detail?.streak ?: 0).toLong(), Color(0xFFFF7043))
-                    Metric(Modifier.weight(1f).staggerIn(5), Icons.Filled.EmojiEvents, "Best streak", (detail?.bestStreak ?: 0).toLong(), Color(0xFF26A69A))
-                    Metric(Modifier.weight(1f).staggerIn(6), Icons.Filled.PhotoLibrary, "Photos", (detail?.photos ?: 0).toLong(), Color(0xFF5C6BC0))
-                }
-
-                // ---------- Achievements summary
-                if (detail != null) {
-                    val ach = Achievements.context(days ?: 0L, detail)
-                    val done = Achievements.all.filter { it.unlocked(ach) }
-                    Spacer(Modifier.height(12.dp))
-                    SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(7).pressable(onClick = openAchievements)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(c.special.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Filled.EmojiEvents, null, tint = c.special, modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("Achievements", style = Type.headline, color = c.label)
-                                Text("${done.size} of ${Achievements.all.size} unlocked", style = Type.footnote, color = c.secondary)
-                            }
-                            Text("View all ›", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.accent)
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.label.copy(alpha = .10f))) {
-                            Box(Modifier.fillMaxWidth(done.size.toFloat() / Achievements.all.size).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(c.special))
-                        }
-                        if (done.isNotEmpty()) {
-                            Spacer(Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                done.takeLast(6).forEach { a ->
-                                    Box(Modifier.size(34.dp).clip(CircleShape).background(a.group.tint.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
-                                        Icon(a.icon, a.title, tint = a.group.tint, modifier = Modifier.size(18.dp))
-                                    }
+                // ---------- six figures, quietly
+                GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().staggerIn(1), padding = 0.dp) {
+                    val cells = listOf(
+                        st.moods.toLong() to "moods shared", st.diary.toLong() to "diary notes", st.activeDays.toLong() to "active days",
+                        (detail?.streak ?: 0).toLong() to "day streak", (detail?.bestStreak ?: 0).toLong() to "best streak", (detail?.photos ?: 0).toLong() to "pictures",
+                    )
+                    cells.chunked(3).forEachIndexed { r, row ->
+                        if (r > 0) HorizontalDivider(color = c.label.copy(alpha = .06f))
+                        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                            row.forEachIndexed { i, (v, label) ->
+                                if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(c.label.copy(alpha = .06f)))
+                                Column(Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 16.dp)) {
+                                    CountUp(v, Type.title.copy(fontSize = 26.sp, lineHeight = 30.sp, fontFeatureSettings = "tnum"), c.label)
+                                    Text(label, style = Type.footnote, color = c.secondary, maxLines = 1)
                                 }
                             }
                         }
                     }
                 }
 
-                // ---------- Last 30 days
+                // ---------- achievements, one line
+                if (detail != null) {
+                    val ach = Achievements.context(days ?: 0L, detail)
+                    val done = Achievements.all.count { it.unlocked(ach) }
+                    val latest = Achievements.all.filter { it.unlocked(ach) }.takeLast(3)
+                    GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().staggerIn(2).pressable(onClick = openAchievements), padding = 16.dp) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(if (latest.isEmpty()) 44.dp else (44 + (latest.size - 1) * 22).dp).height(44.dp)) {
+                                if (latest.isEmpty()) Medal(Achievements.all.first().icon, false, 0f, size = 44.dp)
+                                latest.forEachIndexed { i, a -> Medal(a.icon, true, 1f, Modifier.offset(x = (i * 22).dp), size = 44.dp) }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Achievements", style = Type.headline, color = c.label)
+                                Text("$done of ${Achievements.all.size} earned", style = Type.footnote, color = c.secondary)
+                            }
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = c.tertiary)
+                        }
+                    }
+                }
+
+                // ---------- the last 30 days, mirrored
                 SectionHeader("Last 30 days")
-                SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(7)) {
+                GlassCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(3)) {
                     if (detail == null) Text("Loading…", style = Type.callout, color = c.secondary)
                     else {
-                        DailyBars(detail.daily, me.id)
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Legend(c.me, "You"); Legend(c.partner, partner?.displayName?.substringBefore(' ') ?: "Partner")
+                        MirroredMonth(detail.daily, me.id)
+                        Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ChartLegend("You" to c.me, pName to c.partner)
                             Spacer(Modifier.weight(1f))
-                            Text("mood updates per day", style = Type.caption, color = c.secondary)
+                            Text("mood shares a day", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
                         }
                     }
                 }
 
-                // ---------- Mood mix
+                // ---------- how your moods are mixed
                 SectionHeader("Mood mix")
-                SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(8)) {
+                GlassCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(4)) {
                     if (detail == null) Text("Loading…", style = Type.callout, color = c.secondary)
                     else {
-                        MoodMix("You", me.id, detail.moodCounts, c.me)
-                        Spacer(Modifier.height(16.dp))
-                        MoodMix(partner?.displayName?.substringBefore(' ') ?: "Partner", partner?.id ?: "", detail.moodCounts, c.partner)
+                        MoodMix("You", me.id, detail.moodCounts)
+                        Spacer(Modifier.height(20.dp))
+                        MoodMix(pName, partner?.id ?: "", detail.moodCounts)
                     }
                 }
 
-                // ---------- Things we did (date types)
-                SectionHeader("Things we did together")
-                SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(9)) {
-                    val types = detail?.dateTypeCounts.orEmpty().mapNotNull { x -> DateType.from(x.dateType)?.let { it to x.n } }.sortedByDescending { it.second }.take(8)
-                    if (detail == null) Text("Loading…", style = Type.callout, color = c.secondary)
-                    else if (types.isEmpty()) Text("Tag diary notes and calendar events with what you did — date night, movie night, gaming session — and they'll be counted here.", style = Type.callout, color = c.secondary)
-                    else {
-                        val max = types.first().second.toFloat()
-                        types.forEachIndexed { i, (t, n) ->
-                            BarRow("${t.emoji} ${t.label}", n, n / max, c.accent, labelWidth = 150.dp)
-                            if (i < types.lastIndex) Spacer(Modifier.height(10.dp))
-                        }
+                // ---------- what you've done together
+                SectionHeader("Things you did together")
+                GlassCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(5)) {
+                    val types = detail?.dateTypeCounts.orEmpty().mapNotNull { x -> DateType.from(x.dateType)?.let { it.label to x.n } }.sortedByDescending { it.second }.take(8)
+                    when {
+                        detail == null -> Text("Loading…", style = Type.callout, color = c.secondary)
+                        types.isEmpty() -> Text("Tag diary notes and plans with what you did, like a date night or a movie night, and they'll be counted here", style = Type.callout, color = c.secondary)
+                        else -> RankedBars(types)
                     }
                 }
 
-                // ---------- Favourite activities
-                SectionHeader("Favourite activities")
-                SoftCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(9)) {
-                    val top = detail?.activityCounts.orEmpty().groupBy { it.activity }
-                        .map { (k, v) -> k to v.sumOf { it.n } }.sortedByDescending { it.second }.take(5)
-                    if (detail == null) Text("Loading…", style = Type.callout, color = c.secondary)
-                    else if (top.isEmpty()) Text("Share what you're up to with your mood and your favourites will show up here.", style = Type.callout, color = c.secondary)
-                    else {
-                        val max = top.first().second.toFloat()
-                        top.forEachIndexed { i, (key, n) ->
-                            val a = Activity.from(key)
-                            BarRow(a?.label ?: key, n, n / max, a?.tint ?: c.accent)
-                            if (i < top.lastIndex) Spacer(Modifier.height(10.dp))
-                        }
+                SectionHeader("What you're up to most")
+                GlassCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(6)) {
+                    val top = detail?.activityCounts.orEmpty().groupBy { it.activity }.map { (k, v) -> (Activity.from(k)?.label ?: k) to v.sumOf { it.n } }.sortedByDescending { it.second }.take(6)
+                    when {
+                        detail == null -> Text("Loading…", style = Type.callout, color = c.secondary)
+                        top.isEmpty() -> Text("Share what you're up to with your mood and your favourites will show up here", style = Type.callout, color = c.secondary)
+                        else -> RankedBars(top)
                     }
                 }
             }
@@ -200,47 +177,25 @@ fun StatsScreen(vm: AppViewModel, onBack: () -> Unit, openAchievements: () -> Un
 }
 
 @Composable
-private fun MilestoneBar(days: Long) {
+private fun NextMilestone(days: Long) {
     val c = T.colors
     val milestones = listOf(50L, 100, 200, 300, 365, 500, 730, 1000, 1500, 2000, 2500, 3000, 3650, 5000, 7300, 10000)
     val next = milestones.firstOrNull { it > days } ?: return
     val prev = milestones.lastOrNull { it <= days } ?: 0L
-    val frac = ((days - prev).toFloat() / (next - prev)).coerceIn(0f, 1f)
-    val anim = remember { Animatable(0f) }
-    LaunchedEffect(frac) { anim.animateTo(frac, tween(1100, easing = FastOutSlowInEasing)) }
-    Spacer(Modifier.height(16.dp))
-    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.label.copy(alpha = .10f))) {
-        Box(Modifier.fillMaxWidth(anim.value).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(c.accent, c.me))))
-    }
-    Spacer(Modifier.height(6.dp))
-    Text("${next - days} ${if (next - days == 1L) "day" else "days"} to $next", style = Type.caption, color = c.secondary)
-}
-
-@Composable
-private fun Metric(modifier: Modifier, icon: ImageVector, label: String, value: Long, tint: Color) {
-    val c = T.colors
-    SoftCard(modifier, padding = 12.dp) {
-        Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(tint.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
+    val g = grow(((days - prev).toFloat() / (next - prev)).coerceIn(0f, 1f), 1100)
+    Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("$prev", style = Type.caption.copy(fontWeight = FontWeight.Normal, fontFamily = FontFamily.Monospace), color = c.tertiary)
+        Box(Modifier.weight(1f).padding(horizontal = 10.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = .08f))) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(g).clip(RoundedCornerShape(2.dp)).background(LitIvory))
         }
-        Spacer(Modifier.height(10.dp))
-        CountUp(value, Type.title, c.label)
-        Text(label, style = Type.caption, color = c.secondary, maxLines = 1)
+        Text("$next", style = Type.caption.copy(fontWeight = FontWeight.Normal, fontFamily = FontFamily.Monospace), color = c.tertiary)
     }
+    Text("${next - days} ${if (next - days == 1L) "day" else "days"} to $next", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 6.dp))
 }
 
+/** 30 days, today on the right: your shares rise above the line, your partner's hang below it. */
 @Composable
-private fun Legend(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(9.dp).clip(CircleShape).background(color))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = Type.caption, color = T.colors.label)
-    }
-}
-
-/** 30 slim bars: yours (left of each pair) and your partner's (right), today at the right edge. */
-@Composable
-private fun DailyBars(daily: List<DailyCount>, meId: String) {
+private fun MirroredMonth(daily: List<DailyCount>, meId: String) {
     val c = T.colors
     val today = LocalDate.now()
     val days = (29 downTo 0).map { today.minusDays(it.toLong()) }
@@ -248,71 +203,52 @@ private fun DailyBars(daily: List<DailyCount>, meId: String) {
     val mine = days.map { d -> byDay[d.toString()]?.filter { it.userId == meId }?.sumOf { it.n } ?: 0 }
     val theirs = days.map { d -> byDay[d.toString()]?.filter { it.userId != meId }?.sumOf { it.n } ?: 0 }
     val max = maxOf(1, (mine + theirs).max())
-    val grow = remember { Animatable(0f) }
-    LaunchedEffect(daily) { grow.snapTo(0f); grow.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
-    val grid = c.label.copy(alpha = .08f)
-    Canvas(Modifier.fillMaxWidth().height(110.dp)) {
+    val g = grow(1f, 900)
+    Canvas(Modifier.fillMaxWidth().height(150.dp)) {
+        val mid = size.height / 2
         val slot = size.width / days.size
-        val barW = slot * 0.36f
-        drawLine(grid, Offset(0f, size.height), Offset(size.width, size.height), 2f)
-        drawLine(grid, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 1f)
+        val w = slot * .32f
+        drawLine(Color.White.copy(alpha = .14f), Offset(0f, mid), Offset(size.width, mid), 1.dp.toPx())
         days.indices.forEach { i ->
-            val x = i * slot + slot * 0.12f
-            val h1 = size.height * (mine[i].toFloat() / max) * grow.value
-            val h2 = size.height * (theirs[i].toFloat() / max) * grow.value
-            if (h1 > 0f) drawRoundRect(c.me, Offset(x, size.height - h1), Size(barW, h1), CornerRadius(barW / 2))
-            if (h2 > 0f) drawRoundRect(c.partner, Offset(x + barW + 1f, size.height - h2), Size(barW, h2), CornerRadius(barW / 2))
+            val x = i * slot + (slot - w) / 2
+            val a = (mid - 3.dp.toPx()) * mine[i] / max * g
+            val b = (mid - 3.dp.toPx()) * theirs[i] / max * g
+            if (a > 0f) drawRoundRect(c.me, Offset(x, mid - 2.dp.toPx() - a), Size(w, a), CornerRadius(w / 2))
+            if (b > 0f) drawRoundRect(c.partner, Offset(x, mid + 2.dp.toPx()), Size(w, b), CornerRadius(w / 2))
+            if (mine[i] == 0 && theirs[i] == 0) drawCircle(Color.White.copy(alpha = .12f), 1.5.dp.toPx(), Offset(x + w / 2, mid))
+        }
+        // week marks under the chart
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 10.dp.toPx(); color = c.tertiary.toArgb(); typeface = android.graphics.Typeface.MONOSPACE; textAlign = android.graphics.Paint.Align.CENTER }
+        listOf(0, 14, 29).forEach { i ->
+            val label = if (i == 29) "today" else days[i].format(DateTimeFormatter.ofPattern("d MMM"))
+            drawContext.canvas.nativeCanvas.drawText(label, (i * slot + slot / 2).coerceIn(18.dp.toPx(), size.width - 18.dp.toPx()), size.height, paint)
         }
     }
 }
 
+/** One person's moods as a single stacked bar, the three biggest named under it. */
 @Composable
-private fun MoodMix(name: String, userId: String, counts: List<MoodCount>, accent: Color) {
+private fun MoodMix(name: String, userId: String, counts: List<MoodCount>) {
     val c = T.colors
     val mine = counts.filter { it.userId == userId }
     val total = mine.sumOf { it.n }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(9.dp).clip(CircleShape).background(accent))
-        Spacer(Modifier.width(8.dp))
-        Text(name, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.weight(1f))
-        Text("$total ${if (total == 1) "update" else "updates"}", style = Type.caption, color = c.secondary)
+        Text(name, style = Type.callout, color = c.label, modifier = Modifier.weight(1f))
+        Text("$total ${if (total == 1) "share" else "shares"}", style = Type.footnote.copy(fontFamily = FontFamily.Monospace), color = c.tertiary)
     }
-    Spacer(Modifier.height(8.dp))
-    if (total == 0) {
-        Text("Nothing shared yet", style = Type.footnote, color = c.secondary)
-        return
-    }
+    if (total == 0) { Text("Nothing shared yet", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 6.dp)); return }
     val sorted = Mood.entries.map { m -> m to (mine.firstOrNull { it.mood == m.key }?.n ?: 0) }.filter { it.second > 0 }.sortedByDescending { it.second }
-    val grow = remember { Animatable(0f) }
-    LaunchedEffect(total) { grow.snapTo(0f); grow.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
-    Row(Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(7.dp))) {
-        sorted.forEach { (m, n) ->
-            Box(Modifier.weight(n.toFloat()).fillMaxHeight().background(m.tint.copy(alpha = .35f + .65f * grow.value)))
-        }
+    val g = grow(1f, 900)
+    Row(Modifier.padding(top = 8.dp).fillMaxWidth(g.coerceAtLeast(.02f)).height(10.dp).clip(RoundedCornerShape(5.dp)), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        sorted.forEach { (m, n) -> Box(Modifier.weight(n.toFloat()).fillMaxHeight().background(m.tint)) }
     }
-    Spacer(Modifier.height(8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         sorted.take(3).forEach { (m, n) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(m.tint))
-                Spacer(Modifier.width(5.dp))
-                Text("${m.label} ${(n * 100f / total).toInt()}%", style = Type.caption, color = c.label)
+                Box(Modifier.size(7.dp).clip(CircleShape).background(m.tint))
+                Spacer(Modifier.width(6.dp))
+                Text("${m.label} ${(n * 100f / total).toInt()}%", style = Type.footnote, color = c.secondary)
             }
         }
-    }
-}
-
-@Composable
-private fun BarRow(label: String, n: Int, frac: Float, tint: Color, labelWidth: androidx.compose.ui.unit.Dp = 96.dp) {
-    val c = T.colors
-    val grow = remember { Animatable(0f) }
-    LaunchedEffect(frac) { grow.animateTo(frac, tween(900, easing = FastOutSlowInEasing)) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = Type.footnote, color = c.label, modifier = Modifier.width(labelWidth), maxLines = 1)
-        Box(Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(5.dp)).background(c.label.copy(alpha = .08f))) {
-            Box(Modifier.fillMaxWidth(grow.value.coerceAtLeast(0.02f)).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(tint))
-        }
-        Spacer(Modifier.width(10.dp))
-        Text("$n", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = c.label, modifier = Modifier.width(28.dp))
     }
 }

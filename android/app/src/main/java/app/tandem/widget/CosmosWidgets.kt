@@ -54,9 +54,14 @@ internal fun GalaxyContent(data: WidgetData) {
     // painted at most 640 px wide, so the widget stays light
     val k = minOf(1f, 640f / (size.width.value * d))
     val w = (size.width.value * d * k).toInt().coerceAtLeast(120); val h = (size.height.value * d * k).toInt().coerceAtLeast(120)
-    val bmp = runCatching { GalaxyBitmap.render(cos.seed, cos.lifetime, w, h, yawDeg = 30f, zoom = .95f) }.getOrNull()
+    // the app's dusk behind, the galaxy's light on top
+    val sky = WidgetArt.dusk(ctx, size.width.value, size.height.value, 0xFF7C6CFF.toInt(), (cos.seed % 997).toInt())
+    runCatching {
+        val g = GalaxyBitmap.render(cos.seed, cos.lifetime, w, h, yawDeg = 30f, zoom = .95f)
+        android.graphics.Canvas(sky).drawBitmap(g, null, android.graphics.Rect(0, 0, sky.width, sky.height), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+    }
     Box(GlanceModifier.fillMaxSize().clickable(openAppAction())) {
-        if (bmp != null) Image(ImageProvider(bmp), contentDescription = null, contentScale = ContentScale.FillBounds, modifier = GlanceModifier.fillMaxSize())
+        Image(ImageProvider(sky), contentDescription = null, contentScale = ContentScale.FillBounds, modifier = GlanceModifier.fillMaxSize())
         Column(GlanceModifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Our galaxy", style = WText.serif(if (size.width >= 220.dp) 16 else 14), maxLines = 1, modifier = GlanceModifier.defaultWeight())

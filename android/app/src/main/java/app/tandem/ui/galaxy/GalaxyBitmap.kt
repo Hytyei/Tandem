@@ -19,16 +19,16 @@ object GalaxyBitmap {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?) = size > 6
     }
 
-    fun render(seed: Long, lifetime: Int, w: Int, h: Int, yawDeg: Float = 25f, pitchDeg: Float? = null, zoom: Float = 1f): Bitmap {
-        val key = "$seed/$lifetime/$w/$h/$yawDeg/$pitchDeg/$zoom"
+    fun render(seed: Long, lifetime: Int, w: Int, h: Int, yawDeg: Float = 25f, pitchDeg: Float? = null, zoom: Float = 1f, clear: Boolean = true): Bitmap {
+        val key = "$seed/$lifetime/$w/$h/$yawDeg/$pitchDeg/$zoom/$clear"
         synchronized(cache) { cache[key]?.let { return it } }
         val l = GalaxyGen.build(seed, lifetime, scale = (w * h / (700f * 700f)).coerceIn(.35f, .8f))
-        val bmp = paint(l, w, h, yawDeg, pitchDeg ?: l.look.tilt, zoom)
+        val bmp = paint(l, w, h, yawDeg, pitchDeg ?: l.look.tilt, zoom, clear)
         synchronized(cache) { cache[key] = bmp }
         return bmp
     }
 
-    private fun paint(l: GalaxyLayers, w: Int, h: Int, yawDeg: Float, pitchDeg: Float, zoom: Float): Bitmap {
+    private fun paint(l: GalaxyLayers, w: Int, h: Int, yawDeg: Float, pitchDeg: Float, zoom: Float, clear: Boolean): Bitmap {
         val R = FloatArray(w * h); val G = FloatArray(w * h); val B = FloatArray(w * h)
         val yaw = yawDeg * PI.toFloat() / 180f; val pitch = -pitchDeg * PI.toFloat() / 180f
         val cy = cos(yaw); val sy = sin(yaw); val cp = cos(pitch); val sp = sin(pitch)
@@ -107,7 +107,11 @@ object GalaxyBitmap {
         val px2 = IntArray(w * h)
         for (k in 0 until w * h) {
             val r = tone(R[k]); val g = tone(G[k]); val b = tone(B[k])
-            px2[k] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            px2[k] = if (!clear) (0xFF shl 24) or (r shl 16) or (g shl 8) or b else {
+                // light on a clear background, so whatever sky is behind shows through
+                val a = maxOf(r, g, b)
+                if (a == 0) 0 else (a shl 24) or ((r * 255 / a) shl 16) or ((g * 255 / a) shl 8) or (b * 255 / a)
+            }
         }
         return Bitmap.createBitmap(px2, w, h, Bitmap.Config.ARGB_8888)
     }
