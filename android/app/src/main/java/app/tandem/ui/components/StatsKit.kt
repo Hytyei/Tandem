@@ -220,19 +220,20 @@ class SkyStar(val group: Int, val lit: Boolean)
  * where you've earned them and joined by a line. It twinkles slowly (still when animations are off).
  */
 @Composable
-fun AchievementSky(groups: List<Pair<String, List<Boolean>>>, modifier: Modifier = Modifier, height: Dp = 260.dp, still: Boolean = false) {
+fun AchievementSky(groups: List<Pair<String, List<Boolean>>>, modifier: Modifier = Modifier, height: Dp = (130 * ((groups.size + 2) / 3)).dp, still: Boolean = false) {
     val c = T.colors
     val gold = c.special
     val tw = rememberInfiniteTransition(label = "sky")
     val t by tw.animateFloat(0f, 1f, infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart), label = "twinkle")
     val layout = remember(groups.map { it.second.size }) {
         val rnd = Random(7)
+        val rows = (groups.size + 2) / 3
         groups.mapIndexed { gi, (_, stars) ->
             val col = gi % 3; val row = gi / 3
             List(stars.size) { k ->
                 // a gentle wandering path through the group's patch
                 val u = (k + .5f) / stars.size
-                Offset(col / 3f + .03f + .26f * u + rnd.nextFloat() * .03f, row / 2f + .07f + .3f * (.5f + .5f * sin(u * 4.2f + gi * 1.7f)) + rnd.nextFloat() * .07f)
+                Offset(col / 3f + .03f + .26f * u + rnd.nextFloat() * .03f, (row + .14f + .6f * (.5f + .5f * sin(u * 4.2f + gi * 1.7f)) + rnd.nextFloat() * .14f) / rows)
             }
         }
     }
@@ -258,11 +259,11 @@ fun AchievementSky(groups: List<Pair<String, List<Boolean>>>, modifier: Modifier
                 }
             }
         }
-        Row(Modifier.fillMaxWidth()) {
-            groups.take(3).forEach { (name, s) -> SkyLabel(name, s, Modifier.weight(1f)) }
-        }
-        if (groups.size > 3) Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            groups.drop(3).forEach { (name, s) -> SkyLabel(name, s, Modifier.weight(1f)) }
+        groups.chunked(3).forEachIndexed { i, row ->
+            Row(Modifier.fillMaxWidth().padding(top = if (i > 0) 4.dp else 0.dp)) {
+                row.forEach { (name, s) -> SkyLabel(name, s, Modifier.weight(1f)) }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
         }
     }
 }

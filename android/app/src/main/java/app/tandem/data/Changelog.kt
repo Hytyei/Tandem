@@ -5,6 +5,19 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "2.2.0", title = "v2.2.0 · Holidays, personalities and more to earn", date = "2026-11-08",
+        items = listOf(
+            "Holidays come to you: Valentine's Day, Sepandarmazgan, Nowruz, Chaharshanbe Suri, Sizdah Bedar, Girls' Day, Girlfriend Day, Halloween, Yalda, Christmas, New Year's Eve and more show up in your calendar by themselves, and Today dresses up for each one with snow, fireworks, petals, hearts, embers or pomegranate seeds.",
+            "26 new achievements for games, pets, your galaxy and the Heatmap.",
+            "Pets have personalities now: dramatic, foodie, sleepyhead, clingy, diva and more, two each. They have a lot more to say, sweet and sarcastic, and a few secrets to find.",
+            "New, softer pet voices: a little hummed meow, a real rumbling purr, a happy trill.",
+            "The head to head on Play is a tug of war, with each of you on one end and recent form underneath.",
+            "The diary brings back one memory from the past: this time last year, a month ago, or a note from before. Memories left the calendar.",
+            "Cycle: today is marked on your partner's calendar too, a line tells you when the next period is expected, and you can turn your own cycle off.",
+            "Coming up only shows the next 30 days.",
+        ),
+    ),
+    ReleaseNotes(
         version = "2.1.1", title = "v2.1.1 · Our little world", date = "2026-11-08",
         items = listOf(
             "Your pets and your galaxy now live together on Today, under your moods: the galaxy glows in the sky and your pets sit on a little hill beneath it.",

@@ -1808,7 +1808,8 @@ const dayMs = 86400000;
 const dayNum = (d: string) => Math.floor(Date.parse(d + "T00:00:00Z") / dayMs);
 function periodSettingsJson(r: any) {
   // Cycle data is always visible to both partners; the old "shared" switch is gone (the field stays for older app versions).
-  return { cycleLength: r?.cycle_length ?? 28, periodLength: r?.period_length ?? 5, shared: true };
+  // tracking = false: this person turned their own cycle off (the tab then shows only the partner's)
+  return { cycleLength: r?.cycle_length ?? 28, periodLength: r?.period_length ?? 5, shared: true, tracking: (r?.tracking ?? 1) !== 0 };
 }
 async function loadPeriod(env: Env, userId: string) {
   const s = await env.DB.prepare("SELECT * FROM period_settings WHERE user_id = ?").bind(userId).first<any>();
@@ -1839,11 +1840,12 @@ async function periodSettingsPut(c: Ctx): Promise<Response> {
   if (!Number.isInteger(cycle) || cycle < 20 || cycle > 45) throw new HttpError(400, "cycleLength must be 20 to 45 days");
   if (!Number.isInteger(len) || len < 2 || len > 10) throw new HttpError(400, "periodLength must be 2 to 10 days");
   const shared = true;
+  const tracking = b.tracking === undefined || b.tracking === null ? cur.tracking : b.tracking === true;
   await c.env.DB.prepare(
-    "INSERT INTO period_settings (user_id, cycle_length, period_length, shared, updated_at) VALUES (?,?,?,?,?) " +
-    "ON CONFLICT(user_id) DO UPDATE SET cycle_length=excluded.cycle_length, period_length=excluded.period_length, shared=excluded.shared, updated_at=excluded.updated_at",
-  ).bind(c.user.id, cycle, len, shared ? 1 : 0, now()).run();
-  return json({ cycleLength: cycle, periodLength: len, shared });
+    "INSERT INTO period_settings (user_id, cycle_length, period_length, shared, tracking, updated_at) VALUES (?,?,?,?,?,?) " +
+    "ON CONFLICT(user_id) DO UPDATE SET cycle_length=excluded.cycle_length, period_length=excluded.period_length, shared=excluded.shared, tracking=excluded.tracking, updated_at=excluded.updated_at",
+  ).bind(c.user.id, cycle, len, shared ? 1 : 0, tracking ? 1 : 0, now()).run();
+  return json({ cycleLength: cycle, periodLength: len, shared, tracking });
 }
 function readPeriod(b: any) {
   if (!isDate(b.startDate)) throw new HttpError(400, "startDate must be YYYY-MM-DD");

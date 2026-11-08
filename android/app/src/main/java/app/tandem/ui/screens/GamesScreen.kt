@@ -182,42 +182,8 @@ private fun PlayHome(vm: AppViewModel, me: User, partner: User, g: GamesResponse
             }
         }
 
-        // ---------- scoreboard
-        item {
-            SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), shape = RoundedCornerShape(24.dp), padding = 20.dp) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) { Avatar(me, 24.dp, ring = c.me); Spacer(Modifier.width(8.dp)); Text("You", style = Type.footnote, color = c.secondary) }
-                        Text("${myStat.wins}", style = Type.numberHuge.copy(fontSize = 44.sp, lineHeight = 48.sp, fontFeatureSettings = "tnum"), color = c.label)
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("match wins", style = Type.caption, color = c.secondary)
-                        Text("${stats.draws} draw${if (stats.draws == 1) "" else "s"}", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
-                    }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Row(verticalAlignment = Alignment.CenterVertically) { Text(pName, style = Type.footnote, color = c.secondary, maxLines = 1); Spacer(Modifier.width(8.dp)); Avatar(partner, 24.dp, ring = c.partner) }
-                        Text("${theirStat.wins}", style = Type.numberHuge.copy(fontSize = 44.sp, lineHeight = 48.sp, fontFeatureSettings = "tnum"), color = c.label)
-                    }
-                }
-                // who's ahead, as one bar split in your two colours
-                val total = (myStat.wins + theirStat.wins).coerceAtLeast(1)
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))) {
-                    if (myStat.wins + theirStat.wins == 0) Box(Modifier.fillMaxSize().background(c.label.copy(alpha = .1f)))
-                    else {
-                        if (myStat.wins > 0) Box(Modifier.weight(myStat.wins / total.toFloat()).fillMaxHeight().background(c.me))
-                        if (theirStat.wins > 0) Box(Modifier.weight(theirStat.wins / total.toFloat()).fillMaxHeight().background(c.partner))
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Tandem score", style = Type.footnote, color = c.secondary, modifier = Modifier.weight(1f))
-                    Text(fmt(stats.tandemScore), style = Type.headline.copy(fontFeatureSettings = "tnum"), color = c.special)
-                }
-                val hot = if (myStat.streak >= 2) "You've won ${myStat.streak} matches in a row" else if (theirStat.streak >= 2) "$pName has won ${theirStat.streak} matches in a row" else null
-                if (hot != null) Text(hot, style = Type.footnote, color = c.label, modifier = Modifier.padding(top = 4.dp))
-            }
-        }
+        // ---------- head to head
+        item { HeadToHeadCard(me, partner, stats, g?.matches.orEmpty(), Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) }
 
         // ---------- won goals waiting to be paid
         val won = g?.goals.orEmpty().filter { it.status == "won" }

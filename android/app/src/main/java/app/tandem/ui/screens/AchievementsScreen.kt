@@ -30,8 +30,10 @@ fun AchievementsScreen(vm: AppViewModel, onBack: () -> Unit) {
     val s by vm.state.collectAsState()
     val data = s ?: return
     val detail = vm.stats
-    LaunchedEffect(Unit) { if (vm.stats == null) vm.loadStats() }
-    val ctx = remember(detail, data.couple.anniversary) { AchContext(daysTogether(data.couple.anniversary) ?: 0L, detail ?: StatsDetail()) }
+    LaunchedEffect(Unit) { if (vm.stats == null) vm.loadStats(); if (vm.games == null) vm.loadGames(); if (vm.cosmos == null) vm.loadCosmos() }
+    val ctx = remember(detail, data.couple.anniversary, vm.games, vm.cosmos) {
+        AchContext(daysTogether(data.couple.anniversary) ?: 0L, detail ?: StatsDetail(), vm.games?.stats, vm.cosmos?.cosmos)
+    }
     val all = Achievements.all
     val done = all.count { it.unlocked(ctx) }
     val reduced = rememberReducedMotion()

@@ -41,6 +41,10 @@ fun countdownLabel(days: Long): String = when {
 fun upcoming(events: List<CalendarEvent>, today: LocalDate = LocalDate.now()): List<Pair<CalendarEvent, LocalDate>> =
     events.mapNotNull { e -> e.nextDate(today)?.let { e to it } }.sortedWith(compareBy({ it.second }, { it.first.time ?: "" }))
 
+/** What's coming up in the next [days] days (today included), soonest first. */
+fun soon(events: List<CalendarEvent>, days: Long = 30, today: LocalDate = LocalDate.now()): List<Pair<CalendarEvent, LocalDate>> =
+    upcoming(events, today).filter { !it.second.isAfter(today.plusDays(days)) }
+
 fun daysTogether(anniversary: String?, today: LocalDate = LocalDate.now()): Long? =
     parseDate(anniversary)?.let { ChronoUnit.DAYS.between(it, today).coerceAtLeast(0) }
 

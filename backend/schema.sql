@@ -282,7 +282,8 @@ CREATE TABLE IF NOT EXISTS period_settings (
   cycle_length INTEGER NOT NULL DEFAULT 28,
   period_length INTEGER NOT NULL DEFAULT 5,
   shared INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  tracking INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS period_logs (

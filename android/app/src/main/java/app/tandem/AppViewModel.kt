@@ -149,13 +149,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun announceAchievements(s: StatsDetail) {
         val st = state.value ?: return
         val pid = st.couple.partner?.id ?: return
-        val unlocked = unlockedAchievements(Achievements.context(daysTogether(st.couple.anniversary) ?: 0L, s)).map { "$pid:${it.id}" }.toSet()
+        val ctx = Achievements.context(daysTogether(st.couple.anniversary) ?: 0L, s, games?.stats, cosmos?.cosmos)
+        val waiting = Achievements.waiting(ctx)
+        val newGroups = setOf(AchGroup.Games, AchGroup.Pets, AchGroup.Galaxy)
+        val unlocked = unlockedAchievements(ctx).filter { it.group !in waiting }.map { "$pid:${it.id}" }.toSet()
         val seen = repo.prefs.achievementsSeen()
-        if ("$pid:init" in seen) {
-            val fresh = unlocked - seen
-            Achievements.all.filter { "$pid:${it.id}" in fresh }.forEach { toast("🏆 Achievement unlocked: ${it.title}") }
-        }
-        repo.prefs.setAchievementsSeen(seen + unlocked + "$pid:init")
+        // the groups added in 2.2.0 are recorded quietly the first time, so an update doesn't fire a burst of toasts
+        val quiet = if ("$pid:init" !in seen) Achievements.all.map { it.group }.toSet() else if ("$pid:init2" !in seen) newGroups else emptySet()
+        val fresh = unlocked - seen
+        Achievements.all.filter { "$pid:${it.id}" in fresh && it.group !in quiet }.forEach { toast("Achievement unlocked: ${it.title}") }
+        val marks = buildSet { add("$pid:init"); if (waiting.isEmpty()) add("$pid:init2") }
+        repo.prefs.setAchievementsSeen(seen + unlocked + marks)
     }
 
     // ---- personal page

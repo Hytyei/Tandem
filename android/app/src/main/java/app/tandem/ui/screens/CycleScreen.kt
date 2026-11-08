@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,14 +63,21 @@ fun LazyListScope.cycleSection(vm: AppViewModel, data: SyncResponse, ui: CycleUi
         return
     }
     val partner = data.couple.partner
-    val partnerData = resp.partner
-    val viewing = ui.showPartner && partnerData != null
+    val myOn = resp.mine.settings.tracking
+    // a partner who turned their own cycle off isn't shown at all
+    val partnerData = resp.partner?.takeIf { it.settings.tracking }
+    if (!myOn && partnerData == null) {
+        item { TrackingOff(vm, null) }
+        return
+    }
+    val viewing = (ui.showPartner || !myOn) && partnerData != null
     val shown = if (viewing) partnerData!! else resp.mine
     val today = LocalDate.now()
     val pred = CycleMath.predict(shown, today)
     val ownerName = if (viewing) (partner?.displayName?.substringBefore(' ') ?: "Partner") else "You"
 
-    if (partnerData != null) item {
+    if (!myOn) item { TrackingOff(vm, partner?.displayName?.substringBefore(' ')) }
+    if (partnerData != null && myOn) item {
         Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
             Segmented(listOf("Me", partner?.displayName?.substringBefore(' ') ?: "Partner"), if (viewing) 1 else 0, { ui.showPartner = it == 1 })
         }
@@ -79,7 +87,7 @@ fun LazyListScope.cycleSection(vm: AppViewModel, data: SyncResponse, ui: CycleUi
     item { StatusCard(vm, shown, pred, today, ownerName, viewing, ui) }
 
     // ---------- month
-    item { CycleMonthCard(shown, pred, today, ui, viewing) }
+    item(key = if (viewing) "month-partner" else "month-me") { CycleMonthCard(shown, pred, today, ui, viewing) }
     item { Legend() }
 
     // ---------- history
@@ -152,10 +160,11 @@ private fun StatusCard(vm: AppViewModel, data: PeriodData, pred: CyclePrediction
         }
         last == null -> { headline = "No periods logged yet"; sub = if (viewing) "$owner hasn't logged anything yet" else "Log the day your next one starts and Tandem learns your cycle" }
         daysToNext != null && daysToNext > 0 -> {
-            headline = "Next period in $daysToNext ${if (daysToNext == 1) "day" else "days"}"
+            val whose = if (viewing) "$owner's period" else "Your period"
+            headline = "$whose is expected to start in $daysToNext ${if (daysToNext == 1) "day" else "days"}"
             sub = "Around ${next!!.format(shortDay)} · cycle day ${ChronoUnit.DAYS.between(last, today) + 1}"
         }
-        daysToNext == 0 -> { headline = "Expected today"; sub = "Cycle day ${ChronoUnit.DAYS.between(last, today) + 1}" }
+        daysToNext == 0 -> { headline = if (viewing) "$owner's period is expected to start today" else "Your period is expected to start today"; sub = "Cycle day ${ChronoUnit.DAYS.between(last, today) + 1}" }
         else -> {
             val late = -(daysToNext ?: 0)
             headline = "$late ${if (late == 1) "day" else "days"} later than expected"
@@ -212,6 +221,10 @@ private fun CycleMonthCard(data: PeriodData, pred: CyclePrediction, today: Local
             Box(Modifier.size(40.dp).pressable { ui.month = ym.minusMonths(1) }, contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month", tint = c.accent) }
             Box(Modifier.size(40.dp).pressable { ui.month = ym.plusMonths(1) }, contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month", tint = c.accent) }
         }
+        Text(
+            "Today is " + today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = Type.footnote, color = c.secondary,
+            modifier = Modifier.padding(start = 6.dp, top = 2.dp),
+        )
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth()) {
             for (i in 0 until 7) Text(java.time.DayOfWeek.MONDAY.plus(i.toLong()).getDisplayName(JTextStyle.NARROW, Locale.getDefault()), style = Type.caption, color = c.secondary, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
@@ -238,12 +251,22 @@ private fun CycleMonthCard(data: PeriodData, pred: CyclePrediction, today: Local
                             Column(
                                 Modifier.size(42.dp).clip(CircleShape).background(bg)
                                     .let { m -> if (kind == CycleDayKind.PredictedPeriod) m.border(1.5.dp, PERIOD_RED.copy(alpha = .6f), CircleShape) else m }
-                                    .let { m -> if (isToday) m.border(2.dp, c.label, CircleShape) else m }
+                                    // today's ring is drawn by hand: a border modifier didn't redraw when switching to a partner's cycle
+                                    .let { m ->
+                                        if (!isToday) m else {
+                                            val ring = if (kind == CycleDayKind.None || kind == CycleDayKind.PredictedPeriod) c.accent else Color.White
+                                            m.drawWithContent { drawContent(); drawCircle(ring, size.minDimension / 2f - 1.25.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(2.5.dp.toPx())) }
+                                        }
+                                    }
                                     .let { m -> if (!viewing && !date.isAfter(today)) m.pressable(haptic = false) { ui.dayDialog = date } else m },
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                             ) {
                                 Text("$n", style = Type.callout.copy(fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal), color = fg)
-                                Box(Modifier.padding(top = 2.dp).size(5.dp).clip(CircleShape).background(if (log != null) (if (kind == CycleDayKind.Period) Color.White else c.accent) else Color.Transparent))
+                                Box(Modifier.padding(top = 2.dp).size(if (isToday) 6.dp else 5.dp).clip(CircleShape).background(when {
+                                    isToday -> if (kind == CycleDayKind.Period || kind == CycleDayKind.Ovulation) Color.White else c.accent
+                                    log != null -> if (kind == CycleDayKind.Period) Color.White else c.accent
+                                    else -> Color.Transparent
+                                }))
                             }
                         }
                     }
@@ -412,16 +435,24 @@ private fun CycleSettingsSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val cur = vm.period?.mine?.settings ?: PeriodSettings()
     var cycle by remember { mutableIntStateOf(cur.cycleLength) }
     var length by remember { mutableIntStateOf(cur.periodLength) }
+    var tracking by remember { mutableStateOf(cur.tracking) }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = c.sheet, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
             Text("Cycle settings", style = Type.title, color = c.label)
             Text("Used for predictions until you have logged a couple of periods. After that Tandem learns from your own dates.", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
+            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Track my cycle", style = Type.body, color = c.label)
+                    Text("Turn it off if you don't have one to track. You'll still see your partner's", style = Type.footnote, color = c.secondary)
+                }
+                Switch(checked = tracking, onCheckedChange = { tracking = it }, colors = SwitchDefaults.colors(checkedTrackColor = c.accent))
+            }
             Stepper("Cycle length", "$cycle days", { if (cycle > 20) cycle-- }, { if (cycle < 45) cycle++ })
             Spacer(Modifier.height(8.dp))
             Stepper("Period length", "$length days", { if (length > 2) length-- }, { if (length < 10) length++ })
             Spacer(Modifier.height(16.dp))
-            PrimaryButton("Save", onClick = { vm.savePeriodSettings(PeriodSettingsBody(cycle, length), onDismiss) }, loading = vm.busy)
+            PrimaryButton("Save", onClick = { vm.savePeriodSettings(PeriodSettingsBody(cycle, length, tracking), onDismiss) }, loading = vm.busy)
         }
     }
 }
@@ -434,5 +465,21 @@ private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: (
         Box(Modifier.size(38.dp).clip(CircleShape).background(c.accentSoft).pressable(onClick = onMinus), contentAlignment = Alignment.Center) { Text("−", style = Type.title, color = c.accent) }
         Text(value, style = Type.headline, color = c.label, textAlign = TextAlign.Center, modifier = Modifier.width(84.dp))
         Box(Modifier.size(38.dp).clip(CircleShape).background(c.accentSoft).pressable(onClick = onPlus), contentAlignment = Alignment.Center) { Text("+", style = Type.title, color = c.accent) }
+    }
+}
+
+/** Shown when your own cycle tracking is off: a quiet line and a way back on. */
+@Composable
+private fun TrackingOff(vm: AppViewModel, partnerName: String?) {
+    val c = T.colors
+    val cur = vm.period?.mine?.settings ?: PeriodSettings()
+    SoftCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
+        Text(if (partnerName != null) "You're seeing $partnerName's cycle" else "Cycle tracking is off", style = Type.headline, color = c.label)
+        Text(
+            if (partnerName != null) "Your own cycle tracking is off." else "Turn it on to log periods and see predictions.",
+            style = Type.footnote, color = c.secondary, modifier = Modifier.padding(top = 2.dp),
+        )
+        Spacer(Modifier.height(10.dp))
+        SoftButton("Track my cycle too", onClick = { vm.savePeriodSettings(PeriodSettingsBody(cur.cycleLength, cur.periodLength, true)) })
     }
 }

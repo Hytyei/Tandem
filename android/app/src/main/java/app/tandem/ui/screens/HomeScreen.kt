@@ -84,6 +84,7 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
             val days = daysTogether(data.couple.anniversary)
             val st = data.stats ?: Stats()
             val first = me.displayName.substringBefore(' ')
+            val occasion = remember { Occasions.today() }
 
             // ---------- Our sky: full-bleed, no box. Days together drawn as a constellation behind the greeting. Tap for Stats.
             Box(Modifier.fillMaxWidth()) {
@@ -103,11 +104,16 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
                         Avatar(me, 28.dp, ring = c.me)
                         Box(Modifier.offset(x = (-8).dp)) { Avatar(partner, 28.dp, ring = c.partner) }
                         Spacer(Modifier.width(2.dp))
-                        Text("$first & ${partner?.displayName?.substringBefore(' ') ?: "…"}", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 1)
+                        Text(first, style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 1)
+                        if (me.verified) { Spacer(Modifier.width(3.dp)); VerifiedBadge(14.dp) }
+                        Text(" & ${partner?.displayName?.substringBefore(' ') ?: "…"}", style = Type.callout.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 1)
+                        if (partner?.verified == true) { Spacer(Modifier.width(3.dp)); VerifiedBadge(14.dp) }
                         Spacer(Modifier.width(10.dp))
                         Text("Stats  ›", style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), color = Color(0xFFFFB5C5))
                     }
                 }
+                // a little weather on special days: snow, fireworks, petals, hearts…
+                occasion?.let { OccasionEffect(it.fx, Modifier.matchParentSize()) }
                 if (days == null) Text(
                     "Set your anniversary in Profile to start counting days together", style = Type.callout, color = Color.White.copy(alpha = .85f),
                     textAlign = TextAlign.Center, modifier = Modifier.align(Alignment.Center).padding(horizontal = 36.dp).padding(top = 70.dp),
@@ -115,6 +121,7 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
             }
 
             vm.update?.let { u -> UpdateBanner(u.version, vm.updateProgress, onInstall = { vm.installUpdate() }) }
+            occasion?.let { OccasionGreeting(it, Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp).fillMaxWidth().staggerIn(0)) }
 
             Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().staggerIn(0), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MiniStat(Modifier.weight(1f), Icons.Filled.EmojiEmotions, st.moods.toLong(), "moods", c.accent)
@@ -161,7 +168,7 @@ fun HomeScreen(vm: AppViewModel, openCalendar: () -> Unit, openStats: () -> Unit
             }
 
             // ---------- Next event
-            val next = remember(data.events) { upcoming(data.events).firstOrNull() }
+            val next = remember(data.events) { soon(data.events + Occasions.events(), 30).firstOrNull() }
             if (next != null) {
                 SectionHeader("Coming up")
                 Box(Modifier.padding(horizontal = 16.dp).staggerIn(7)) { NextEventCard(next.first, next.second, openCalendar) }
@@ -240,6 +247,7 @@ private fun MoodNowCard(user: User?, mood: MoodEntry?, name: String, ring: Color
             Avatar(user, 26.dp, ring = ring)
             Spacer(Modifier.width(6.dp))
             Text(name, style = Type.caption.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 1)
+            if (user?.verified == true) { Spacer(Modifier.width(4.dp)); VerifiedBadge(13.dp) }
         }
     }
 }

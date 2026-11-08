@@ -66,7 +66,10 @@ fun PersonPage(vm: AppViewModel, mine: Boolean, onBack: () -> Unit) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Avatar(user, 104.dp, ring = if (mine) c.me else c.partner)
                     Spacer(Modifier.height(10.dp))
-                    Text(if (p.fullName.isNotBlank()) p.fullName else user.displayName, style = Type.largeTitle, color = c.label, textAlign = TextAlign.Center)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (p.fullName.isNotBlank()) p.fullName else user.displayName, style = Type.largeTitle, color = c.label, textAlign = TextAlign.Center)
+                        if (user.verified) { Spacer(Modifier.width(8.dp)); VerifiedBadge(24.dp) }
+                    }
                     Text("@${user.username}", style = Type.callout, color = c.secondary)
                     if (user.bio.isNotBlank()) Text(user.bio, style = Type.callout, color = c.label, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
                     if (mine) {

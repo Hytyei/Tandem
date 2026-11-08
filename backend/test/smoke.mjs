@@ -763,6 +763,12 @@ for (const g of ["seq", "code", "lights", "slide", "odd", "target", "echo", "mol
   ok("period: settings saved (sharing can't be switched off)", r.status === 200 && r.body.cycleLength === 30 && r.body.periodLength === 5 && r.body.shared === true, r);
   r = await call("GET", "/period", I);
   ok("period: still visible after that", r.body.partner && r.body.partner.settings.cycleLength === 30, r.body);
+  r = await call("PUT", "/period/settings", I, { tracking: false });
+  ok("period: turn your own cycle off", r.status === 200 && r.body.tracking === false && r.body.cycleLength === 28, r);
+  r = await call("GET", "/period", H);
+  ok("period: partner sees it's off", r.body.partner && r.body.partner.settings.tracking === false && r.body.mine.settings.tracking === true, r.body);
+  r = await call("PUT", "/period/settings", I, { tracking: true });
+  ok("period: and back on", r.body.tracking === true, r);
   r = await call("PUT", `/period/${p2}`, I, { startDate: day(12) });
   ok("period: partner can't edit it", r.status === 404, r);
   r = await call("PUT", `/period/days/${day(11)}`, H, {});

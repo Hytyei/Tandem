@@ -78,7 +78,10 @@ fun ProfileScreen(vm: AppViewModel, openPage: (Boolean) -> Unit = {}) {
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text(me.displayName, style = Type.title, color = c.label)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(me.displayName, style = Type.title, color = c.label)
+                if (me.verified) { Spacer(Modifier.width(6.dp)); VerifiedBadge(20.dp) }
+            }
             Text("@${me.username}", style = Type.callout, color = c.secondary)
             if (me.bio.isNotBlank()) Text(me.bio, style = Type.callout, color = c.label, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 40.dp, vertical = 6.dp))
             Spacer(Modifier.height(6.dp))

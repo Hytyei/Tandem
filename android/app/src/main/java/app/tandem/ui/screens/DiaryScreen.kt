@@ -88,6 +88,9 @@ fun DiaryScreen(vm: AppViewModel, switcher: @Composable () -> Unit = {}) {
                 }
             }
 
+            // one note from the past: this day last year, a month ago, or something from before
+            item { FromThePastCard(vm, data, Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) }
+
             if (data.diary.isEmpty()) item {
                 EmptyState("Nothing here yet", "Write the first note: a memory, a thought, a thank you. You can add photos and pick any date.")
             }

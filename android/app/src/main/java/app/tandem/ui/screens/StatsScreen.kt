@@ -46,7 +46,7 @@ fun StatsScreen(vm: AppViewModel, onBack: () -> Unit, openAchievements: () -> Un
     val s by vm.state.collectAsState()
     val data = s ?: return
     val detail = vm.stats
-    LaunchedEffect(Unit) { vm.loadStats() }
+    LaunchedEffect(Unit) { vm.loadStats(); if (vm.games == null) vm.loadGames(); if (vm.cosmos == null) vm.loadCosmos() }
 
     val me = data.me
     val partner = data.couple.partner
@@ -107,7 +107,7 @@ fun StatsScreen(vm: AppViewModel, onBack: () -> Unit, openAchievements: () -> Un
 
                 // ---------- achievements, one line
                 if (detail != null) {
-                    val ach = Achievements.context(days ?: 0L, detail)
+                    val ach = Achievements.context(days ?: 0L, detail, vm.games?.stats, vm.cosmos?.cosmos)
                     val done = Achievements.all.count { it.unlocked(ach) }
                     val latest = Achievements.all.filter { it.unlocked(ach) }.takeLast(3)
                     GlassCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().staggerIn(2).pressable(onClick = openAchievements), padding = 16.dp) {

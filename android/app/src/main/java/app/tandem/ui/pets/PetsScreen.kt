@@ -182,6 +182,7 @@ private fun PetPage(
     val look = remember(pet.species, pet.breed, pet.coat) { pet.look() }
     var reaction by remember(pet.id) { mutableStateOf<PetReaction?>(PetReaction("hello")) }
     var bubble by remember(pet.id) { mutableStateOf<String?>(null) }
+    var pokes by remember(pet.id) { mutableStateOf(emptyList<Long>()) }
     var bubbleKey by remember { mutableLongStateOf(0L) }
     fun say(text: String) { bubble = text; bubbleKey = System.nanoTime() }
     val sibling = pets.firstOrNull { it.id != pet.id }?.name
@@ -238,13 +239,20 @@ private fun PetPage(
             PetStage(
                 look, pet.mood, Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp).size(260.dp),
                 seed = pet.id.hashCode(), reaction = reaction, night = night, voice = voice,
-                onTap = { say(PetLines.after("poke", pet, myName, pName)) },
+                onTap = {
+                    // poke it seven times in a few seconds and it gives up its tickle spot
+                    val t = System.currentTimeMillis()
+                    pokes = pokes.filter { t - it < 4000 } + t
+                    if (pokes.size >= 7) { pokes = emptyList(); reaction = PetReaction("cuddle"); say(PetLines.after("tickle", pet, myName, pName)) }
+                    else say(PetLines.after("poke", pet, myName, pName))
+                },
             )
             PetBubble(bubble, Modifier.align(Alignment.TopCenter).padding(horizontal = 36.dp, vertical = 6.dp))
         }
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("${PetCatalog.breedName(pet.breed)} · ${PetCatalog.moodLabel(pet.mood)}", style = Type.callout, color = if (pet.mood == "sulking" || pet.mood == "grumpy") Color(0xFFFFB3C2) else c.secondary)
+            Text(PetLines.traits(pet).joinToString(" · ") { it.label }, style = Type.footnote, color = c.special, modifier = Modifier.padding(top = 2.dp))
             val fav = pet.favourite()
             Text(
                 when { fav == null -> "Loves you both the same"; fav == meId -> "Prefers you, for now"; else -> "Prefers $pName, for now" },
