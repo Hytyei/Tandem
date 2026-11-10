@@ -6,6 +6,8 @@
 
 <p align="center">A private little space for two — shared moods, a diary wall, a calendar with special days, and home-screen widgets.</p>
 
+> **Working on Tandem?** Read [Instructions.md](Instructions.md) first: the full handover (architecture, features, build, test and release steps, quirks and plans).
+
 Native Android app (Kotlin, Jetpack Compose, Glance widgets) with a free Cloudflare Workers + D1 backend. Releases and updates are delivered through [GitHub Releases](https://github.com/Hytyei/Tandem/releases).
 
 ## Features
