@@ -149,7 +149,7 @@ fun GalaxyScreen(vm: AppViewModel, onBack: () -> Unit) {
                         Icon(Icons.Rounded.Info, "How to earn", tint = c.label, modifier = Modifier.size(20.dp))
                     }
                 }
-                Text("Drag to turn it, pinch to come closer", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary, modifier = Modifier.padding(top = 12.dp).align(Alignment.CenterHorizontally))
+                Text("Drag to turn it, pinch or double-tap to fly in", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary, modifier = Modifier.padding(top = 12.dp).align(Alignment.CenterHorizontally))
             }
         }
     }

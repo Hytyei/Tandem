@@ -38,7 +38,7 @@ ok("…and only once", c.milestones.length === 4);
 // pets
 c.stardust = 250;
 C.adopt(c, "cat", "persian", "Mochi", "p1", T0);
-ok("the first pet is free", c.stardust === 250 && c.pets.length === 1 && c.pets[0].bond[A] === 30);
+ok("the first pet is free", c.stardust === 250 && c.pets.length === 1 && c.pets[0].bond[A] === 15 && c.pets[0].xp === 0 && c.pets[0].moments.length === 1);
 C.adopt(c, "dog", "shiba", "Kuma", "p2", T0);
 ok("the second costs 200", c.stardust === 50);
 let threw = false; try { C.adopt(c, "rabbit", "rex", "Bun", "p3", T0); } catch { threw = true; }
@@ -54,18 +54,45 @@ ok("two pets: everyone gets hungrier faster", c.pets[0].hunger < one.pets[0].hun
 
 // care
 const h0 = c.pets[0].hunger, f0 = c.stores[A].food;
-C.feed(c, A, "p1");
-ok("feeding uses your food and fills hunger", c.pets[0].hunger === Math.min(100, h0 + 22) && c.stores[A].food === f0 - 1 && c.pets[0].bond[A] === c.pets[0].bond[B] + 3, c.pets[0]);
+C.feed(c, A, "p1", T0 + 10 * H);
+ok("feeding uses your food, fills hunger, grows bond and growth", c.pets[0].hunger === Math.min(100, h0 + 22) && c.stores[A].food === f0 - 1 && c.pets[0].bond[A] > c.pets[0].bond[B] + 2 && c.pets[0].xp === 6, c.pets[0]);
 c.stores[B].drink = 0; threw = false; try { C.water(c, B, "p1"); } catch { threw = true; }
 ok("an empty store can't be spent", threw);
-C.cuddle(c, A, "p1");
+C.cuddle(c, A, "p1", T0 + 10 * H);
 ok("cuddles grow the bond most", c.pets[0].bond[A] > c.pets[0].bond[B] + 7);
 ok("a free pat", C.pat(c, B, "p1", T0 + 10 * H) === true && C.pat(c, B, "p1", T0 + 10 * H + 60_000) === false && C.pat(c, B, "p1", T0 + 11 * H) === true);
 
 // neglect: sulking and fading bonds, never death
 C.tickPets(c, T0 + 6 * D);
 ok("neglect makes a pet sulk", C.mood(c.pets[0]) === "sulking" && c.pets.length === 2);
-ok("…and its bonds fade faster", c.pets[0].bond[A] < 20, c.pets[0].bond);
+ok("…and its bonds fade faster", c.pets[0].bond[A] < 15, c.pets[0].bond);
+
+// growing up: care and age both count
+{
+  const g = C.newCosmos([A, B], T0, 0, 0, rand); g.stores[A] = { food: 99, drink: 99, love: 99 }; g.stores[B] = { food: 99, drink: 99, love: 99 };
+  C.adopt(g, "cat", "ginger", "Kit", "k", T0);
+  ok("a newborn is a baby", C.stageOf(g.pets[0], T0) === 0 && C.growth(g.pets[0], T0) === 0);
+  for (let i = 0; i < 12; i++) C.cuddle(g, A, "k", T0 + i * 1000);
+  C.feed(g, B, "k", T0 + 20_000);
+  ok("care alone doesn't grow it up overnight", C.stageOf(g.pets[0], T0 + H) === 0 && g.pets[0].xp >= 80, g.pets[0].xp);
+  C.tickPets(g, T0 + 2 * D + H);
+  ok("with two days of age it's young", C.stageOf(g.pets[0], T0 + 2 * D + H) === 1 && g.pets[0].moments.some((m) => m.kind === "grow"), g.pets[0].moments);
+  for (let i = 0; i < 40; i++) C.feed(g, B, "k", T0 + 2 * D + H + i * 1000);
+  C.tickPets(g, T0 + 8 * D);
+  ok("and grown up after a week of care", C.stageOf(g.pets[0], T0 + 8 * D) === 2 && C.growth(g.pets[0], T0 + 8 * D) === 1);
+  ok("both caring on a day: a together bonus", g.pets[0].moments.some((m) => m.kind === "together"));
+  // bond levels, streaks, perks
+  const b0 = g.pets[0].bond[A];
+  ok("bond levels have names", C.BOND_LEVELS[C.bondLevel(b0)][1].length > 0 && C.bondLevel(95) === 5 && C.bondLevel(0) === 0);
+  g.pets[0].bond[A] = 92; g.pets[0].pats = {};
+  const before = { ...g.stores[A] };
+  ok("a soulmate's pat brings a gift once a day", C.pat(g, A, "k", T0 + 9 * D) && g.stores[A].love === Math.min(99, before.love + 2) && g.pets[0].moments[0].kind === "gift", g.pets[0].moments[0]);
+  ok("friends wait less between pats", C.patWait(g.pets[0], A) === 20 * 60_000 && C.patWait({ bond: { x: 5 } }, "x") === 30 * 60_000);
+  ok("…once a day", C.pat(g, A, "k", T0 + 9 * D + H) && g.stores[A].love === Math.min(99, before.love + 2));
+  const old = C.newCosmos([A, B], T0, 0, 0, rand); C.adopt(old, "dog", "shiba", "Old", "o", T0); delete old.pets[0].xp;
+  C.tickPets(old, T0 + 5 * D);
+  ok("pets from before growth get growth for their age", old.pets[0].xp === 225 && C.stageOf(old.pets[0], T0 + 5 * D) === 1, old.pets[0].xp);
+}
 
 // galaxy
 const s0 = c.seed, comets = c.comets;

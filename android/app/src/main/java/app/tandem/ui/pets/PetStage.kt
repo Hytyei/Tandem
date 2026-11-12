@@ -61,7 +61,7 @@ class PetLife(val species: String, seed: Int) {
         "nose" -> 1.8f; "hop" -> .75f; "binky" -> 1f; "grunt" -> .5f; "flop" -> 2.4f
         "bob" -> 2.2f; "flap" -> 1.3f; "chirp" -> .8f; "fluff" -> 1.2f
         // reactions
-        "feed" -> 1.8f; "water" -> 1.8f; "cuddle" -> 2.2f; "pat" -> 1.4f; "poke" -> 1f; "nope" -> 1.1f; "hello" -> 1.6f
+        "feed" -> 1.8f; "water" -> 1.8f; "cuddle" -> 2.2f; "pat" -> 1.4f; "poke" -> 1f; "nope" -> 1.1f; "hello" -> 1.6f; "trick" -> 1.4f
         else -> 1f
     }
 
@@ -69,7 +69,7 @@ class PetLife(val species: String, seed: Int) {
         "meow" -> "meow"; "bark" -> "boof"; "squeak" -> "squeak"; "chirp" -> "chirp"; "grunt" -> "grunt"; "pant" -> "pant"
         "feed" -> "nom"; "water" -> "lap"
         "cuddle" -> when (species) { "cat" -> "purr"; "dog" -> "boof"; "hamster" -> "squeak"; "rabbit" -> "grunt"; else -> "chirp" }
-        "pat", "poke", "hello" -> when (species) { "cat" -> "trill"; "dog" -> "boof"; "hamster" -> "squeak"; "rabbit" -> "grunt"; else -> "chirp" }
+        "pat", "poke", "hello", "trick" -> when (species) { "cat" -> "trill"; "dog" -> "boof"; "hamster" -> "squeak"; "rabbit" -> "grunt"; else -> "chirp" }
         "nope" -> when (species) { "cat" -> "meow"; "dog" -> "boof"; "hamster" -> "squeak"; "rabbit" -> "grunt"; else -> "chirp" }
         else -> null
     }
@@ -81,6 +81,7 @@ class PetLife(val species: String, seed: Int) {
             "cuddle" -> { sqV += 5f; hearts.add(t); hearts.add(t + .35f) }
             "pat" -> sqV += 3.5f
             "poke" -> sqV += 6f
+            "trick" -> sqV += 4f
             "feed", "water" -> sqV += 2.5f
             "nope" -> sqV -= 3f
         }
@@ -193,6 +194,14 @@ class PetLife(val species: String, seed: Int) {
             "pat" -> { p.happy = if (env > .3f) 1f else 0f; p.earL = -.8f * env; p.earR = -.8f * env; p.headDy += 2.5f * env; p.blush = .5f * env }
             "poke" -> { p.lookX = 0f; p.lookY = -.2f; p.earL = env; p.earR = env; p.mouth = bell(x, .15f, .5f) * .6f }
             "nope" -> { p.lookX = -.9f * env; p.tilt -= 10f * env; p.earL = -.7f * env; p.earR = -.7f * env }
+            // a best friend's trick: a happy spin-hop with a wiggle
+            "trick" -> {
+                val air = sin(x * PI.toFloat())
+                p.hop = .9f * air; p.happy = 1f; p.blush = env
+                p.tilt += sin(x * tau * 2f) * 22f * env
+                p.squash += if (x < .15f) .8f * sin(x / .15f * PI.toFloat()) else -.4f * air
+                p.tail = sin(s * 22f) * env; p.earL = sin(s * 18f) * env; p.earR = -sin(s * 18f) * env; p.wing = air
+            }
             "hello" -> { p.happy = if (x in .2f..0.8f) 1f else 0f; p.hop = if (species == "rabbit" || species == "parrot") .4f * sin(x * PI.toFloat()) else 0f; p.mouth = bell(x, .3f, .4f) * .6f; p.tail = sin(s * 20f) * env }
         }
     }

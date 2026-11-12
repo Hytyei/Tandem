@@ -1478,27 +1478,32 @@ async function memories(c: Ctx): Promise<Response> {
 // ------------------------------------------------------------- minigames: turn-based timed matches, high scores, goals
 // A match is N rounds of one game. Every round both players play the SAME seeded, timed run on their own phone, one after the other
 // (the starter goes first in odd rounds, the partner in even rounds). Higher score wins the round; most rounds wins the match.
+// Since 2.3.0 no game has a score ceiling: games are timed or end at three lives, and the max is only a sanity
+// limit against a tampered client.
 const GAMES: Record<string, { max: number }> = {
-  heart: { max: 120 },    // Heart Catch: hearts tapped in 30 s
-  memory: { max: 1500 },  // Memory Match: pairs + time bonus - mistakes
-  math: { max: 1000 },    // Math Sprint: correct answers in 45 s
-  draw: { max: 3000 },    // Quick Draw: reaction speed over 5 tries
-  seq: { max: 800 },      // Next Number: pattern puzzles in 60 s (+10 right, -5 wrong)
-  code: { max: 1000 },    // Code Breaker: crack a 4-colour code in 8 guesses
+  heart: { max: 50000 },    // Heart Catch: 10 per heart, until 3 hearts fade (since 2.3.0)
+  memory: { max: 50000 },  // Memory Match: 60 s, a new board each time one is cleared (endless since 2.3.0)
+  math: { max: 50000 },    // Math Sprint: correct answers in 45 s
+  draw: { max: 50000 },   // Quick Draw: reaction points per try until 3 lives are lost (endless since 2.3.0)
+  seq: { max: 50000 },      // Next Number: pattern puzzles in 60 s (+10 right, -5 wrong)
+  code: { max: 50000 },    // Code Breaker: crack as many 4-colour codes as you can in 3 minutes (since 2.3.0)
   lights: { max: 1000 }, // Lights Out: switch every light off, fewer moves + faster = more
   slide: { max: 1000 },   // Slide Puzzle: 3x3 tiles back in order, faster + fewer moves = more (retired in the app; kept so running matches finish)
-  odd: { max: 1000 },     // Odd One Out: spot the different emoji, 45 s
-  target: { max: 1000 },  // Make the Target: tap numbers that add up to the target, 60 s
-  echo: { max: 1000 },    // Echo: repeat the growing light pattern, 2 lives
-  mole: { max: 1000 },    // Whack-a-Mole: 40 s, moles +, bombs -
-  stack: { max: 1000 },   // Stack: floors * 10 + perfect drops * 5
-  flap: { max: 1000 },    // Flappy Heart: gaps passed * 10
-  stroop: { max: 1000 },  // Colour Clash: 30 s, tap the ink colour
-  word: { max: 1000 },    // Word Duel: 5-letter word in 6 guesses, faster = more
-  bj: { max: 5000 },      // Blackjack: chips after 6 hands (start 500)
-  path: { max: 1000 },    // Star Path: tap constellation stars in order, 45 s
-  orbit: { max: 1000 },   // Orbit: tap as the moon passes the gate, 3 lives
-  drift: { max: 1000 },   // Meteor Drift: catch stars, dodge meteors, 45 s
+  odd: { max: 50000 },     // Odd One Out: spot the different emoji, 45 s
+  target: { max: 50000 },  // Make the Target: tap numbers that add up to the target, 60 s
+  echo: { max: 50000 },    // Echo: repeat the growing light pattern, 2 lives
+  mole: { max: 50000 },    // Whack-a-Mole: 40 s, moles +, bombs -
+  stack: { max: 50000 },   // Stack: floors * 10 + perfect drops * 5
+  flap: { max: 50000 },    // Flappy Heart: gaps passed * 10
+  stroop: { max: 50000 },  // Colour Clash: 30 s, tap the ink colour
+  word: { max: 50000 },    // Word Duel: as many 5-letter words as you can in 3 minutes (since 2.3.0)
+  bj: { max: 50000 },      // Blackjack: chips after 3 minutes of hands (start 500; since 2.3.0)
+  path: { max: 50000 },    // Star Path: tap constellation stars in order, 45 s
+  orbit: { max: 50000 },   // Orbit: tap as the moon passes the gate, 3 lives
+  drift: { max: 50000 },   // Meteor Drift: catch stars, dodge meteors, 45 s
+  pulse: { max: 50000 },  // Pulse: tap as each ring meets the circle, 3 lives (2.3.0)
+  firefly: { max: 50000 }, // Firefly Count: how many lit up, 45 s (2.3.0)
+  twins: { max: 50000 },   // Twin Stars: find the two that match, 45 s (2.3.0)
 };
 
 /** Optional "how it was played" numbers that come with a score (fastest / average reaction in ms, hits, misses). Never trusted for anything but stats. */
@@ -2080,7 +2085,12 @@ async function loadCosmos(c: Ctx): Promise<{ s: Cosmos.Cosmos; version: number; 
 
 function cosmosJson(s: Cosmos.Cosmos, me: string) {
   return {
-    cosmos: { ...s, counts: undefined, pets: s.pets.map((p) => ({ ...p, mood: Cosmos.mood(p), patReadyAt: (p.pats[me] ?? 0) + Cosmos.PAT_EVERY })) },
+    cosmos: {
+      ...s, counts: undefined,
+      pets: s.pets.map((p) => ({ ...p, mood: Cosmos.mood(p), patReadyAt: (p.pats[me] ?? 0) + Cosmos.patWait(p, me), growth: Cosmos.growth(p, now()), stage: Cosmos.stageOf(p, now()), xp: p.xp ?? 0 })),
+    },
+    bondLevels: Cosmos.BOND_LEVELS,
+    stages: Cosmos.STAGES,
     me: s.stores[me] ?? { food: 0, drink: 0, love: 0 },
     species: Cosmos.SPECIES,
     adoptCost: Cosmos.ADOPT_COST[s.pets.length] ?? null,
@@ -2107,9 +2117,9 @@ async function cosmosAction(c: Ctx, apply: (s: Cosmos.Cosmos, body: any) => void
 
 const petId = (b: any) => String(b?.petId ?? "");
 const cosmosAdopt = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.adopt(s, String(b.species ?? ""), String(b.breed ?? ""), str(b.name, "name", 1, 24), uid().slice(0, 12), now(), Number(b.coat ?? 0)));
-const cosmosFeed = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.feed(s, c.user.id, petId(b)));
-const cosmosWater = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.water(s, c.user.id, petId(b)));
-const cosmosCuddle = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.cuddle(s, c.user.id, petId(b)));
+const cosmosFeed = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.feed(s, c.user.id, petId(b), now()));
+const cosmosWater = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.water(s, c.user.id, petId(b), now()));
+const cosmosCuddle = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.cuddle(s, c.user.id, petId(b), now()));
 const cosmosPat = (c: Ctx) => cosmosAction(c, (s, b) => { Cosmos.pat(s, c.user.id, petId(b), now()); });
 const cosmosRename = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.rename(s, petId(b), str(b.name, "name", 1, 24)));
 const cosmosRelease = (c: Ctx) => cosmosAction(c, (s, b) => Cosmos.release(s, petId(b), now()));

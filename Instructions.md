@@ -2,7 +2,7 @@
 
 Everything a developer or another AI agent needs to keep working on Tandem without any earlier context. Keep this file current: update it in the same commit as any change to features, structure, tooling or plans.
 
-Last updated: 2026-11-10, at version **2.2.0** (versionCode 20).
+Last updated: 2026-11-11, at version **2.3.0** (versionCode 21).
 
 ---
 
@@ -30,7 +30,7 @@ D:\RandD\Android Apps\Tandem App\
 │   ├── docs\               ← icon, old update notes, design specs (docs/superpowers/specs)
 │   ├── tools\              ← Python illustration painter for the mood/activity art
 │   └── .github\workflows\  ← CI (see section 9)
-└── v2.2.0\ (and later v<x.y.z>\)  ← one folder per released version: the signed APK + install.bat
+├── v2.2.0\, v2.3.0\ …     ← one folder per version: the signed APK + install.bat
 ```
 
 **Version folders (standing rule):** every new version gets a new folder `Tandem App\v<version>\` holding that version's signed APK and an `install.bat` that installs it on a USB-connected phone with adb. Older version folders are never edited. The repository itself stays in `Tandem\`; it is not copied per version (git history and tags cover the source).
@@ -102,7 +102,13 @@ There are five tabs: **Today**, **Echoes** (moods, diary, heatmap), **Calendar**
 - Debug builds can preview any occasion: `adb shell am start -n app.tandem.couples/app.tandem.MainActivity --es occasion nowruz`.
 
 **Play** (minigames for two)
-- 18 games in `data/Catalog.kt` `MiniGame`. Keys: heart, memory, math, draw, mole, path, stack, flap, orbit, drift, odd, target, seq, echo, stroop, word, code, bj.
+- 21 games in `data/Catalog.kt` `MiniGame`. Keys: heart, memory, math, draw, mole, path, stack, flap, orbit, drift, pulse, odd, target, seq, echo, stroop, word, code, firefly, twins, bj. Pulse, Firefly Count and Twin Stars were added in 2.3.0 (`ui/screens/MiniGames4.kt`).
+- **No score ceilings (2.3.0):** every game is either timed or ends at three lives, and no client code clamps a score.
+  - Heart Catch, Quick Draw, Pulse and Orbit end at 3 lives.
+  - Memory Match deals board after board.
+  - Code Breaker and Word Duel go code after code and word after word for 3 minutes.
+  - Blackjack runs for 3 minutes.
+  - The server's per-game `max` in `GAMES` is only an anti-tampering limit (50,000; Lights Out and Slide Puzzle, both retired, stay at 1,000).
   - A new game also needs its key added to `GAMES` in `backend/src/index.ts`, deployed before the app ships.
 - Each match is a seeded round both partners play; the higher score wins.
 - The Play home has a "Your turn" list and a **head-to-head tug of war** (`ui/screens/HeadToHead.kt`): the knot is pulled toward whoever leads, with last-5 form under each side and the Tandem score.
@@ -112,6 +118,16 @@ There are five tabs: **Today**, **Echoes** (moods, diary, heatmap), **Calendar**
 - Up to 3 pets: cats, dogs, hamsters, rabbits and parrots, 23 breeds with 3 coats each. They are drawn in code in a kawaii style (`PetArt.kt`) and animated with idle loops, micro-actions and reactions (`PetStage.kt`).
 - **Needs:** hunger, thirst and love fall over time and faster with more pets. Each partner feeds, waters and cuddles from their own storage, plus a free pat every 30 minutes. Each pet keeps a bond with each partner.
 - A neglected pet sulks; pets never die. Adoption costs 0, 200 or 500 stardust for the first, second and third pet.
+- **Growing up (2.3.0):** baby, then young, then adult (names per species in `stageName`: Kitten, Young cat, Cat and so on). Each stage needs growth points (`xp`: feed +6, water +5, cuddle +8, pat +3, +10 the first time in a day both partners cared) and age: young needs 80 xp and 2 days, adult 300 xp and 7 days.
+  - The server sends `stage` and a smooth `growth` from 0 to 1.
+  - The art reads `PetLook.grow`: a baby is smaller overall, with a bigger head and eyes on a shorter body (`bodyS`, `headS`, `eyeS`, `headDrop` in `PetPose`).
+  - Pets adopted before 2.3.0 were given xp for their age on their first tick.
+- **Bonds in depth (2.3.0):** 0–100 per partner, in six levels: Stranger 0, Acquaintance 15, Friend 30, Close friend 50, Best friend 70, Soulmate 90 (`BOND_LEVELS` on the server, `Bond` in `data/Cosmos.kt`).
+  - **Gains** depend on the kind of care (cuddle 5, feed 3, water 2, pat 1), the person's daily care streak (up to +48%), variety (doing the same thing three times running gives less) and the current level (each level is harder).
+  - **Fading:** bonds fade more slowly the deeper they are; a sulking pet still costs bond fast.
+  - **Perks:** Friend waits 20 minutes between free pats instead of 30; Close friend's care goes 20% further; Best friend's pet sometimes does a trick when tapped; a Soulmate's first pat of the day brings a gift of 2 food, 2 drink and 2 love.
+  - New pets start at 15.
+- **Per pet the server keeps** `care` per person (counts, streak, last kinds), `gifts`, `together` (the day both cared) and `moments`, a short history: adopt, grow, bond level reached, gift, together. The pet page shows a growth card, a bond card for each partner and the moments (`ui/pets/PetBond.kt`).
 - **Voices** come from a formant synth in `PetSynth.kt` (meow, trill, purr, boof, pant, squeak, grunt, chirp, nom, lap), with a mute switch.
 - **Personality and lines:** two traits per pet, derived from its id, shape what it says (`PetLines.kt`). Easter eggs:
   - pet names with their own lines;
@@ -123,7 +139,7 @@ There are five tabs: **Today**, **Echoes** (moods, diary, heatmap), **Calendar**
 
 **Galaxy** (`ui/galaxy/`)
 - A procedural galaxy generated from a seed (`GalaxyGen.kt`): spiral, barred, ring or lens shapes, with palettes based on telescope photos. It grows with lifetime stardust, from about 6,000 to 90,000 particles.
-- Rendered with OpenGL ES 2 on a transparent `TextureView` with its own EGL thread (`GalaxyGL.kt`), over the dream sky. Drag to rotate with momentum, pinch to zoom. If GL fails, a CPU-painted fallback (`GalaxyBitmap.kt`) is shown.
+- Rendered with OpenGL ES 2 on a transparent `TextureView` with its own EGL thread (`GalaxyGL.kt`), over the dream sky. Drag to rotate with momentum. Pinch zooms from far out (distance 6) to deep inside the disk (0.35, since 2.3.0); a double tap glides in close or back out. If GL fails, a CPU-painted fallback (`GalaxyBitmap.kt`) is shown.
 - **Stardust** is earned from moods, notes, pictures, game rounds, tracked dates, both partners sharing a mood on the same day, and milestones.
 - **Comets** are the re-roll item: a re-roll offers 3 candidate galaxies to choose from.
 
@@ -242,7 +258,8 @@ The GitHub "Release Android APK" workflow **always fails** because the signing s
 - **Push:** real-time push (for example FCM) instead of 15-minute polling.
 - **Release CI:** add the signing secrets to GitHub or remove the failing workflow.
 - **Clean-up:** retire the `/planet` routes and `planets` table once no pre-2.0 apps remain; update the README feature list; upgrade wrangler to v4.
-- **Achievements:** server-side achievement records (they are computed on the client today), and more groups (cycle, notes, live dates).
+- **Achievements:** server-side achievement records (they are computed on the client today), and more groups (cycle, notes, live dates, bonds and growing up).
+- **Pets:** more tricks per species, accessories, and pet notifications for growing up or a bond level reached.
 
 ## 12. Version history (short)
 
@@ -255,3 +272,4 @@ The GitHub "Release Android APK" workflow **always fails** because the signing s
 | 2.0.0 | 2026-11-07 | Pets and the procedural galaxy replace the planet |
 | 2.1.0 / 2.1.1 | 2026-11-08 | Galaxy on every phone and on the dusk sky; new achievements, stats and goals; "Our little world" scene |
 | 2.2.0 | 2026-11-08 | Occasions with effects, 26 more achievements, pet personalities and new voices, tug-of-war head to head, cycle and diary changes, verified badge |
+| 2.3.0 | 2026-11-11 | Pets grow from baby to adult; bonds with six levels, perks, streaks and moments; galaxy zoom much closer and double-tap; Pulse, Firefly Count, Twin Stars; no score ceilings in any game |

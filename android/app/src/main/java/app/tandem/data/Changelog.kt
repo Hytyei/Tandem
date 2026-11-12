@@ -5,6 +5,18 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "2.3.0", title = "v2.3.0 · Growing pets, deeper bonds and no more score limits", date = "2026-11-11",
+        items = listOf(
+            "Pets grow up: from kitten, puppy, bunny, chick or hamster pup to young and then grown, with care and time. Babies have big heads and eyes on small bodies, and grow into their looks.",
+            "Bonds go deeper: six levels from Stranger to Soulmate for each of you, each with a perk (shorter pat waits, care that goes further, a trick, a daily gift). Daily care streaks and a mix of care grow bonds fastest, and deep bonds fade slowly.",
+            "Each pet keeps its own moments: coming home, growing up, becoming friends, gifts.",
+            "Fly into your galaxy: pinch much closer, or double-tap to dive in and back out.",
+            "Three new games: Pulse (tap on the beat, 3 lives), Firefly Count and Twin Stars.",
+            "No game has a score ceiling any more. Heart Catch and Quick Draw go on until you lose three lives, Memory Match deals board after board, Code Breaker and Word Duel give you code after code and word after word, and Blackjack runs for three minutes.",
+            "Both of you should update: games changed, so mixing versions in one match isn't fair.",
+        ),
+    ),
+    ReleaseNotes(
         version = "2.2.0", title = "v2.2.0 · Holidays, personalities and more to earn", date = "2026-11-08",
         items = listOf(
             "Holidays come to you: Valentine's Day, Sepandarmazgan, Nowruz, Chaharshanbe Suri, Sizdah Bedar, Girls' Day, Girlfriend Day, Halloween, Yalda, Christmas, New Year's Eve and more show up in your calendar by themselves, and Today dresses up for each one with snow, fireworks, petals, hearts, embers or pomegranate seeds.",

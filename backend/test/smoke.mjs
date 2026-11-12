@@ -438,7 +438,7 @@ r = await call("PUT", `/games/matches/${m1}/score`, I, { round: 1, score: 10 });
 ok("partner can't go before the starter", r.status === 409, r);
 r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 2, score: 10 });
 ok("can't skip a round", r.status === 409, r);
-r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 1, score: 9999 });
+r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 1, score: 50001 });
 ok("impossible score rejected", r.status === 400, r);
 r = await call("PUT", `/games/matches/${m1}/score`, H, { round: 1, score: 20 });
 ok("starter plays round 1", r.status === 200 && r.body.scores.length === 1, r);
@@ -501,7 +501,7 @@ const pf = r.body.stats.perf.find((p) => p.game === "mole" && p.userId === noraI
 ok("summary: perf row", pf && pf.bestMs === 310 && pf.avgMs === 520 && pf.n === 20 && pf.hits === 18 && pf.misses === 4, r.body.stats.perf);
 ok("summary: no perf row for a null perf", !r.body.stats.perf.find((p) => p.game === "mole" && p.userId === paulId), r.body.stats.perf);
 r = await call("POST", "/games/matches", H, { game: "bj", rounds: 1 }); const mbj = r.body.id;
-r = await call("PUT", `/games/matches/${mbj}/score`, H, { round: 1, score: 5001 });
+r = await call("PUT", `/games/matches/${mbj}/score`, H, { round: 1, score: 50001 });
 ok("blackjack cap enforced", r.status === 400, r);
 r = await call("PUT", `/games/matches/${mbj}/score`, H, { round: 1, score: 1450 });
 ok("blackjack chips score saved", r.status === 200, r);
@@ -707,11 +707,11 @@ r = await call("PUT", "/me/profile", H, { movie: "x", media: { movie: { title: "
 ok("look-alike host rejected", r.status === 200 && r.body.profile.media.movie.img === "", r.body.profile?.media);
 
 // ---- new IQ minigames
-for (const g of ["seq", "code", "lights", "slide", "odd", "target", "echo", "mole", "stack", "flap", "stroop", "word", "bj"]) {
+for (const g of ["seq", "code", "lights", "slide", "odd", "target", "echo", "mole", "stack", "flap", "stroop", "word", "bj", "pulse", "firefly", "twins"]) {
   r = await call("POST", "/games/matches", H, { game: g, rounds: 1 });
   ok(`${g}: match can be created`, r.status === 201 && r.body.game === g, r);
   const mid = r.body.id;
-  const cap = { seq: 800, code: 1000, lights: 1000, slide: 1000, odd: 1000, target: 1000, echo: 1000, mole: 1000, stack: 1000, flap: 1000, stroop: 1000, word: 1000, bj: 5000 }[g];
+  const cap = { lights: 1000, slide: 1000 }[g] ?? 50000;
   r = await call("PUT", `/games/matches/${mid}/score`, H, { round: 1, score: cap + 1 });
   ok(`${g}: score above the cap rejected`, r.status === 400, r);
   r = await call("PUT", `/games/matches/${mid}/score`, H, { round: 1, score: cap });

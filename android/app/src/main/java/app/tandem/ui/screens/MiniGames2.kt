@@ -129,7 +129,7 @@ internal fun WhackGame(seed: Long, onDone: (Int) -> Unit) {
         val good = spawns.indices.count { spawns[it].kind != 2 && spawns[it].t + spawns[it].life <= total }
         val got = whacked.count { spawns[it].kind != 2 }
         repeat((good - got).coerceAtLeast(0)) { perf.miss() }
-        onDone(points.coerceIn(0, 1000))
+        onDone(points.coerceAtLeast(0))
     }
     val nowMs by rememberUpdatedState(elapsed)
     val c = T.colors
@@ -207,11 +207,11 @@ internal fun StackGame(seed: Long, onDone: (Int) -> Unit) {
     var over by remember { mutableStateOf(false) }
     val cuts = remember { mutableStateListOf<Offcut>() }
     var frame by remember { mutableIntStateOf(0) }
-    val sides = remember(seed) { val r = Random(seed); List(120) { r.nextBoolean() } }
+    val sides = remember(seed) { val r = Random(seed); List(1000) { r.nextBoolean() } }
     val floors = (lefts.size - 1).coerceAtLeast(0)
-    val score = (floors * 10 + perfects * 5).coerceAtMost(1000)
+    val score = (floors * 10 + perfects * 5)
     val lh = 30f * density
-    fun scoreNow() = ((lefts.size - 1).coerceAtLeast(0) * 10 + perfects * 5).coerceAtMost(1000)
+    fun scoreNow() = ((lefts.size - 1).coerceAtLeast(0) * 10 + perfects * 5)
 
     LaunchedEffect(box) {
         if (box.width > 0 && lefts.isEmpty()) {
@@ -371,13 +371,13 @@ internal fun FlappyGame(seed: Long, onDone: (Int) -> Unit) {
             if (crash) {
                 dead = true; perf.miss(); trail.clear()
                 fx.burstAt(FxKind.Boom, origin.x + birdX, origin.y + y)
-                scope.launch { delay(900); onDone((passed * 10).coerceAtMost(1000)) }
+                scope.launch { delay(900); onDone((passed * 10)) }
             }
         }
     }
 
     Column(Modifier.fillMaxSize()) {
-        RoundHud((passed * 10).coerceAtMost(1000), "Gaps", "$passed", detail = "points")
+        RoundHud((passed * 10), "Gaps", "$passed", detail = "points")
         Box(
             Modifier.weight(1f).fillMaxWidth().onSizeChanged { box = it }.onGloballyPositioned { origin = it.positionInParent() }
                 .pointerInput(Unit) { detectTapGestures(onPress = { flap() }) },
@@ -431,7 +431,7 @@ internal fun StroopGame(seed: Long, onDone: (Int) -> Unit) {
     val perf = LocalPerf.current
     val fx = LocalFx.current
     var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
+    val elapsed = rememberClock(true, total) { onDone(points.coerceAtLeast(0)) }
     val c = T.colors
     val (word, ink) = rounds[idx.coerceAtMost(rounds.lastIndex)]
     Column(Modifier.fillMaxSize()) {
@@ -509,40 +509,47 @@ private fun WordTile(ch: Char?, res: Int?, typing: Boolean, col: Int, size: andr
 
 @Composable
 internal fun WordGame(seed: Long, onDone: (Int) -> Unit) {
+    // endless since 2.3.0: as many words as you can in three minutes. Out of guesses? The word is shown and
+    // the next one starts. You both get the same words in the same order (the seed).
     val total = 180_000L
-    val answer = remember(seed) { WORDS[Random(seed).nextInt(WORDS.size)] }
-    var guesses by remember { mutableStateOf(listOf<String>()) }
+    var wordIdx by remember { mutableIntStateOf(0) }
+    val answer = remember(seed, wordIdx) { WORDS[Random(seed * 13 + wordIdx).nextInt(WORDS.size)] }
+    var guesses by remember(wordIdx) { mutableStateOf(listOf<String>()) }
     var current by remember { mutableStateOf("") }
     var shake by remember { mutableStateOf(false) }
     var finished by remember { mutableStateOf(false) }
+    var between by remember { mutableStateOf<String?>(null) }    // a short pause showing how that word went
+    var points by remember { mutableIntStateOf(0) }
+    var solvedCount by remember { mutableIntStateOf(0) }
     val perf = LocalPerf.current
     val fx = LocalFx.current
     val scope = rememberCoroutineScope()
     val c = T.colors
-    val startedAt = remember { SystemClock.elapsedRealtime() }
+    var wordStart by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
 
-    fun partial(): Int {
-        var best = 0
-        for (g in guesses) { val r = grade(g, answer); best = max(best, r.count { it == 2 } * 15 + r.count { it == 1 } * 5) }
-        return best
+    fun nextWord(solved: Boolean) {
+        val secs = ((SystemClock.elapsedRealtime() - wordStart) / 1000).toInt()
+        if (solved) {
+            points += 300 + (7 - guesses.size) * 60 + (60 - secs).coerceIn(0, 60)
+            solvedCount++; perf.hit(); perf.react(secs * 1000)
+            between = "Solved in ${guesses.size}"
+        } else {
+            var best = 0
+            for (g in guesses) { val r = grade(g, answer); best = max(best, r.count { it == 2 } * 15 + r.count { it == 1 } * 5) }
+            points += best; perf.miss()
+            between = "The word was $answer"
+        }
+        scope.launch { delay(if (solved) 1300 else 1800); if (!finished) { between = null; current = ""; wordIdx++; wordStart = SystemClock.elapsedRealtime() } }
     }
-    fun finish(solved: Boolean) {
-        if (finished) return
-        finished = true
-        val secs = ((SystemClock.elapsedRealtime() - startedAt) / 1000).toInt()
-        val score = if (solved) 400 + (7 - guesses.size) * 80 + (120 - (secs - 30).coerceAtLeast(0)).coerceIn(0, 120) else partial()
-        if (solved) { perf.hit(); perf.react(secs * 1000) } else perf.miss()
-        scope.launch { delay(if (solved) 1200 else 1500); onDone(score.coerceIn(0, 1000)) }
-    }
-    val elapsed = rememberClock(!finished, total) { if (!finished) { finish(false) } }
+    val elapsed = rememberClock(!finished, total) { if (!finished) { finished = true; onDone(points) } }
 
-    val letterState = remember(guesses) {
+    val letterState = remember(guesses, wordIdx) {
         val m = HashMap<Char, Int>()
         for (g in guesses) { val r = grade(g, answer); for (i in 0 until 5) m[g[i]] = max(m[g[i]] ?: 0, r[i] + 1) }
         m
     }
     fun submit() {
-        if (finished) return
+        if (finished || between != null) return
         if (current.length < 5) { shake = true; fx.burst(FxKind.Bad, "5 letters"); return }
         val g = current
         guesses = guesses + g
@@ -553,23 +560,23 @@ internal fun WordGame(seed: Long, onDone: (Int) -> Unit) {
             if (r.all { it == 2 }) fx.burstAt(FxKind.Confetti, fx.w / 2f, fx.h * .35f, "Solved")
             else if (r.count { it == 2 } >= 3) fx.burstAt(FxKind.Stars, fx.w / 2f, fx.h * .35f)
         }
-        if (r.all { it == 2 }) finish(true) else if (guesses.size >= 6) finish(false)
+        if (r.all { it == 2 }) nextWord(true) else if (guesses.size >= 6) nextWord(false)
     }
     LaunchedEffect(shake) { if (shake) { delay(300); shake = false } }
 
     Column(Modifier.fillMaxSize()) {
-        Hud(total - elapsed, total, (guesses.size + if (finished) 0 else 1).coerceAtMost(6), "guess of 6")
+        Hud(total - elapsed, total, points, "word ${wordIdx + 1} · $solvedCount solved")
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp)) {
             val gap = 6.dp
             val tile = minDp((maxHeight - gap * 5) / 6, (maxWidth - gap * 4) / 5).coerceIn(30.dp, 56.dp)
             Column(Modifier.align(Alignment.Center), verticalArrangement = Arrangement.spacedBy(gap)) {
                 repeat(6) { row ->
                     val word = guesses.getOrNull(row)
-                    val typing = if (row == guesses.size && !finished) current else ""
+                    val typing = if (row == guesses.size && !finished && between == null) current else ""
                     val res = word?.let { grade(it, answer) }
                     Row(horizontalArrangement = Arrangement.spacedBy(gap), modifier = Modifier.graphicsLayer { if (shake && row == guesses.size) translationX = 10f }) {
                         repeat(5) { col ->
-                            key(row, col, word) { WordTile(word?.get(col) ?: typing.getOrNull(col), res?.get(col), word == null && col < typing.length, col, tile) }
+                            key(wordIdx, row, col, word) { WordTile(word?.get(col) ?: typing.getOrNull(col), res?.get(col), word == null && col < typing.length, col, tile) }
                         }
                     }
                 }
@@ -577,20 +584,17 @@ internal fun WordGame(seed: Long, onDone: (Int) -> Unit) {
         }
         // keyboard
         Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp).padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (between != null) Text(between!!, style = Type.headline, color = c.label, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), textAlign = TextAlign.Center)
             KEY_ROWS.forEachIndexed { r, keys ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
                     if (r == 2) KeyCap("Enter", Modifier.weight(1.5f), c.accent.copy(alpha = .3f)) { submit() }
                     keys.forEach { ch ->
                         val bg = when (letterState[ch]) { 3 -> GREEN; 2 -> YELLOW; 1 -> GRAY.copy(alpha = .6f); else -> c.card }
-                        KeyCap("$ch", Modifier.weight(1f), bg, dim = letterState[ch] == 1) { if (!finished && current.length < 5) current += ch }
+                        KeyCap("$ch", Modifier.weight(1f), bg, dim = letterState[ch] == 1) { if (!finished && between == null && current.length < 5) current += ch }
                     }
                     if (r == 2) KeyCap("", Modifier.weight(1.5f), c.card, back = true) { if (!finished && current.isNotEmpty()) current = current.dropLast(1) }
                 }
             }
-            if (finished) Text(
-                if (guesses.lastOrNull() == answer) "Solved in ${guesses.size}" else "The word was $answer",
-                style = Type.headline, color = c.label, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), textAlign = TextAlign.Center,
-            )
         }
     }
 }
@@ -649,7 +653,9 @@ private fun CardView(id: Int, hidden: Boolean = false) {
 
 @Composable
 internal fun BlackjackGame(seed: Long, onDone: (Int) -> Unit) {
-    val handsTotal = 6
+    // since 2.3.0: as many hands as you like in three minutes, until the time is up or the chips are gone
+    val total = 180_000L
+    var timeUp by remember { mutableStateOf(false) }
     val startChips = 500
     val shoe = remember(seed) { (0 until 104).map { it % 52 }.shuffled(Random(seed)) }     // two decks, same order for both of you
     var deckPos by remember { mutableIntStateOf(0) }
@@ -668,12 +674,14 @@ internal fun BlackjackGame(seed: Long, onDone: (Int) -> Unit) {
     val c = T.colors
     val bets = listOf(25, 50, 100, 250)
 
+    // time up between hands ends it at once; in the middle of a hand, the hand is finished first
+    val elapsed = rememberClock(phase != BjPhase.End, total) { timeUp = true; if (phase == BjPhase.Bet || phase == BjPhase.Result) phase = BjPhase.End }
     fun draw(): Int { val card = shoe[deckPos % shoe.size]; deckPos++; return card }
     fun settle(text: String, net: Int, kind: FxKind?) {
         delta = net; chips = (chips + net).coerceAtLeast(0); message = text; revealed = true
         if (net > 0) perf.hit() else if (net < 0) perf.miss()
         if (kind != null) fx.burstAt(kind, fx.w / 2f, fx.h * .5f, if (net > 0) "+$net" else if (net < 0) "−${-net}" else "Push")
-        phase = if (handNo >= handsTotal || chips <= 0) BjPhase.End else BjPhase.Result
+        phase = if (timeUp || chips <= 0) BjPhase.End else BjPhase.Result
     }
     fun deal() {
         val b = min(bet, chips)
@@ -720,7 +728,8 @@ internal fun BlackjackGame(seed: Long, onDone: (Int) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        RoundHud(chips, "Hand", "${handNo.coerceAtMost(handsTotal)} of $handsTotal", detail = "chips")
+        val secs = ((total - elapsed) / 1000).toInt().coerceAtLeast(0)
+        RoundHud(chips, "Time", "%d:%02d".format(secs / 60, secs % 60), (total - elapsed).toFloat() / total, secs <= 10, detail = "chips · hand $handNo")
         Spacer(Modifier.weight(1f))
         // dealer
         Text("Dealer" + if (dealer.isNotEmpty() && revealed) " · ${handTotal(dealer)}" else "", style = Type.footnote, color = c.secondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
@@ -756,7 +765,7 @@ internal fun BlackjackGame(seed: Long, onDone: (Int) -> Unit) {
                 }
                 BjPhase.Dealer -> Spacer(Modifier.height(52.dp))
                 BjPhase.Result -> PrimaryButton("Next hand", onClick = { bet = bets.filter { it <= chips && it <= bet }.maxOrNull() ?: min(bet, chips); handNo++; player = emptyList(); dealer = emptyList(); revealed = false; delta = 0; message = "Place your bet"; phase = BjPhase.Bet }, color = Ivory)
-                BjPhase.End -> PrimaryButton("See my score  ·  $chips chips", onClick = { onDone(chips.coerceIn(0, 5000)) }, color = Ivory)
+                BjPhase.End -> PrimaryButton("See my score  ·  $chips chips", onClick = { onDone(chips.coerceAtLeast(0)) }, color = Ivory)
             }
         }
     }

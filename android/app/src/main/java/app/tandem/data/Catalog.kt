@@ -221,10 +221,10 @@ enum class MiniGame(
     val retired: Boolean = false,
     val group: GameGroup? = null,
 ) {
-    Heart("heart", "Heart Catch", "💗", Color(0xFFF2476F), "30 seconds · catch every heart", "Hearts pop up all over the screen. Tap as many as you can in 30 seconds. Missed taps cost nothing, but hearts vanish fast.", "hearts"),
-    Memory("memory", "Memory Match", "🧠", Color(0xFF6A5CF0), "60 seconds · match the pairs", "Flip two cards to find a pair. Pairs, time left and fewer mistakes all add up to your score.", "pts"),
+    Heart("heart", "Heart Catch", "💗", Color(0xFFF2476F), "3 lives · catch every heart", "Hearts pop up all over the screen and keep coming, faster as you go. Tap each one before it fades. A heart that fades costs a life; three and it's over. Missed taps cost nothing.", "pts", doneLabel = "Out of lives"),
+    Memory("memory", "Memory Match", "🧠", Color(0xFF6A5CF0), "60 seconds · board after board", "Flip two cards to find a pair. Clear a board and a bigger one is dealt, until the minute is up. Every pair scores, a cleared board scores more, a wrong pair costs a little.", "pts"),
     Sums("math", "Math Sprint", "➗", Color(0xFF14B8A6), "45 seconds · quick sums", "Answer as many sums as you can in 45 seconds. Right answers score, wrong ones cost you.", "pts"),
-    Draw("draw", "Quick Draw", "⚡", Color(0xFFF59E0B), "5 tries · wait, then tap", "Wait for the light to come on, then tap as fast as you can. Tap too early and that try scores zero. Five tries.", "pts"),
+    Draw("draw", "Quick Draw", "⚡", Color(0xFFF59E0B), "3 lives · wait, then tap", "Wait for the light to come on, then tap as fast as you can. Faster taps score more. Tapping early or being too slow costs a life, and too slow gets stricter as you go. Three lives.", "pts", doneLabel = "Out of lives"),
     Mole("mole", "Whack-a-Mole", "🐹", Color(0xFF22C55E), "40 seconds · tap the moles, dodge the bombs",
         "Moles pop out of nine holes. Tap them before they hide. A golden mole is worth lots of points, but never touch a bomb. Hits in a row build a combo, and tapping an empty hole breaks it.", "pts"),
 
@@ -252,13 +252,21 @@ enum class MiniGame(
         "Four moons light up in a pattern. Watch carefully, then tap them in the same order. Each round adds one more. You have two lives: a mistake shows the pattern again, and the second mistake ends the game. Longer patterns score more.", "pts", brain = true, doneLabel = "Game over"),
     Stroop("stroop", "Colour Clash", "🎨", Color(0xFFF59E0B), "30 seconds · tap the colour, not the word",
         "A colour name appears, written in a colour that is often a different one. Tap the name of the colour you see, not the one the word says. Your brain will fight you. Quick right answers build a streak.", "pts", brain = true),
-    Word("word", "Word Duel", "🔤", Color(0xFF6A5CF0), "3 minutes · guess the 5-letter word",
-        "Guess the secret five-letter word in six tries. After each guess, green means the right letter in the right place, yellow means it is in the word but elsewhere. You both chase the same word. Fewer guesses and a faster time score more.", "pts", brain = true, doneLabel = "Round over"),
-    Code("code", "Code Breaker", "🔐", Color(0xFF8B5CF6), "10 guesses · crack the colour code",
-        "A secret code of 4 different colours (out of 5) is hiding. Guess it: after each guess a lit dot shows each right colour in the right spot, and a ring each right colour in the wrong spot. Crack it in fewer guesses and less time for a higher score.", "pts", brain = true, doneLabel = "Round over"),
+    Word("word", "Word Duel", "🔤", Color(0xFF6A5CF0), "3 minutes · word after word",
+        "Guess five-letter words in six tries each, as many as you can in three minutes. Green is the right letter in the right place, yellow is in the word elsewhere. You both get the same words in the same order. Fewer guesses and faster solves score more.", "pts", brain = true, doneLabel = "Time!"),
+    Code("code", "Code Breaker", "🔐", Color(0xFF8B5CF6), "3 minutes · crack code after code",
+        "A secret code of 4 different colours (out of 5) is hiding. After each guess a lit dot shows a right colour in the right spot, a ring a right colour in the wrong spot. Crack as many codes as you can in three minutes, each in 8 guesses or fewer. Fewer guesses score more.", "pts", brain = true, doneLabel = "Time!"),
 
-    Blackjack("bj", "Blackjack", "🃏", Color(0xFF16A34A), "6 hands · grow your chips",
-        "Start with 500 chips and play six hands against the dealer. Get closer to 21 than the dealer without going over. Hit, stand or double down. Blackjack pays 3 to 2, the dealer stands on 17. You both play from the same shuffled shoe, and the one who ends with more chips wins. If your partner already played, you can see their total as the number to beat.", "chips", group = GameGroup.Cards, doneLabel = "Out of hands"),
+    // ---- added in 2.3.0
+    Pulse("pulse", "Pulse", "🎯", Color(0xFF8FE0E8), "3 lives · tap on the beat",
+        "Rings ripple out from the centre. Tap anywhere the moment one meets the lit circle: dead on is a perfect. A ring that slips past, or a tap with nothing there, costs a life. They come faster as you go. Three lives.", "pts", group = GameGroup.Arcade, doneLabel = "Out of lives"),
+    Firefly("firefly", "Firefly Count", "✨", Color(0xFFE8FF8A), "45 seconds · how many lit up",
+        "Fireflies blink on together for a moment, then go dark. Pick how many there were. Right answers score (more for bigger swarms and streaks), wrong ones cost a little. They get quicker and busier.", "pts", brain = true),
+    Twins("twins", "Twin Stars", "⭐", Color(0xFFFFC56E), "45 seconds · find the matching pair",
+        "A field of shapes, every one different except two. Find the twins and tap both. Each field is bigger than the last and scores more. A wrong pair costs a little.", "pts", brain = true),
+
+    Blackjack("bj", "Blackjack", "🃏", Color(0xFF16A34A), "3 minutes · grow your chips",
+        "Start with 500 chips and play as many hands as you like against the dealer in three minutes, until the time is up or the chips run out. Get closer to 21 than the dealer without going over. Hit, stand or double down. Blackjack pays 3 to 2, the dealer stands on 17. You both play from the same shuffled shoe, and the one who ends with more chips wins. If your partner already played, you can see their total as the number to beat.", "chips", group = GameGroup.Cards, doneLabel = "Time!"),
 
     // retired (too fiddly): only kept so matches that were already started can be finished
     Lights("lights", "Lights Out", "💡", Color(0xFFF5B301), "90 seconds · switch every light off",

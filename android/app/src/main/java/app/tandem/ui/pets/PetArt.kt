@@ -51,6 +51,8 @@ class PetPose {
     var droop = 0f        // 0..1 sulking
     var sleep = 0f        // 0..1 dozing
     var blush = 0f        // 0..1 extra pink
+    // proportions from growing up (set by drawPet from the look; a baby has a big head and eyes on a small body)
+    var bodyS = 1f; var headS = 1f; var headDrop = 0f; var eyeS = 1f
 
     fun reset() {
         breathe = 0f; blink = 0f; happy = 0f; lookX = 0f; lookY = 0f; tilt = 0f; headDy = 0f; earL = 0f; earR = 0f; tail = 0f
@@ -72,6 +74,8 @@ data class PetLook(
     val extra: Color = mark,   // parrots: the wing; a third colour elsewhere
     val extra2: Color = mark,  // parrots: the beak
     val extra3: Color = mark,  // parrots: the tail
+    /** 0 a newborn .. 1 grown up. */
+    val grow: Float = 1f,
 ) {
     val shade: Color get() = lerp(fur, Color(0xFF8A4A45), if (fur.luminance() < .2f) .18f else .26f)
 }
@@ -196,7 +200,8 @@ private fun DrawScope.blushAt(ink: Ink, cx: Float, cy: Float, r: Float, extra: F
 }
 
 /** A big glossy eye, or a closed one. */
-private fun DrawScope.eye(ink: Ink, cx: Float, cy: Float, rx: Float, ry: Float, p: PetPose, tint: Color?, lid: Color) {
+private fun DrawScope.eye(ink: Ink, cx: Float, cy: Float, rx0: Float, ry0: Float, p: PetPose, tint: Color?, lid: Color) {
+    val rx = rx0 * p.eyeS; val ry = ry0 * p.eyeS
     val shut = max(p.blink, p.sleep)
     when {
         p.happy > .5f -> drawPath(Path().apply { moveTo(cx - rx, cy + ry * .25f); quadraticTo(cx, cy - ry * .95f, cx + rx, cy + ry * .25f) }, ink.outline, style = ink.line(2.3f))
@@ -240,6 +245,11 @@ private fun DrawScope.sparkle(cx: Float, cy: Float, r: Float, a: Float) {
 fun DrawScope.drawPet(look: PetLook, p: PetPose, w: Float = size.width, h: Float = size.height, sketch: Boolean = true, t: Float = 0f) {
     val u = minOf(w, h) / 100f
     val ink = Ink(look.outline, sketch, p.droop)
+    val g = look.grow.coerceIn(0f, 1f)
+    // a baby: smaller all over, a bigger head and eyes, a shorter body (the head sits lower to stay on it)
+    p.bodyS = .7f + .3f * g; p.headS = 1.16f - .16f * g; p.eyeS = 1.24f - .24f * g
+    p.headDrop = (93f - 56f) * (1f - p.bodyS)
+    val whole = .76f + .24f * g
     withTransform({
         translate(w / 2f, (h - 100f * u) / 2f + 100f * u - 7f * u)  // origin at the floor, centre
         scale(u, u, pivot = Offset.Zero)
@@ -250,7 +260,7 @@ fun DrawScope.drawPet(look: PetLook, p: PetPose, w: Float = size.width, h: Float
         val sq = p.squash
         withTransform({
             translate(0f, -p.hop * 14f - 93f)
-            scale(1f + .07f * sq - .01f * p.breathe, 1f - .07f * sq + .015f * p.breathe, pivot = Offset(0f, 93f))
+            scale(whole * (1f + .07f * sq - .01f * p.breathe), whole * (1f - .07f * sq + .015f * p.breathe), pivot = Offset(0f, 93f))
         }) {
             when (look.species) {
                 "dog" -> dog(ink, look, p)
@@ -268,6 +278,7 @@ fun DrawScope.drawPet(look: PetLook, p: PetPose, w: Float = size.width, h: Float
 private fun DrawScope.cat(ink: Ink, k: PetLook, p: PetPose) {
     val tux = k.breed == "tuxedo"; val siam = k.breed == "siamese"; val ginger = k.breed == "ginger"; val persian = k.breed == "persian"
     val pawCol = when { tux -> k.light; siam -> k.mark; else -> lerp(k.fur, Color.White, .25f) }
+    withTransform({ scale(p.bodyS, p.bodyS, Offset(0f, 93f)) }) {
     // tail, curling up behind
     val sway = p.tail * (1f - p.droop * .7f)
     val tail = Path().apply { moveTo(13f, 86f); cubicTo(30f, 88f, 35f + sway * 5f, 70f, 29f + sway * 9f, 58f + abs(sway) * 2f + p.droop * 22f) }
@@ -295,7 +306,8 @@ private fun DrawScope.cat(ink: Ink, k: PetLook, p: PetPose) {
         for (d in listOf(-1.6f, 1.6f)) drawLine(ink.outline, Offset(s * 6.5f + d, y + 1.6f), Offset(s * 6.5f + d, y + 3.4f), 1.1f, StrokeCap.Round)
     }
     // the head
-    withTransform({ rotate(p.tilt, Offset(0f, 56f)); translate(0f, p.headDy + p.droop * 3f) }) {
+    }
+        withTransform({ translate(0f, p.headDrop * (93f - 56f) / 37f); scale(p.headS, p.headS, Offset(0f, 56f)); rotate(p.tilt, Offset(0f, 56f)); translate(0f, p.headDy + p.droop * 3f) }) {
         val hw = when { k.breed == "british" -> 33f; persian -> 31f; else -> 30.5f }
         val head = mochi(0f, 38f, hw, 25f)
         // ears
@@ -345,7 +357,7 @@ private fun DrawScope.cat(ink: Ink, k: PetLook, p: PetPose) {
     // the paw raised to the mouth, beans showing
     if (p.paw >= .08f) {
         val e = easeIO(p.paw)
-        val px = lerpF(6.5f, 6f, e); val py = lerpF(89f, 53f + p.headDy, e)
+        val px = lerpF(6.5f, 6f, e); val py = lerpF(89f, 53f + p.headDy + p.headDrop, e)
         tube(ink, Path().apply { moveTo(9f, 66f); quadraticTo(13f, 72f - e * 10f, px + 1f, py + 4f) }, 8f, k.fur)
         rotate(-18f * e, Offset(px, py)) {
             blob(ink, oval(px, py, 5.8f, 5.4f), pawCol)
@@ -379,6 +391,7 @@ private fun DrawScope.dog(ink: Ink, k: PetLook, p: PetPose) {
     val b = k.breed
     val white = b == "shiba" || b == "corgi" || b == "husky"
     val pawCol = if (white) k.light else lerp(k.fur, Color.White, .2f)
+    withTransform({ scale(p.bodyS, p.bodyS, Offset(0f, 93f)) }) {
     // the tail, wagging from its base
     rotate(p.tail * (16f - p.droop * 12f) + p.droop * 30f, Offset(14f, 84f)) {
         when (b) {
@@ -401,7 +414,8 @@ private fun DrawScope.dog(ink: Ink, k: PetLook, p: PetPose) {
         blob(ink, oval(s * 6.8f, y, 5.6f, 4.4f), pawCol)
         for (d in listOf(-1.7f, 1.7f)) drawLine(ink.outline, Offset(s * 6.8f + d, y + 1.7f), Offset(s * 6.8f + d, y + 3.5f), 1.1f, StrokeCap.Round)
     }
-    withTransform({ rotate(p.tilt, Offset(0f, 56f)); translate(0f, p.headDy + p.droop * 3f) }) {
+    }
+        withTransform({ translate(0f, p.headDrop * (93f - 56f) / 37f); scale(p.headS, p.headS, Offset(0f, 56f)); rotate(p.tilt, Offset(0f, 56f)); translate(0f, p.headDy + p.droop * 3f) }) {
         val head = mochi(0f, 38f, 30f, 26f)
         if (b == "pomeranian") for (i in 0 until 12) { val a = i * (6.283f / 12); blob(ink, oval(sin(a) * 29f, 40f - cos(a) * 26f, 8f, 8f), k.fur) }
         val upright = b != "golden"
@@ -509,6 +523,7 @@ private fun DrawScope.hamster(ink: Ink, k: PetLook, p: PetPose) {
 private fun DrawScope.rabbit(ink: Ink, k: PetLook, p: PetPose) {
     val b = k.breed
     val pawCol = if (b == "dwarf" && k.fur.luminance() > .9f) k.mark else lerp(k.fur, k.light, .5f)
+    withTransform({ scale(p.bodyS, p.bodyS, Offset(0f, 93f)) }) {
     blob(ink, oval(22f, 84f, 6.4f, 6f), k.light)
     for (s in listOf(-1f, 1f)) blob(ink, oval(s * 18f, 91f, 8.4f, 3.6f), pawCol)
     val body = mochi(0f, 77f, 25f, 17f)
@@ -518,7 +533,8 @@ private fun DrawScope.rabbit(ink: Ink, k: PetLook, p: PetPose) {
         if (b == "hollandlop" && k.fur.luminance() > .9f) drawPath(oval(-16f, 72f, 10f, 8f), ink.col(k.mark))
     }
     for (s in listOf(-1f, 1f)) blob(ink, oval(s * 5.6f, 90f, 4.3f, 3.4f), pawCol)
-    withTransform({ rotate(p.tilt, Offset(0f, 66f)); translate(0f, p.headDy + p.droop * 2f) }) {
+    }
+        withTransform({ translate(0f, p.headDrop * (93f - 66f) / 37f); scale(p.headS, p.headS, Offset(0f, 66f)); rotate(p.tilt, Offset(0f, 66f)); translate(0f, p.headDy + p.droop * 2f) }) {
         val lop = b == "hollandlop"
         if (!lop) for (s in listOf(-1f, 1f)) {
             val len = when (b) { "dwarf" -> 16f; "lionhead" -> 21f; else -> 29f }
@@ -560,6 +576,7 @@ private fun DrawScope.rabbit(ink: Ink, k: PetLook, p: PetPose) {
 
 private fun DrawScope.parrot(ink: Ink, k: PetLook, p: PetPose, t: Float) {
     val b = k.breed
+    withTransform({ scale(p.bodyS, p.bodyS, Offset(0f, 93f)) }) {
     // a little perch to stand on
     drawLine(Color(0xFF8A5A44), Offset(-24f, 91f), Offset(24f, 91f), 4.6f, StrokeCap.Round)
     drawLine(Color(0xFFB07C5E), Offset(-23f, 90.2f), Offset(23f, 90.2f), 1.4f, StrokeCap.Round)
@@ -585,7 +602,8 @@ private fun DrawScope.parrot(ink: Ink, k: PetLook, p: PetPose, t: Float) {
             }
         }
     }
-    withTransform({ rotate(p.tilt, Offset(0f, 50f)); translate(0f, p.headDy + p.droop * 2f) }) {
+    }
+        withTransform({ translate(0f, p.headDrop * (93f - 50f) / 37f); scale(p.headS, p.headS, Offset(0f, 50f)); rotate(p.tilt, Offset(0f, 50f)); translate(0f, p.headDy + p.droop * 2f) }) {
         if (b == "cockatiel") for ((dx, len) in listOf(-2f to 15f, 1.5f to 18f, 5f to 14f)) {
             val crest = Path().apply { moveTo(dx, 22f); quadraticTo(dx + 1f - p.droop * 4f, 15f - len * .3f, dx + 6f + p.droop * 8f, 22f - len) }
             tube(ink, crest, 3.2f, k.light)

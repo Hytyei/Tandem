@@ -125,10 +125,14 @@ class GalaxyView(context: Context, private val reduced: Boolean) : TextureView(c
     private val scaler = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(d: ScaleGestureDetector): Boolean { renderer.zoomBy(1f / d.scaleFactor); return true }
     })
+    private val taps = android.view.GestureDetector(context, object : android.view.GestureDetector.SimpleOnGestureListener() {
+        override fun onDoubleTap(e: MotionEvent): Boolean { renderer.toggleZoom(); return true }
+    })
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         scaler.onTouchEvent(e)
+        taps.onTouchEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { lastX = e.x; lastY = e.y; lastT = e.eventTime; dragging = true; renderer.grab() }
             MotionEvent.ACTION_POINTER_DOWN -> dragging = false     // a second finger means a pinch, not a turn
@@ -168,6 +172,8 @@ private class GalaxyRenderer(private val reduced: Boolean) {
     @Volatile private var vYaw = 0f
     @Volatile private var vPitch = 0f
     @Volatile private var dist = 3.1f
+    // where the zoom is heading: pinches set it directly, a double tap glides there
+    @Volatile private var targetDist = 3.1f
     @Volatile private var held = false
     private var lastFrame = 0L
     private val start = SystemClock.uptimeMillis()
@@ -182,7 +188,10 @@ private class GalaxyRenderer(private val reduced: Boolean) {
         yaw += dYaw; pitch = (pitch - dPitch).coerceIn(0f, 178f)
         vYaw = vy.coerceIn(-600f, 600f); vPitch = -vp.coerceIn(-600f, 600f)
     }
-    fun zoomBy(f: Float) { dist = (dist * f).coerceIn(1.5f, 6f) }
+    /** Pinch: follows the fingers. From far out (6) to deep inside the disk (0.35). */
+    fun zoomBy(f: Float) { targetDist = (targetDist * f).coerceIn(MIN_DIST, MAX_DIST); dist = targetDist }
+    /** Double tap: glide in close, or back out if already close. */
+    fun toggleZoom() { targetDist = if (targetDist > 1.4f) .75f else 3.1f }
     fun pending(l: GalaxyLayers, tilt: Boolean) { incoming = l to tilt }
 
     private fun upload(l: GalaxyLayers, tilt: Boolean) {
@@ -218,13 +227,14 @@ private class GalaxyRenderer(private val reduced: Boolean) {
     fun sized(width: Int, height: Int) {
         w = max(1, width); h = max(1, height)
         GLES20.glViewport(0, 0, w, h)
-        Matrix.perspectiveM(proj, 0, 42f, w.toFloat() / h, .05f, 40f)
+        Matrix.perspectiveM(proj, 0, 42f, w.toFloat() / h, .01f, 40f)
     }
 
     fun frame() {
         incoming?.let { incoming = null; upload(it.first, it.second) }
         val now = SystemClock.uptimeMillis()
         val dt = if (lastFrame == 0L) 0f else min(.05f, (now - lastFrame) / 1000f); lastFrame = now
+        dist += (targetDist - dist) * min(1f, dt * 5f)
         if (!held) {
             // momentum fades out; then the slow turn of its own
             val decay = exp(-3.2f * dt)
@@ -289,6 +299,8 @@ private class GalaxyRenderer(private val reduced: Boolean) {
     }
 
     companion object {
+        const val MIN_DIST = .35f
+        const val MAX_DIST = 6f
         // kind: 0 = stars (pixel sized, twinkling), 1 = glow (world sized, soft), 2 = dust (world sized, soft, dark).
         // The vertex and fragment shaders each get their own uniform (uKind, uKindF): a uniform shared between
         // them must have the same precision, and strict phone GPUs refuse to link when it doesn't.
@@ -304,7 +316,7 @@ private class GalaxyRenderer(private val reduced: Boolean) {
                 if (uKind < 0.5) {
                     float f = fract(sin(dot(aPos.xy, vec2(12.9898, 78.233))) * 43758.5453);
                     a *= 0.78 + 0.22 * sin(uTime * (0.8 + f * 2.6) + f * 40.0);
-                    s = aSize * uScale * clamp(4.0 / p.w, 0.7, 2.2);
+                    s = aSize * uScale * clamp(4.0 / p.w, 0.7, 3.2);
                     // stars too small to cover a pixel get dimmer instead of vanishing
                     if (s < 1.6) { a *= s / 1.6; s = 1.6; }
                 } else {

@@ -69,7 +69,7 @@ internal fun StarPathGame(seed: Long, onDone: (Int) -> Unit) {
     val c = T.colors
     var origin by remember { mutableStateOf(Offset.Zero) }
     var shownAt by remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
-    val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
+    val elapsed = rememberClock(true, total) { onDone(points.coerceAtLeast(0)) }
     LaunchedEffect(wrong) { if (wrong >= 0) { delay(300); wrong = -1 } }
 
     Column(Modifier.fillMaxSize()) {
@@ -171,10 +171,10 @@ internal fun OrbitGame(seed: Long, onDone: (Int) -> Unit) {
             points += g; hits++; perf.hit(); flash = 1f
             if (g0.flip) dir = -dir
             fx.burstAt(if (perfect) FxKind.Confetti else FxKind.Stars, mx, my, if (perfect) "Perfect" else "+$g")
-            if (hits >= 80) { over = true; scope.launch { delay(700); onDone(points.coerceAtMost(1000)) } }
+            // no ceiling: it goes on until three misses
         } else {
             lives--; perf.miss(); fx.burstAt(FxKind.Bad, mx, my)
-            if (lives <= 0) { over = true; scope.launch { delay(900); onDone(points.coerceAtMost(1000)) } }
+            if (lives <= 0) { over = true; scope.launch { delay(900); onDone(points) } }
         }
     }
 
@@ -237,7 +237,7 @@ internal fun DriftGame(seed: Long, onDone: (Int) -> Unit) {
     val density = LocalDensity.current.density
     val elapsed = rememberClock(true, total) {
         repeat(falls.indices.count { !falls[it].meteor && it !in caught && falls[it].t + falls[it].dur < total }) { perf.miss() }
-        onDone(points.coerceIn(0, 1000))
+        onDone(points.coerceAtLeast(0))
     }
     val now by rememberUpdatedState(elapsed)
 

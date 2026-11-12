@@ -66,7 +66,7 @@ private val BubbleInk = Color(0xFF5B342E)
 private val BubbleFill = Color(0xFFFFF7EE)
 private val BubbleLine = Color(0xFF9E5A4B)
 
-fun Pet.look() = petLook(species, breed, coat)
+fun Pet.look() = petLook(species, breed, coat).copy(grow = growth.toFloat())
 
 /** A comic speech bubble, its tail pointing down at the pet. It pops in from the tail and fades out quicker. */
 @Composable
@@ -179,7 +179,7 @@ private fun PetPage(
 ) {
     val c = T.colors
     val ctx = LocalContext.current
-    val look = remember(pet.species, pet.breed, pet.coat) { pet.look() }
+    val look = remember(pet.species, pet.breed, pet.coat, pet.growth) { pet.look() }
     var reaction by remember(pet.id) { mutableStateOf<PetReaction?>(PetReaction("hello")) }
     var bubble by remember(pet.id) { mutableStateOf<String?>(null) }
     var pokes by remember(pet.id) { mutableStateOf(emptyList<Long>()) }
@@ -244,6 +244,8 @@ private fun PetPage(
                     val t = System.currentTimeMillis()
                     pokes = pokes.filter { t - it < 4000 } + t
                     if (pokes.size >= 7) { pokes = emptyList(); reaction = PetReaction("cuddle"); say(PetLines.after("tickle", pet, myName, pName)) }
+                    // best friends get a trick now and then
+                    else if (app.tandem.data.Bond.level(pet.bondWith(meId)) >= 4 && kotlin.random.Random.nextFloat() < .4f) { reaction = PetReaction("trick"); say(PetLines.after("trick", pet, myName, pName)) }
                     else say(PetLines.after("poke", pet, myName, pName))
                 },
             )
@@ -251,7 +253,7 @@ private fun PetPage(
         }
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("${PetCatalog.breedName(pet.breed)} · ${PetCatalog.moodLabel(pet.mood)}", style = Type.callout, color = if (pet.mood == "sulking" || pet.mood == "grumpy") Color(0xFFFFB3C2) else c.secondary)
+            Text("${app.tandem.data.stageName(pet.species, pet.stage)} · ${PetCatalog.breedName(pet.breed)} · ${PetCatalog.moodLabel(pet.mood)}", style = Type.callout, color = if (pet.mood == "sulking" || pet.mood == "grumpy") Color(0xFFFFB3C2) else c.secondary)
             Text(PetLines.traits(pet).joinToString(" · ") { it.label }, style = Type.footnote, color = c.special, modifier = Modifier.padding(top = 2.dp))
             val fav = pet.favourite()
             Text(
@@ -285,14 +287,10 @@ private fun PetPage(
             )
         }
 
-        // ---------- who it loves
-        SoftCard(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth(), padding = 18.dp) {
-            Text("Bond", style = Type.footnote, color = c.secondary, modifier = Modifier.padding(bottom = 10.dp))
-            Bond("You", pet.bondWith(meId), c.me)
-            Spacer(Modifier.height(10.dp))
-            Bond(pName, pet.bondWith(themId), c.partner)
-            Text("Whoever looks after it more becomes its favourite. Bonds fade slowly when it's left alone", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary, modifier = Modifier.padding(top = 12.dp))
-        }
+        // ---------- growing up, and who it loves (in depth)
+        GrowthCard(pet, Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth())
+        BondCard(pet, meId, themId, pName, Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth())
+        MomentsCard(pet, meId, myName, pName, Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth())
 
         // ---------- your storage
         SoftCard(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth(), padding = 18.dp) {

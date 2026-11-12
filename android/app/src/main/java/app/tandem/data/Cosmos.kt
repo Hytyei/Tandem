@@ -34,6 +34,14 @@ import kotlinx.serialization.Serializable
     val bond: Map<String, Double> = emptyMap(),
     val mood: String = "happy",
     val patReadyAt: Long = 0,
+    /** Growing up: growth points, the stage (0 baby, 1 young, 2 adult) and 0..1 across the whole way. */
+    val xp: Int = 0,
+    val stage: Int = 2,
+    val growth: Double = 1.0,
+    /** Per person: how they've cared (counts, care streak in days). Only in the full /cosmos answer. */
+    val care: Map<String, PetCare> = emptyMap(),
+    /** This pet's own small history, newest first. */
+    val moments: List<PetMoment> = emptyList(),
 ) {
     fun bondWith(id: String?) = (bond[id ?: ""] ?: 30.0).toFloat()
     /** The person this pet likes best, when it clearly has a favourite. */
@@ -43,6 +51,35 @@ import kotlinx.serialization.Serializable
         return if (sorted[0].value - sorted[1].value >= 12) sorted[0].key else null
     }
 }
+
+@Serializable data class PetCare(val feed: Int = 0, val water: Int = 0, val cuddle: Int = 0, val pat: Int = 0, val day: String = "", val streak: Int = 0)
+@Serializable data class PetMoment(val at: Long = 0, val kind: String = "", val text: String = "", val user: String? = null)
+
+/** Bond levels, as the server counts them: from this bond on, this name, and what it brings. */
+object Bond {
+    val levels = listOf(0 to "Stranger", 15 to "Acquaintance", 30 to "Friend", 50 to "Close friend", 70 to "Best friend", 90 to "Soulmate")
+    val perks = listOf(
+        "Just getting to know each other",
+        "Knows your voice and says your name",
+        "Free pats every 20 minutes instead of 30",
+        "Your food, water and cuddles go 20% further",
+        "Shows you a trick when you tap it",
+        "Brings you a gift once a day when you pat it",
+    )
+    fun level(b: Float): Int = levels.indexOfLast { b >= it.first }.coerceAtLeast(0)
+    fun name(b: Float) = levels[level(b)].second
+    /** 0..1 of the way to the next level (1 at the top). */
+    fun progress(b: Float): Float { val l = level(b); if (l >= levels.lastIndex) return 1f; val a = levels[l].first; val z = levels[l + 1].first; return ((b - a) / (z - a)).coerceIn(0f, 1f) }
+}
+
+/** What each species is called as it grows. */
+fun stageName(species: String, stage: Int): String = when (species) {
+    "cat" -> listOf("Kitten", "Young cat", "Cat")
+    "dog" -> listOf("Puppy", "Young dog", "Dog")
+    "hamster" -> listOf("Hamster pup", "Young hamster", "Hamster")
+    "rabbit" -> listOf("Bunny", "Young rabbit", "Rabbit")
+    else -> listOf("Chick", "Fledgling", "Parrot")
+}[stage.coerceIn(0, 2)]
 
 @Serializable data class CosmosEntry(val at: Long = 0, val kind: String = "", val text: String = "")
 

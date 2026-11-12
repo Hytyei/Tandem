@@ -9,10 +9,29 @@ export interface Pet {
   id: string; species: string; breed: string; coat: number; name: string; born: number;
   hunger: number; thirst: number; love: number;
   bond: Record<string, number>;
+  /** Growth points: care makes a pet grow up (with age). Missing on pets adopted before 2.3.0 until their first tick. */
+  xp?: number;
+  /** Per person: how often they've cared, their care streak and what they did last. */
+  care?: Record<string, Care>;
+  /** Per person: the day the pet last brought them a gift (soulmates only). */
+  gifts?: Record<string, string>;
+  /** The day both of you last cared for it (a together bonus, once a day). */
+  together?: string;
+  /** This pet's own small history: growing up, bonds deepening. Newest first, at most 24. */
+  moments?: Moment[];
   lastTick: number;
   pats: Record<string, number>;      // user -> when they last gave a free pat
 }
 export interface Entry { at: number; kind: string; text: string }
+export interface Care { feed: number; water: number; cuddle: number; pat: number; day: string; streak: number; last: string[] }
+/** A moment in a pet's life. [user] is set when it's about one of you (the app shows the name). */
+export interface Moment { at: number; kind: string; text: string; user?: string }
+
+/** Bond levels: [from, name]. */
+export const BOND_LEVELS: [number, string][] = [[0, "Stranger"], [15, "Acquaintance"], [30, "Friend"], [50, "Close friend"], [70, "Best friend"], [90, "Soulmate"]];
+export const bondLevel = (b: number) => { let i = 0; BOND_LEVELS.forEach(([from], k) => { if (b >= from) i = k; }); return i; };
+/** Growth stages: [name, growth points needed, days of age needed]. */
+export const STAGES: [string, number, number][] = [["baby", 0, 0], ["young", 80, 2], ["adult", 300, 7]];
 
 export interface Cosmos {
   v: 1;
@@ -123,19 +142,56 @@ export function applyMilestones(c: Cosmos, totals: Record<string, number>, at: n
   }
 }
 
-/** Needs fall with time; every extra pet makes them all fall faster. */
+/** Needs fall with time; every extra pet makes them all fall faster. Deep bonds fade slower. */
 export function tickPets(c: Cosmos, now: number) {
   const mult = 1 + .35 * Math.max(0, c.pets.length - 1);
   for (const p of c.pets) {
+    // pets from before growing existed: give them the growth their age would have earned
+    if (p.xp === undefined) p.xp = Math.min(STAGES[2][1], Math.floor(Math.max(0, now - p.born) / 86_400_000) * 45);
     const h = Math.max(0, now - p.lastTick) / 3_600_000;
     if (h <= 0) continue;
     p.hunger = r1(clamp(p.hunger - 4.2 * h * mult));
     p.thirst = r1(clamp(p.thirst - 5 * h * mult));
     p.love = r1(clamp(p.love - 2.8 * h * mult));
     const sulking = (p.hunger + p.thirst + p.love) / 3 < 15;
-    for (const m of c.members) p.bond[m] = r1(clamp((p.bond[m] ?? 30) - h * (sulking ? .25 : .04)));
+    for (const m of c.members) {
+      const b = p.bond[m] ?? 30;
+      // trust is hard to lose: the deeper the bond, the slower it fades (sulking still costs)
+      const fade = sulking ? .25 : Math.max(.012, .05 - bondLevel(b) * .007);
+      p.bond[m] = r1(clamp(b - h * fade));
+    }
     p.lastTick = now;
+    checkGrowth(p, now);
   }
+}
+
+/** The stage this pet is at (0 baby, 1 young, 2 adult): growth points and age both have to be there. */
+export function stageOf(p: Pet, now: number): number {
+  const days = Math.max(0, now - p.born) / 86_400_000;
+  let st = 0;
+  STAGES.forEach(([, xp, d], k) => { if ((p.xp ?? 0) >= xp && days >= d) st = k; });
+  return st;
+}
+
+/** 0..1 across the whole life: 0 a newborn, 1 grown up. Smooth, so the art can grow gradually. */
+export function growth(p: Pet, now: number): number {
+  const st = stageOf(p, now);
+  if (st >= 2) return 1;
+  const [, x0, d0] = STAGES[st]; const [, x1, d1] = STAGES[st + 1];
+  const days = Math.max(0, now - p.born) / 86_400_000;
+  const fx = Math.min(1, Math.max(0, ((p.xp ?? 0) - x0) / (x1 - x0)));
+  const fd = Math.min(1, Math.max(0, (days - d0) / (d1 - d0)));
+  return (st + Math.min(fx, fd)) / 2;
+}
+
+function moment(p: Pet, at: number, kind: string, text: string, user?: string) {
+  p.moments = [{ at, kind, text, ...(user ? { user } : {}) }, ...(p.moments ?? [])].slice(0, 24);
+}
+
+function checkGrowth(p: Pet, now: number) {
+  const st = stageOf(p, now);
+  const seen = (p.moments ?? []).filter((m) => m.kind === "grow").length;
+  if (st > seen) moment(p, now, "grow", st === 1 ? `${p.name} is growing up` : `${p.name} is all grown up`);
 }
 
 export const mood = (p: Pet) => {
@@ -156,7 +212,7 @@ export function adopt(c: Cosmos, species: string, breed: string, name: string, i
   const cost = ADOPT_COST[c.pets.length];
   if (c.stardust < cost) throw new CosmosError(409, `Adopting another pet takes ${cost} stardust`);
   c.stardust -= cost;
-  c.pets.push({ id, species, breed, coat: Math.max(0, Math.min(2, Math.floor(coat) || 0)), name, born: now, hunger: 80, thirst: 80, love: 70, bond: Object.fromEntries(c.members.map((m) => [m, 30])), lastTick: now, pats: {} });
+  c.pets.push({ id, species, breed, coat: Math.max(0, Math.min(2, Math.floor(coat) || 0)), name, born: now, hunger: 80, thirst: 80, love: 70, bond: Object.fromEntries(c.members.map((m) => [m, 15])), lastTick: now, pats: {}, xp: 0, care: {}, gifts: {}, moments: [{ at: now, kind: "adopt", text: `${name} came home` }] });
   log(c, now, "adopt", `${name} came home`);
 }
 
@@ -166,16 +222,71 @@ function spend(c: Cosmos, user: string, what: keyof Store) {
   s[what] -= 1;
 }
 
-export function feed(c: Cosmos, user: string, id: string) { const p = pet(c, id); spend(c, user, "food"); p.hunger = r1(clamp(p.hunger + 22)); p.bond[user] = r1(clamp((p.bond[user] ?? 30) + 3)); }
-export function water(c: Cosmos, user: string, id: string) { const p = pet(c, id); spend(c, user, "drink"); p.thirst = r1(clamp(p.thirst + 25)); p.bond[user] = r1(clamp((p.bond[user] ?? 30) + 2)); }
-export function cuddle(c: Cosmos, user: string, id: string) { const p = pet(c, id); spend(c, user, "love"); p.love = r1(clamp(p.love + 18)); p.bond[user] = r1(clamp((p.bond[user] ?? 30) + 5)); }
+type CareKind = "feed" | "water" | "cuddle" | "pat";
+const CARE_BOND: Record<CareKind, number> = { feed: 3, water: 2, cuddle: 5, pat: 1 };
+const CARE_XP: Record<CareKind, number> = { feed: 6, water: 5, cuddle: 8, pat: 3 };
 
-/** A free pat, once every half hour per person: a little love, a little bond. Returns false when it's too soon. */
+/**
+ * Care from [user]: bond grows more with a care streak (days in a row) and with variety (not the same thing
+ * three times running), and less as it gets deep (each level is harder). Growth points too, and a bonus the
+ * first time in a day that both of you have cared. Crossing a bond level is a moment in the pet's life.
+ */
+function cared(c: Cosmos, p: Pet, user: string, kind: CareKind, now: number) {
+  const day = dayOf(now, c.tz);
+  p.care = p.care ?? {};
+  const cr = p.care[user] ?? { feed: 0, water: 0, cuddle: 0, pat: 0, day: "", streak: 0, last: [] };
+  if (cr.day !== day) {
+    const yesterday = new Date(Date.parse(day + "T00:00:00Z") - 86_400_000).toISOString().slice(0, 10);
+    cr.streak = cr.day === yesterday ? cr.streak + 1 : 1;
+    cr.day = day;
+  }
+  cr[kind] += 1;
+  const variety = !(cr.last.length >= 2 && cr.last.every((k) => k === kind));
+  cr.last = [kind, ...cr.last].slice(0, 2);
+  p.care[user] = cr;
+
+  const before = p.bond[user] ?? 15;
+  const gain = CARE_BOND[kind] * (1 + .08 * Math.min(cr.streak - 1, 6)) * (variety ? 1.25 : .8) * (1 - before / 160);
+  p.bond[user] = r1(clamp(before + gain));
+  const lb = bondLevel(before), la = bondLevel(p.bond[user]);
+  if (la > lb) moment(p, now, "bond", `${BOND_LEVELS[la][1]}`, user);
+
+  p.xp = (p.xp ?? 0) + CARE_XP[kind];
+  // both of you cared today: a together bonus
+  if (p.together !== day && c.members.every((m) => p.care?.[m]?.day === day)) {
+    p.together = day; p.xp += 10;
+    moment(p, now, "together", "You both looked after it today");
+  }
+  checkGrowth(p, now);
+}
+
+/** Close friends and closer get more out of each bit of care. */
+const boost = (p: Pet, user: string) => bondLevel(p.bond[user] ?? 15) >= 3 ? 1.2 : 1;
+
+export function feed(c: Cosmos, user: string, id: string, now = Date.now()) { const p = pet(c, id); spend(c, user, "food"); p.hunger = r1(clamp(p.hunger + 22 * boost(p, user))); cared(c, p, user, "feed", now); }
+export function water(c: Cosmos, user: string, id: string, now = Date.now()) { const p = pet(c, id); spend(c, user, "drink"); p.thirst = r1(clamp(p.thirst + 25 * boost(p, user))); cared(c, p, user, "water", now); }
+export function cuddle(c: Cosmos, user: string, id: string, now = Date.now()) { const p = pet(c, id); spend(c, user, "love"); p.love = r1(clamp(p.love + 18 * boost(p, user))); cared(c, p, user, "cuddle", now); }
+
+/** How long [user] waits between free pats: friends and closer wait 20 minutes instead of 30. */
+export const patWait = (p: Pet, user: string) => bondLevel(p.bond[user] ?? 15) >= 2 ? 20 * 60_000 : PAT_EVERY;
+
+/**
+ * A free pat: a little love, a little bond. Returns false when it's too soon. A soulmate's pat, once a day,
+ * comes back with a gift: a little of everything for their storage.
+ */
 export function pat(c: Cosmos, user: string, id: string, now: number): boolean {
   const p = pet(c, id);
-  if (now - (p.pats[user] ?? 0) < PAT_EVERY) return false;
+  if (now - (p.pats[user] ?? 0) < patWait(p, user)) return false;
   p.pats[user] = now;
-  p.love = r1(clamp(p.love + 2)); p.bond[user] = r1(clamp((p.bond[user] ?? 30) + 1));
+  p.love = r1(clamp(p.love + 2));
+  cared(c, p, user, "pat", now);
+  const day = dayOf(now, c.tz);
+  p.gifts = p.gifts ?? {};
+  if (bondLevel(p.bond[user] ?? 0) >= 5 && p.gifts[user] !== day) {
+    p.gifts[user] = day;
+    give(c, user, { food: 2, drink: 2, love: 2 });
+    moment(p, now, "gift", "Brought you a gift: 2 of each for your storage", user);
+  }
   return true;
 }
 
@@ -203,6 +314,6 @@ export function choose(c: Cosmos, seed: number, now: number) {
 export function summary(c: Cosmos) {
   return {
     stardust: c.stardust, lifetime: c.lifetime, comets: c.comets, seed: c.seed,
-    pets: c.pets.map((p) => ({ id: p.id, species: p.species, breed: p.breed, coat: p.coat ?? 0, name: p.name, hunger: p.hunger, thirst: p.thirst, love: p.love, bond: p.bond, mood: mood(p) })),
+    pets: c.pets.map((p) => ({ id: p.id, species: p.species, breed: p.breed, coat: p.coat ?? 0, name: p.name, born: p.born, hunger: p.hunger, thirst: p.thirst, love: p.love, bond: p.bond, mood: mood(p), growth: growth(p, Date.now()), stage: stageOf(p, Date.now()) })),
   };
 }

@@ -196,6 +196,7 @@ object PetLines {
     private val emptyFood = listOf("Your food store is empty. Write a note or play a game, I'll wait", "No snacks in your storage. Go do something nice and come back", "Out of food? Share a mood. I'll be here. Hungry")
     private val emptyDrink = listOf("No drinks left in your storage. Write a note or play a round", "Your drink store is dry. Like my bowl. Go play a game")
     private val emptyLove = listOf("You're out of love to give. Share a mood or a picture first", "Empty on affection? Share something with {them}, then come back to me")
+    private val trick = listOf("Ta-da. I learned that just for you", "Did you see that? Best friends get the good stuff", "That's my special move. Tell no one", "I only do that for my favourite people")
     private val hello = listOf("So this is home? I'll take it", "Hi. I'm yours now. No refunds", "Nice place. Where's the food", "I've decided to love you both. Don't make it weird")
     private val siblings = listOf("{sib} keeps looking at me. Make it stop", "{sib} got more snacks than me. I counted", "I like {sib}. Don't tell them", "{sib} and I have a plan. You'll see")
 
@@ -274,7 +275,7 @@ object PetLines {
     fun after(kind: String, pet: Pet, me: String, them: String, rnd: Random = Random): String {
         val list = when (kind) {
             "feed" -> fed; "water" -> watered; "cuddle" -> cuddled; "pat" -> patted; "soon" -> tooSoon
-            "empty_food" -> emptyFood; "empty_drink" -> emptyDrink; "empty_love" -> emptyLove; "hello" -> hello; "tickle" -> tickle
+            "empty_food" -> emptyFood; "empty_drink" -> emptyDrink; "empty_love" -> emptyLove; "hello" -> hello; "tickle" -> tickle; "trick" -> trick
             else -> poked
         }
         return fill(list.random(rnd), pet, me, them, me, them, null)

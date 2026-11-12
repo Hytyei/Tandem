@@ -151,6 +151,9 @@ fun RoundRunnerDialog(
                         MiniGame.Path -> StarPathGame(seed, finish)
                         MiniGame.Orbit -> OrbitGame(seed, finish)
                         MiniGame.Drift -> DriftGame(seed, finish)
+                        MiniGame.Pulse -> PulseGame(seed, finish)
+                        MiniGame.Firefly -> FireflyGame(seed, finish)
+                        MiniGame.Twins -> TwinsGame(seed, finish)
                     }
                     }
                     }
@@ -406,32 +409,39 @@ private class HeartSpawn(val t: Long, val x: Float, val y: Float, val life: Long
 
 @Composable
 private fun HeartCatchGame(seed: Long, onDone: (Int) -> Unit) {
-    val total = 30_000L
+    // endless since 2.3.0: hearts keep coming, faster and shorter-lived as you go. Every heart you let fade
+    // costs a life; three and it's over. You both get the same hearts at the same moments (the seed).
+    val horizon = 600_000L
     val spawns = remember(seed) {
         val rnd = Random(seed)
         buildList {
             var t = 700L
-            while (t < total - 500) {
-                add(HeartSpawn(t, .08f + rnd.nextFloat() * .84f, .06f + rnd.nextFloat() * .88f, (1300 - t / 30).coerceAtLeast(850)))
-                t += (780 - t / 60).coerceAtLeast(420)
+            while (t < horizon) {
+                add(HeartSpawn(t, .08f + rnd.nextFloat() * .84f, .06f + rnd.nextFloat() * .88f, (1300 - t / 40).coerceAtLeast(640)))
+                t += (800 - t / 70).coerceAtLeast(300)
             }
         }
     }
     var hits by remember { mutableStateOf(mapOf<Int, Long>()) }        // heart -> when it was caught (it swells and fades out)
+    var over by remember { mutableStateOf(false) }
     val perf = LocalPerf.current
     val fx = LocalFx.current
-    val elapsed = rememberClock(true, total) {
-        val seen = spawns.count { it.t + 300 < total }
-        repeat((seen - hits.size).coerceAtLeast(0)) { perf.miss() }
-        onDone(hits.size)
-    }
+    val elapsed = rememberClock(!over, horizon) { if (!over) { over = true; onDone(hits.size * 10) } }
     val nowMs by rememberUpdatedState(elapsed)
+    // hearts that faded without being caught
+    val missed = remember(elapsed / 50, hits) { spawns.count { it.t + it.life < elapsed && it !in hits.keys.map { k -> spawns[k] } } }
+    val lives = (3 - missed).coerceAtLeast(0)
+    LaunchedEffect(lives) {
+        if (lives <= 0 && !over) { over = true; repeat(missed) { perf.miss() }; delay(700); onDone(hits.size * 10) }
+        else if (missed > 0) fx.burst(FxKind.Bad, "Missed")
+    }
     Column(Modifier.fillMaxSize()) {
-        Hud(total - elapsed, total, hits.size, "hearts")
+        RoundHud(hits.size * 10, "Lives", "●".repeat(lives).ifEmpty { "–" }, detail = "${hits.size} hearts")
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             spawns.forEachIndexed { i, sp ->
+                if (sp.t > elapsed + 50 || sp.t + sp.life + 300 < elapsed) return@forEachIndexed
                 val caught = hits[i]
-                val alive = caught == null && elapsed >= sp.t && elapsed < sp.t + sp.life
+                val alive = !over && caught == null && elapsed >= sp.t && elapsed < sp.t + sp.life
                 val popping = caught != null && elapsed - caught < 260
                 if (alive || popping) {
                     val age = elapsed - sp.t
@@ -452,7 +462,7 @@ private fun HeartCatchGame(seed: Long, onDone: (Int) -> Unit) {
                                 detectTapGestures(onPress = {
                                     if (i !in hits) {
                                         hits = hits + (i to nowMs); perf.hit(); perf.react((nowMs - sp.t).toInt())
-                                        fx.burst(FxKind.Hearts, "+1")
+                                        fx.burst(FxKind.Hearts, "+10")
                                     }
                                 })
                             } else Modifier),
@@ -494,65 +504,72 @@ private fun DrawScope.memoryFace(kind: Int, c: Offset, s: Float) {
 
 @Composable
 private fun MemoryGame(seed: Long, onDone: (Int) -> Unit) {
+    // endless since 2.3.0: clear a board and a bigger one is dealt, until the minute is up
     val total = 60_000L
-    val faces = remember(seed) {
-        val r = Random(seed)
-        val six = (0 until 12).shuffled(r).take(6)
-        (six + six).shuffled(r)
+    var board by remember { mutableIntStateOf(0) }
+    val pairs = (6 + board * 2).coerceAtMost(10)
+    val faces = remember(seed, board) {
+        val r = Random(seed * 31 + board)
+        val pick = (0 until 12).shuffled(r).take(pairs)
+        (pick + pick).shuffled(r)
     }
     var open by remember { mutableStateOf(listOf<Int>()) }
     var matched by remember { mutableStateOf(setOf<Int>()) }
-    var mistakes by remember { mutableIntStateOf(0) }
+    var points by remember { mutableIntStateOf(0) }
     var finished by remember { mutableStateOf(false) }
     var wrong by remember { mutableStateOf(setOf<Int>()) }
     val perf = LocalPerf.current
     val fx = LocalFx.current
-    fun scoreFor(leftMs: Long): Int {
-        val bonus = if (matched.size == faces.size) (leftMs / 1000).toInt() * 5 else 0
-        return (matched.size / 2 * 100 + bonus - mistakes * 10).coerceAtLeast(0)
-    }
-    val elapsed = rememberClock(!finished, total) { finished = true; onDone(scoreFor(0)) }
+    val elapsed = rememberClock(!finished, total) { finished = true; onDone(points) }
     LaunchedEffect(open) {
         if (open.size == 2) {
-            delay(520)
-            if (faces[open[0]] == faces[open[1]]) { matched = matched + open; perf.hit(); fx.burst(FxKind.Stars, "Pair") }
-            else { mistakes++; perf.miss(); wrong = open.toSet(); fx.burst(FxKind.Bad) }
+            delay(480)
+            if (faces[open[0]] == faces[open[1]]) { matched = matched + open; points += 100; perf.hit(); fx.burst(FxKind.Stars, "+100") }
+            else { points = (points - 10).coerceAtLeast(0); perf.miss(); wrong = open.toSet(); fx.burst(FxKind.Bad) }
             open = emptyList()
-            delay(240); wrong = emptySet()
+            delay(220); wrong = emptySet()
         }
     }
-    LaunchedEffect(matched.size) {
-        if (matched.size == faces.size && !finished) { finished = true; delay(450); onDone(scoreFor(total - elapsed)) }
+    LaunchedEffect(matched.size, board) {
+        if (matched.size == faces.size && faces.isNotEmpty() && !finished) {
+            points += 150 + board * 50
+            fx.burstAt(FxKind.Confetti, fx.w / 2f, fx.h * .4f, "Board cleared")
+            delay(500); matched = emptySet(); board++
+        }
     }
     val c = T.colors
+    val cols = if (pairs <= 6) 3 else 4
     Column(Modifier.fillMaxSize()) {
-        Hud(total - elapsed, total, scoreFor(0), "${matched.size / 2} of 6 pairs")
+        Hud(total - elapsed, total, points, "board ${board + 1} · ${matched.size / 2} of $pairs pairs")
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            faces.indices.chunked(3).forEach { row ->
+            faces.indices.chunked(cols).forEach { row ->
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { i ->
-                        val shown = i in open || i in matched
-                        val turn by animateFloatAsState(if (shown) 180f else 0f, tween(300, easing = EaseOutStrong), label = "flip")
-                        val found = i in matched
-                        val shape = RoundedCornerShape(18.dp)
-                        Box(
-                            Modifier.weight(1f).fillMaxHeight()
-                                .graphicsLayer { rotationY = turn; cameraDistance = 12f * density }
-                                .clip(shape)
-                                .background(if (turn > 90f) Color.White.copy(alpha = if (found) .05f else .10f) else c.card)
-                                .border(1.dp, if (i in wrong) Color(0xFFFF7D96) else if (found) c.accent.copy(alpha = .5f) else Color.White.copy(alpha = .10f), shape)
-                                .clickable(remember { MutableInteractionSource() }, indication = null) {
-                                    if (!finished && !shown && open.size < 2) open = open + i
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Canvas(Modifier.fillMaxSize().graphicsLayer { rotationY = if (turn > 90f) 180f else 0f }) {
-                                val s = size.minDimension * .26f
-                                if (turn > 90f) memoryFace(faces[i], center, s)
-                                else { glow(center, s * 1.4f, c.accent, .16f); drawPath(sparklePath(center, s * .32f), c.accent.copy(alpha = .7f)) }
+                        key(board, i) {
+                            val shown = i in open || i in matched
+                            val turn by animateFloatAsState(if (shown) 180f else 0f, tween(300, easing = EaseOutStrong), label = "flip")
+                            val found = i in matched
+                            val shape = RoundedCornerShape(18.dp)
+                            Box(
+                                Modifier.weight(1f).fillMaxHeight()
+                                    .graphicsLayer { rotationY = turn; cameraDistance = 12f * density }
+                                    .clip(shape)
+                                    .background(if (turn > 90f) Color.White.copy(alpha = if (found) .05f else .10f) else c.card)
+                                    .border(1.dp, if (i in wrong) Color(0xFFFF7D96) else if (found) c.accent.copy(alpha = .5f) else Color.White.copy(alpha = .10f), shape)
+                                    .clickable(remember { MutableInteractionSource() }, indication = null) {
+                                        if (!finished && !shown && open.size < 2) open = open + i
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Canvas(Modifier.fillMaxSize().graphicsLayer { rotationY = if (turn > 90f) 180f else 0f }) {
+                                    val s = size.minDimension * .26f
+                                    if (turn > 90f) memoryFace(faces[i], center, s)
+                                    else { glow(center, s * 1.4f, c.accent, .16f); drawPath(sparklePath(center, s * .32f), c.accent.copy(alpha = .7f)) }
+                                }
                             }
                         }
                     }
+                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
@@ -630,12 +647,19 @@ private enum class DrawState { Waiting, Ready, Early, Result }
 
 @Composable
 private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
-    val delays = remember(seed) { val r = Random(seed); List(5) { 1400L + r.nextInt(0, 3200) } }
+    // endless since 2.3.0: tries keep coming until three lives are gone. A life goes for tapping early or for
+    // being too slow, and "too slow" gets stricter as you go. Same waits for both of you (the seed).
+    val rnd = remember(seed) { Random(seed) }
+    val delays = remember(seed) { mutableListOf<Long>() }
+    fun delayOf(i: Int): Long { while (delays.size <= i) delays += 1200L + rnd.nextInt(0, 3000); return delays[i] }
+    fun limitOf(i: Int) = (650 - i * 12).coerceAtLeast(330)
     var tryIdx by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf(DrawState.Waiting) }
     var readyAt by remember { mutableLongStateOf(0L) }
     var lastMs by remember { mutableIntStateOf(0) }
-    var scores by remember { mutableStateOf(listOf<Int>()) }
+    var points by remember { mutableIntStateOf(0) }
+    var lives by remember { mutableIntStateOf(3) }
+    var over by remember { mutableStateOf(false) }
     val up by rememberUpdatedState(onDone)
     val perf = LocalPerf.current
     val fx = LocalFx.current
@@ -643,23 +667,29 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
 
     LaunchedEffect(tryIdx, state) {
         when (state) {
-            DrawState.Waiting -> { delay(delays[tryIdx]); readyAt = SystemClock.elapsedRealtime(); state = DrawState.Ready }
-            DrawState.Early, DrawState.Result -> {
-                delay(1100)
-                if (scores.size >= 5) up(scores.sum()) else { tryIdx++; state = DrawState.Waiting }
+            DrawState.Waiting -> { delay(delayOf(tryIdx)); readyAt = SystemClock.elapsedRealtime(); state = DrawState.Ready }
+            DrawState.Ready -> {
+                // waited too long: that's a life
+                delay(limitOf(tryIdx).toLong())
+                if (state == DrawState.Ready) { lives--; perf.miss(); lastMs = -1; fx.burst(FxKind.Bad, "Too slow"); state = DrawState.Early }
             }
-            DrawState.Ready -> {}
+            DrawState.Early, DrawState.Result -> {
+                delay(1000)
+                if (lives <= 0) { if (!over) { over = true; up(points) } } else { tryIdx++; state = DrawState.Waiting }
+            }
         }
     }
     fun tap() {
+        if (over) return
         when (state) {
-            DrawState.Waiting -> { scores = scores + 0; state = DrawState.Early; perf.miss(); fx.burst(FxKind.Bad, "Too early") }
+            DrawState.Waiting -> { lives--; lastMs = 0; state = DrawState.Early; perf.miss(); fx.burst(FxKind.Bad, "Too early") }
             DrawState.Ready -> {
                 lastMs = (SystemClock.elapsedRealtime() - readyAt).toInt()
-                scores = scores + (600 - lastMs).coerceAtLeast(0)
+                val got = (limitOf(tryIdx) - lastMs).coerceAtLeast(0) + 50 + tryIdx * 5
+                points += got
                 state = DrawState.Result
                 perf.hit(); perf.react(lastMs)
-                fx.burstAt(if (lastMs < 250) FxKind.Confetti else FxKind.Stars, fx.w / 2f, fx.h * .48f, "+${scores.last()}")
+                fx.burstAt(if (lastMs < 250) FxKind.Confetti else FxKind.Stars, fx.w / 2f, fx.h * .48f, "+$got")
             }
             else -> {}
         }
@@ -675,13 +705,13 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
             orb(ctr, size.minDimension * (.16f + .02f * breathe.value * (1f - lit)), c.accent, lit)
         }
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            RoundHud(scores.sum(), "Try", "${(tryIdx + 1).coerceAtMost(5)} of 5", detail = "points")
+            RoundHud(points, "Lives", "●".repeat(lives.coerceAtLeast(0)).ifEmpty { "–" }, detail = "try ${tryIdx + 1} · under ${limitOf(tryIdx)} ms")
             Spacer(Modifier.weight(1f))
             Text(
                 when (state) {
                     DrawState.Waiting -> "Wait for the light"
                     DrawState.Ready -> "Now"
-                    DrawState.Early -> "Too early"
+                    DrawState.Early -> if (lastMs < 0) "Too slow" else "Too early"
                     DrawState.Result -> "$lastMs ms"
                 },
                 style = Type.largeTitle.copy(fontSize = 36.sp, lineHeight = 42.sp, fontFeatureSettings = "tnum"), textAlign = TextAlign.Center, color = c.label,
@@ -733,7 +763,7 @@ private fun SequenceGame(seed: Long, onDone: (Int) -> Unit) {
     val perf = LocalPerf.current
     val fx = LocalFx.current
     var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    fun score() = points.coerceIn(0, 800)
+    fun score() = points.coerceAtLeast(0)
     val elapsed = rememberClock(true, total) { onDone(score()) }
     val c = T.colors
     val pz = puzzles[idx.coerceAtMost(puzzles.lastIndex)]
@@ -768,22 +798,25 @@ private class CodeGuess(val pegs: List<Int>, val exact: Int, val near: Int)
 
 @Composable
 private fun CodeBreakerGame(seed: Long, onDone: (Int) -> Unit) {
-    val total = 150_000L
-    val maxGuesses = 10
-    val secret = remember(seed) { CODE_COLORS.indices.toList().shuffled(Random(seed)).take(4) }   // 4 different colours out of 5
+    // endless since 2.3.0: crack as many codes as you can in three minutes. Out of guesses? The code is shown
+    // and the next one starts (a few points for what you found).
+    val total = 180_000L
+    val maxGuesses = 8
+    var codeIdx by remember { mutableIntStateOf(0) }
+    val secret = remember(seed, codeIdx) { CODE_COLORS.indices.toList().shuffled(Random(seed * 17 + codeIdx)).take(4) }
     var current by remember { mutableStateOf(listOf<Int>()) }
-    var guesses by remember { mutableStateOf(listOf<CodeGuess>()) }
+    var guesses by remember(codeIdx) { mutableStateOf(listOf<CodeGuess>()) }
+    var points by remember { mutableIntStateOf(0) }
+    var cracked by remember { mutableIntStateOf(0) }
     var finished by remember { mutableStateOf(false) }
+    var reveal by remember { mutableStateOf(false) }
     val fx = LocalFx.current
-    fun scoreFor(leftMs: Long, solved: Boolean): Int {
-        val best = guesses.maxOfOrNull { it.exact } ?: 0
-        return if (solved) (400 + (maxGuesses - guesses.size) * 40 + (leftMs / 1000) * 1.5).toInt().coerceAtMost(1000) else best * 40
-    }
-    val elapsed = rememberClock(!finished, total) { finished = true; onDone(scoreFor(0, false)) }
+    val perf = LocalPerf.current
+    val elapsed = rememberClock(!finished, total) { finished = true; onDone(points) }
     val c = T.colors
 
     fun submit() {
-        if (current.size != 4 || finished) return
+        if (current.size != 4 || finished || reveal) return
         val exact = current.indices.count { current[it] == secret[it] }
         var common = 0
         for (col in CODE_COLORS.indices) common += minOf(current.count { it == col }, secret.count { it == col })
@@ -791,10 +824,15 @@ private fun CodeBreakerGame(seed: Long, onDone: (Int) -> Unit) {
         current = emptyList()
         if (exact == 4) fx.burstAt(FxKind.Confetti, fx.w / 2f, fx.h * .4f, "Cracked") else if (exact > 0) fx.burstAt(FxKind.Ring, fx.w / 2f, fx.h * .4f)
     }
-    val solved = guesses.lastOrNull()?.exact == 4
-    LaunchedEffect(guesses.size) {
-        if (finished) return@LaunchedEffect
-        if (solved || guesses.size >= maxGuesses) { finished = true; delay(700); onDone(scoreFor(total - elapsed, solved)) }
+    LaunchedEffect(guesses.size, codeIdx) {
+        if (finished || guesses.isEmpty()) return@LaunchedEffect
+        val solved = guesses.last().exact == 4
+        if (solved || guesses.size >= maxGuesses) {
+            if (solved) { points += 300 + (maxGuesses - guesses.size) * 40; cracked++; perf.hit() }
+            else { points += (guesses.maxOf { it.exact }) * 25; perf.miss(); reveal = true }
+            delay(if (solved) 700 else 1600)
+            reveal = false; codeIdx++
+        }
     }
 
     @Composable
@@ -807,7 +845,7 @@ private fun CodeBreakerGame(seed: Long, onDone: (Int) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Hud(total - elapsed, total, guesses.size, "of $maxGuesses guesses")
+        Hud(total - elapsed, total, points, "code ${codeIdx + 1} · $cracked cracked · guess ${(guesses.size + 1).coerceAtMost(maxGuesses)} of $maxGuesses")
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(maxGuesses) { row ->
                 val g = guesses.getOrNull(row)
@@ -815,7 +853,6 @@ private fun CodeBreakerGame(seed: Long, onDone: (Int) -> Unit) {
                     Text("${row + 1}", style = Type.caption.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Normal), color = c.tertiary, modifier = Modifier.width(20.dp))
                     repeat(4) { k -> Peg(g?.pegs?.get(k), 28.dp) }
                     Spacer(Modifier.weight(1f))
-                    // the answer: a lit dot for each right colour in the right place, a ring for right colour elsewhere
                     if (g != null) Canvas(Modifier.size(width = 64.dp, height = 14.dp)) {
                         val r = 4.dp.toPx(); var x = r
                         repeat(g.exact) { glow(Offset(x, size.height / 2), r * 3, c.accent, .4f); drawCircle(c.accent, r, Offset(x, size.height / 2)); x += r * 3.2f }
@@ -824,16 +861,19 @@ private fun CodeBreakerGame(seed: Long, onDone: (Int) -> Unit) {
                 }
             }
         }
-        Text("Lit dot: right colour, right place. Ring: right colour, wrong place", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), textAlign = TextAlign.Center)
+        if (reveal) Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+            Text("It was", style = Type.footnote, color = c.secondary)
+            secret.forEach { Peg(it, 24.dp) }
+        } else Text("Lit dot: right colour, right place. Ring: right colour, wrong place", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.secondary, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), textAlign = TextAlign.Center)
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
             repeat(4) { k -> Peg(current.getOrNull(k), 46.dp) { if (current.size > k) current = current.filterIndexed { i, _ -> i != k } } }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
-            CODE_COLORS.indices.forEach { col -> Peg(col, 46.dp) { if (!finished && current.size < 4) current = current + col } }
+            CODE_COLORS.indices.forEach { col -> Peg(col, 46.dp) { if (!finished && !reveal && current.size < 4) current = current + col } }
         }
         Row(Modifier.fillMaxWidth().padding(16.dp).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { current = emptyList() }, modifier = Modifier.weight(1f)) { Text("Clear", color = c.secondary) }
-            Box(Modifier.weight(2f)) { PrimaryButton("Guess", onClick = { submit() }, enabled = current.size == 4 && !finished, color = Ivory) }
+            Box(Modifier.weight(2f)) { PrimaryButton("Guess", onClick = { submit() }, enabled = current.size == 4 && !finished && !reveal, color = Ivory) }
         }
     }
 }
@@ -975,7 +1015,7 @@ private fun OddOneOutGame(seed: Long, onDone: (Int) -> Unit) {
     val perf = LocalPerf.current
     val fx = LocalFx.current
     var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
+    val elapsed = rememberClock(true, total) { onDone(points.coerceAtLeast(0)) }
     val size = if (level < 3) 3 else if (level < 7) 4 else 5
     val puzzle = remember(level, seed) {
         val r = Random(seed * 31 + level)
@@ -1045,7 +1085,7 @@ private fun TargetGame(seed: Long, onDone: (Int) -> Unit) {
     var shownAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val puzzle = remember(idx, seed) { makeTarget(seed, idx) }
     val sum = picked.sumOf { puzzle.numbers[it] }
-    val elapsed = rememberClock(true, total) { onDone(points.coerceIn(0, 1000)) }
+    val elapsed = rememberClock(true, total) { onDone(points.coerceAtLeast(0)) }
     val c = T.colors
     LaunchedEffect(sum, idx) {
         if (picked.isEmpty()) { flash = null; return@LaunchedEffect }
@@ -1129,7 +1169,7 @@ private fun EchoGame(seed: Long, onDone: (Int) -> Unit) {
         message = "Your turn"; accepting = true
     }
 
-    fun finish() { if (!finished) { finished = true; up(score.coerceIn(0, 1000)) } }
+    fun finish() { if (!finished) { finished = true; up(score.coerceAtLeast(0)) } }
     fun tap(pad: Int) {
         if (!accepting || finished) return
         scope.launch { lit = pad; delay(180); lit = null }

@@ -66,6 +66,9 @@ internal val MiniGame.light: Color get() = when (this) {
     MiniGame.Path -> Color(0xFFE9D7FF)
     MiniGame.Orbit -> Color(0xFF9FB4FF)
     MiniGame.Drift -> Color(0xFFFFC56E)
+    MiniGame.Pulse -> Color(0xFF8FE0E8)
+    MiniGame.Firefly -> Color(0xFFE8FF8A)
+    MiniGame.Twins -> Color(0xFFFFC56E)
 }
 
 /** Runs [content] with the app's accent swapped for the game's light. Surfaces and text stay the app's own. */
@@ -232,6 +235,11 @@ private fun DrawScope.glyph(game: MiniGame, c: Offset, g: Float, a: Color, ink: 
             drawCircle(soft, g * .1f, c + Offset(g * .25f, -g * .05f))
             drawCircle(a, g * .13f, c + Offset(0f, g * .32f))
         }
+        MiniGame.Pulse -> { drawCircle(soft, g * .42f, c, style = Stroke(g * .05f)); drawCircle(a, g * .26f, c, style = Stroke(g * .08f)); drawCircle(a, g * .08f, c) }
+        MiniGame.Firefly -> listOf(Offset(-.28f, -.18f), Offset(.22f, -.26f), Offset(.02f, .12f), Offset(-.2f, .3f), Offset(.32f, .22f)).forEachIndexed { k, o ->
+            glow(c + o * g, g * .22f, a, if (k % 2 == 0) .55f else .25f); drawCircle(if (k % 2 == 0) a else soft, g * .06f, c + o * g)
+        }
+        MiniGame.Twins -> { drawPath(sparklePath(c + Offset(-g * .22f, -g * .12f), g * .2f), a); drawPath(sparklePath(c + Offset(g * .22f, g * .14f), g * .2f), a); drawCircle(soft, g * .07f, c + Offset(g * .2f, -g * .26f)); drawCircle(soft, g * .07f, c + Offset(-g * .24f, g * .26f)) }
         MiniGame.Slide -> for (k in 0..2) drawRoundRect(if (k == 0) a else soft.copy(alpha = .4f), c + Offset((k - 1.5f) * g * .32f + g * .02f, -g * .14f), Size(g * .28f, g * .28f), CornerRadius(g * .06f))
     }
 }
