@@ -2,47 +2,52 @@ package app.tandem.ui.pets
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
-import java.util.concurrent.Executors
+import android.media.SoundPool
 import kotlin.random.Random
 
 /**
- * Plays the pets' little voices (made by [PetSynth], no sound files): soft, low and short. Each pet gets its
- * own pitch from its id, and every call varies a touch, so a meow never sounds pasted. Muted with one switch
- * on the pet page.
+ * Plays the pets' voices from real recorded-style clips in res/raw (pet_<kind>.mp3, made with ElevenLabs
+ * sound effects). Each pet gets its own pitch from its id, and every call varies a touch, so a meow never
+ * sounds pasted. A kind with no clip stays silent. Muted with one switch on the pet page.
+ * Kinds: meow, trill, purr, boof (bark), pant, squeak, grunt (rabbit sniff), chirp, nom, lap.
  */
 object PetVoice {
-    private val worker = Executors.newSingleThreadExecutor()
-    @Volatile private var playing = 0
     private const val PREF = "pet_voice_muted"
+    private var pool: SoundPool? = null
+    private val ids = HashMap<String, Int>()
+    private val ready = HashSet<Int>()
 
     fun muted(ctx: Context) = ctx.getSharedPreferences("tandem_pets", Context.MODE_PRIVATE).getBoolean(PREF, false)
     fun setMuted(ctx: Context, v: Boolean) = ctx.getSharedPreferences("tandem_pets", Context.MODE_PRIVATE).edit().putBoolean(PREF, v).apply()
 
-    /** Plays [kind] for a pet whose voice is pitched by [pitch] (about 0.85 to 1.15). Drops it if two are already playing. */
-    fun play(ctx: Context, kind: String, pitch: Float) {
-        if (muted(ctx) || playing >= 2) return
-        playing++
-        worker.execute {
-            try {
-                val pcm = PetSynth.make(kind, pitch * (0.97f + Random.nextFloat() * .06f)) ?: return@execute
-                val track = AudioTrack.Builder()
-                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
-                    .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(PetSynth.RATE).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                    .setTransferMode(AudioTrack.MODE_STATIC)
-                    .setBufferSizeInBytes(pcm.size * 2)
-                    .build()
-                track.write(pcm, 0, pcm.size)
-                track.setVolume(.6f)
-                track.play()
-                Thread.sleep(pcm.size * 1000L / PetSynth.RATE + 60)
-                track.release()
-            } catch (_: Throwable) {
-            } finally { playing-- }
+    @Synchronized private fun load(ctx: Context): SoundPool {
+        pool?.let { return it }
+        val p = SoundPool.Builder().setMaxStreams(2)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+            .build()
+        p.setOnLoadCompleteListener { _, id, status -> if (status == 0) synchronized(this) { ready += id } }
+        val app = ctx.applicationContext
+        for (k in listOf("meow", "trill", "purr", "boof", "pant", "squeak", "grunt", "chirp", "nom", "lap")) {
+            val res = app.resources.getIdentifier("pet_$k", "raw", app.packageName)
+            if (res != 0) ids[k] = p.load(app, res, 1)
         }
+        pool = p
+        return p
     }
 
-    /** A pitch for this pet, the same every time. Kept in a narrow, low-ish band so every voice stays soft. */
-    fun pitchOf(id: String) = .88f + ((id.hashCode() and 0xFFFF) / 65535f) * .22f
+    /** Plays [kind] for a pet whose voice is pitched by [pitch] (about 0.9 to 1.1). */
+    fun play(ctx: Context, kind: String, pitch: Float) {
+        if (muted(ctx)) return
+        val p = load(ctx)
+        val id = ids[kind] ?: return
+        if (synchronized(this) { id !in ready }) return
+        val rate = (pitch * (0.97f + Random.nextFloat() * .06f)).coerceIn(.5f, 2f)
+        p.play(id, .7f, .7f, 1, 0, rate)
+    }
+
+    /** Warms the clips up so the first tap isn't silent. */
+    fun preload(ctx: Context) { load(ctx) }
+
+    /** A pitch for this pet, the same every time, in a narrow band so every voice stays natural. */
+    fun pitchOf(id: String) = .92f + ((id.hashCode() and 0xFFFF) / 65535f) * .16f
 }

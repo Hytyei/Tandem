@@ -2087,10 +2087,10 @@ function cosmosJson(s: Cosmos.Cosmos, me: string) {
   return {
     cosmos: {
       ...s, counts: undefined,
-      pets: s.pets.map((p) => ({ ...p, mood: Cosmos.mood(p), patReadyAt: (p.pats[me] ?? 0) + Cosmos.patWait(p, me), growth: Cosmos.growth(p, now()), stage: Cosmos.stageOf(p, now()), xp: p.xp ?? 0 })),
+      pets: s.pets.map((p) => ({ ...p, mood: Cosmos.mood(p), patReadyAt: (p.pats[me] ?? 0) + Cosmos.patWait(p, me), growth: Cosmos.growth(p, now()), stage: Cosmos.stageOf(p, now()), xp: p.xp ?? 0, next: Cosmos.nextStage(p, now()) })),
     },
     bondLevels: Cosmos.BOND_LEVELS,
-    stages: Cosmos.STAGES,
+    stages: Cosmos.SPECIES_STAGES,
     me: s.stores[me] ?? { food: 0, drink: 0, love: 0 },
     species: Cosmos.SPECIES,
     adoptCost: Cosmos.ADOPT_COST[s.pets.length] ?? null,

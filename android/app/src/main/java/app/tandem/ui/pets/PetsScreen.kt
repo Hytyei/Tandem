@@ -127,6 +127,7 @@ fun PetsScreen(vm: AppViewModel, onBack: () -> Unit) {
     var renaming by remember { mutableStateOf(false) }
     var releasing by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(PetVoice.muted(ctx)) }
+    LaunchedEffect(Unit) { PetVoice.preload(ctx) }
     val night = LocalNight.current > .9f
 
     Box(Modifier.fillMaxSize().background(c.background)) { DreamBackground {

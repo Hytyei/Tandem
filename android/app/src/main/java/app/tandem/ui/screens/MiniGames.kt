@@ -698,7 +698,7 @@ private fun QuickDrawGame(seed: Long, onDone: (Int) -> Unit) {
     val lit by animateFloatAsState(if (state == DrawState.Ready) 1f else if (state == DrawState.Result) .5f else .08f, if (state == DrawState.Ready) tween(0) else tween(500), label = "drawLit")
     val breathe = remember { Animatable(0f) }
     LaunchedEffect(Unit) { while (true) { breathe.animateTo(1f, tween(1400)); breathe.animateTo(0f, tween(1400)) } }
-    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onPress = { tap() }) }) {
+    Box(Modifier.fillMaxSize().tapAnywhere { tap() }) {
         Canvas(Modifier.fillMaxSize()) {
             val ctr = Offset(size.width / 2, size.height * .48f)
             glow(ctr, size.maxDimension * .8f, c.accent, .22f * lit)

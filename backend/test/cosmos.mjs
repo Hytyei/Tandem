@@ -72,14 +72,19 @@ ok("…and its bonds fade faster", c.pets[0].bond[A] < 15, c.pets[0].bond);
   const g = C.newCosmos([A, B], T0, 0, 0, rand); g.stores[A] = { food: 99, drink: 99, love: 99 }; g.stores[B] = { food: 99, drink: 99, love: 99 };
   C.adopt(g, "cat", "ginger", "Kit", "k", T0);
   ok("a newborn is a baby", C.stageOf(g.pets[0], T0) === 0 && C.growth(g.pets[0], T0) === 0);
-  for (let i = 0; i < 12; i++) C.cuddle(g, A, "k", T0 + i * 1000);
+  for (let i = 0; i < 40; i++) C.cuddle(g, A, "k", T0 + i * 1000);
   C.feed(g, B, "k", T0 + 20_000);
-  ok("care alone doesn't grow it up overnight", C.stageOf(g.pets[0], T0 + H) === 0 && g.pets[0].xp >= 80, g.pets[0].xp);
-  C.tickPets(g, T0 + 2 * D + H);
-  ok("with two days of age it's young", C.stageOf(g.pets[0], T0 + 2 * D + H) === 1 && g.pets[0].moments.some((m) => m.kind === "grow"), g.pets[0].moments);
-  for (let i = 0; i < 40; i++) C.feed(g, B, "k", T0 + 2 * D + H + i * 1000);
-  C.tickPets(g, T0 + 8 * D);
-  ok("and grown up after a week of care", C.stageOf(g.pets[0], T0 + 8 * D) === 2 && C.growth(g.pets[0], T0 + 8 * D) === 1);
+  ok("care alone doesn't grow it up overnight", C.stageOf(g.pets[0], T0 + H) === 0 && g.pets[0].xp >= 300, g.pets[0].xp);
+  C.tickPets(g, T0 + 61 * D);
+  ok("a kitten is young at two months", C.stageOf(g.pets[0], T0 + 61 * D) === 1 && g.pets[0].moments.some((m) => m.kind === "grow"), g.pets[0].moments);
+  ok("…and the next step is a year old", C.nextStage(g.pets[0], T0 + 61 * D).days === 365);
+  g.pets[0].xp = 2000;
+  C.tickPets(g, T0 + 200 * D);
+  ok("not grown before its time, however well cared for", C.stageOf(g.pets[0], T0 + 200 * D) === 1 && C.growth(g.pets[0], T0 + 200 * D) < 1);
+  C.tickPets(g, T0 + 366 * D);
+  ok("a cat at a year", C.stageOf(g.pets[0], T0 + 366 * D) === 2 && C.growth(g.pets[0], T0 + 366 * D) === 1 && C.nextStage(g.pets[0], T0 + 366 * D) === null);
+  const h = C.newCosmos([A, B], T0, 0, 0, rand); C.adopt(h, "hamster", "syrian", "Pip", "h", T0); h.pets[0].xp = 500;
+  ok("hamsters grow up in three months", C.stageOf(h.pets[0], T0 + 91 * D) === 2 && C.stageOf(h.pets[0], T0 + 80 * D) === 1);
   ok("both caring on a day: a together bonus", g.pets[0].moments.some((m) => m.kind === "together"));
   // bond levels, streaks, perks
   const b0 = g.pets[0].bond[A];
@@ -91,7 +96,7 @@ ok("…and its bonds fade faster", c.pets[0].bond[A] < 15, c.pets[0].bond);
   ok("…once a day", C.pat(g, A, "k", T0 + 9 * D + H) && g.stores[A].love === Math.min(99, before.love + 2));
   const old = C.newCosmos([A, B], T0, 0, 0, rand); C.adopt(old, "dog", "shiba", "Old", "o", T0); delete old.pets[0].xp;
   C.tickPets(old, T0 + 5 * D);
-  ok("pets from before growth get growth for their age", old.pets[0].xp === 225 && C.stageOf(old.pets[0], T0 + 5 * D) === 1, old.pets[0].xp);
+  ok("pets from before growth get growth for their age", old.pets[0].xp === 150 && C.stageOf(old.pets[0], T0 + 5 * D) === 0, old.pets[0].xp);
 }
 
 // galaxy

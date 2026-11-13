@@ -40,6 +40,8 @@ import kotlinx.serialization.Serializable
     val growth: Double = 1.0,
     /** Per person: how they've cared (counts, care streak in days). Only in the full /cosmos answer. */
     val care: Map<String, PetCare> = emptyMap(),
+    /** What the next stage needs, as totals (growth points, age in days); null when grown. */
+    val next: GrowNext? = null,
     /** This pet's own small history, newest first. */
     val moments: List<PetMoment> = emptyList(),
 ) {
@@ -50,6 +52,16 @@ import kotlinx.serialization.Serializable
         if (sorted.size < 2) return null
         return if (sorted[0].value - sorted[1].value >= 12) sorted[0].key else null
     }
+}
+
+@Serializable data class GrowNext(val xp: Int = 0, val days: Int = 0)
+
+/** An age said the way people say it: 5 days, 3 weeks, 4 months, 1 year and 2 months. */
+fun ageText(days: Int): String = when {
+    days < 14 -> if (days == 1) "1 day" else "$days days"
+    days < 60 -> "${days / 7} weeks"
+    days < 365 -> "${days / 30} months"
+    else -> { val y = days / 365; val m = (days % 365) / 30; (if (y == 1) "1 year" else "$y years") + if (m > 0) " and ${if (m == 1) "1 month" else "$m months"}" else "" }
 }
 
 @Serializable data class PetCare(val feed: Int = 0, val water: Int = 0, val cuddle: Int = 0, val pat: Int = 0, val day: String = "", val streak: Int = 0)

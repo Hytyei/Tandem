@@ -31,7 +31,20 @@ export interface Moment { at: number; kind: string; text: string; user?: string 
 export const BOND_LEVELS: [number, string][] = [[0, "Stranger"], [15, "Acquaintance"], [30, "Friend"], [50, "Close friend"], [70, "Best friend"], [90, "Soulmate"]];
 export const bondLevel = (b: number) => { let i = 0; BOND_LEVELS.forEach(([from], k) => { if (b >= from) i = k; }); return i; };
 /** Growth stages: [name, growth points needed, days of age needed]. */
-export const STAGES: [string, number, number][] = [["baby", 0, 0], ["young", 80, 2], ["adult", 300, 7]];
+export const STAGES: [string, number, number][] = [["baby", 0, 0], ["young", 300, 60], ["adult", 2000, 365]];
+/**
+ * Growing up on a real-world clock (since 2.3.1): [stage, growth points, days of age]. A kitten is a cat at about
+ * a year, a puppy a dog at about 18 months, a hamster grown at about 3 months. Care has to keep pace too: the
+ * points are roughly a few cares a day over that time.
+ */
+export const SPECIES_STAGES: Record<string, [string, number, number][]> = {
+  cat: [["baby", 0, 0], ["young", 300, 60], ["adult", 2000, 365]],
+  dog: [["baby", 0, 0], ["young", 300, 60], ["adult", 2600, 540]],
+  hamster: [["baby", 0, 0], ["young", 120, 21], ["adult", 500, 90]],
+  rabbit: [["baby", 0, 0], ["young", 300, 60], ["adult", 1300, 240]],
+  parrot: [["baby", 0, 0], ["young", 180, 30], ["adult", 1500, 270]],
+};
+export const stagesFor = (species: string) => SPECIES_STAGES[species] ?? STAGES;
 
 export interface Cosmos {
   v: 1;
@@ -147,7 +160,7 @@ export function tickPets(c: Cosmos, now: number) {
   const mult = 1 + .35 * Math.max(0, c.pets.length - 1);
   for (const p of c.pets) {
     // pets from before growing existed: give them the growth their age would have earned
-    if (p.xp === undefined) p.xp = Math.min(STAGES[2][1], Math.floor(Math.max(0, now - p.born) / 86_400_000) * 45);
+    if (p.xp === undefined) p.xp = Math.floor(Math.max(0, now - p.born) / 86_400_000) * 30;
     const h = Math.max(0, now - p.lastTick) / 3_600_000;
     if (h <= 0) continue;
     p.hunger = r1(clamp(p.hunger - 4.2 * h * mult));
@@ -169,7 +182,7 @@ export function tickPets(c: Cosmos, now: number) {
 export function stageOf(p: Pet, now: number): number {
   const days = Math.max(0, now - p.born) / 86_400_000;
   let st = 0;
-  STAGES.forEach(([, xp, d], k) => { if ((p.xp ?? 0) >= xp && days >= d) st = k; });
+  stagesFor(p.species).forEach(([, xp, d], k) => { if ((p.xp ?? 0) >= xp && days >= d) st = k; });
   return st;
 }
 
@@ -177,11 +190,20 @@ export function stageOf(p: Pet, now: number): number {
 export function growth(p: Pet, now: number): number {
   const st = stageOf(p, now);
   if (st >= 2) return 1;
-  const [, x0, d0] = STAGES[st]; const [, x1, d1] = STAGES[st + 1];
+  const S = stagesFor(p.species);
+  const [, x0, d0] = S[st]; const [, x1, d1] = S[st + 1];
   const days = Math.max(0, now - p.born) / 86_400_000;
   const fx = Math.min(1, Math.max(0, ((p.xp ?? 0) - x0) / (x1 - x0)));
+  // growth on screen follows age smoothly, held back only when care hasn't kept pace
   const fd = Math.min(1, Math.max(0, (days - d0) / (d1 - d0)));
   return (st + Math.min(fx, fd)) / 2;
+}
+
+/** What the next stage needs, as totals: growth points and age in days. Null when grown. */
+export function nextStage(p: Pet, now: number): { xp: number; days: number } | null {
+  const st = stageOf(p, now);
+  const S = stagesFor(p.species);
+  return st >= 2 ? null : { xp: S[st + 1][1], days: S[st + 1][2] };
 }
 
 function moment(p: Pet, at: number, kind: string, text: string, user?: string) {

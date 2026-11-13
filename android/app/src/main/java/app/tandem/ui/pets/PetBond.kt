@@ -50,7 +50,7 @@ fun GrowthCard(pet: Pet, modifier: Modifier = Modifier) {
                 Text("Growing up", style = Type.footnote, color = c.secondary)
                 Text(stageName(pet.species, pet.stage), style = Type.title, color = c.label)
             }
-            Text(if (days == 1) "1 day old" else "$days days old", style = Type.footnote.copy(fontFamily = FontFamily.Monospace), color = c.tertiary)
+            Text("${app.tandem.data.ageText(days)} old", style = Type.footnote.copy(fontFamily = FontFamily.Monospace), color = c.tertiary)
         }
         // three stages on one line: a dot for each, the line lit as far as it has grown
         Canvas(Modifier.fillMaxWidth().height(28.dp).padding(top = 12.dp)) {
@@ -71,21 +71,21 @@ fun GrowthCard(pet: Pet, modifier: Modifier = Modifier) {
                 textAlign = when (k) { 0 -> androidx.compose.ui.text.style.TextAlign.Start; 1 -> androidx.compose.ui.text.style.TextAlign.Center; else -> androidx.compose.ui.text.style.TextAlign.End },
             )
         }
-        val need = when (pet.stage) {
-            0 -> Pair((80 - pet.xp).coerceAtLeast(0), (2 - days).coerceAtLeast(0))
-            1 -> Pair((300 - pet.xp).coerceAtLeast(0), (7 - days).coerceAtLeast(0))
-            else -> null
-        }
+        val nx = pet.next
+        val needXp = nx?.let { (it.xp - pet.xp).coerceAtLeast(0) } ?: 0
+        val needDays = nx?.let { (it.days - days).coerceAtLeast(0) } ?: 0
         Text(
             when {
-                need == null -> "All grown up. It still loves being looked after"
-                need.first > 0 && need.second > 0 -> "Grows up with ${need.first} more care points and ${need.second} more ${if (need.second == 1) "day" else "days"}"
-                need.first > 0 -> "Grows up with ${need.first} more care points"
-                else -> "Old enough. Growing up any moment now"
+                nx == null -> "All grown up. It still loves being looked after"
+                needDays > 0 && needXp > 0 -> "Grows up in about ${app.tandem.data.ageText(needDays)}, with $needXp more care points along the way"
+                needDays > 0 -> "Grows up in about ${app.tandem.data.ageText(needDays)}. It's had all the care it needs for now"
+                needXp > 0 -> "Old enough. $needXp more care points and it grows up"
+                else -> "Growing up any moment now"
             },
             style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary, modifier = Modifier.padding(top = 10.dp),
         )
-        if (need != null) Text("Every feed, drink, cuddle and pat counts, and a little extra on days you both look after it", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
+        val need = nx
+        if (need != null) Text("Pets grow on a real clock, like real ones. Every feed, drink, cuddle and pat counts, with a little extra on days you both look after it", style = Type.caption.copy(fontWeight = FontWeight.Normal), color = c.tertiary)
     }
 }
 

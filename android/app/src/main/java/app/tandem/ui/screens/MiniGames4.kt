@@ -103,7 +103,7 @@ internal fun PulseGame(seed: Long, onDone: (Int) -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         RoundHud(points, "Lives", "●".repeat(lives.coerceAtLeast(0)).ifEmpty { "–" }, detail = if (combo >= 3) "$combo in a row" else "tap on the circle")
-        Box(Modifier.fillMaxWidth().weight(1f).pointerInput(Unit) { detectTapGestures(onPress = { tap() }) }) {
+        Box(Modifier.fillMaxWidth().weight(1f).tapAnywhere { tap() }) {
             Canvas(Modifier.fillMaxSize()) {
                 val ctr = Offset(size.width / 2f, size.height * .48f)
                 val R = size.minDimension * .34f

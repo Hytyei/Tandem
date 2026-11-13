@@ -2,7 +2,7 @@
 
 Everything a developer or another AI agent needs to keep working on Tandem without any earlier context. Keep this file current: update it in the same commit as any change to features, structure, tooling or plans.
 
-Last updated: 2026-11-11, at version **2.3.0** (versionCode 21).
+Last updated: 2026-11-12, at version **2.3.1** (versionCode 22).
 
 ---
 
@@ -30,7 +30,7 @@ D:\RandD\Android Apps\Tandem App\
 │   ├── docs\               ← icon, old update notes, design specs (docs/superpowers/specs)
 │   ├── tools\              ← Python illustration painter for the mood/activity art
 │   └── .github\workflows\  ← CI (see section 9)
-├── v2.2.0\, v2.3.0\ …     ← one folder per version: the signed APK + install.bat
+├── v2.2.0\, v2.3.0\, v2.3.1\ …     ← one folder per version: the signed APK + install.bat
 ```
 
 **Version folders (standing rule):** every new version gets a new folder `Tandem App\v<version>\` holding that version's signed APK and an `install.bat` that installs it on a USB-connected phone with adb. Older version folders are never edited. The repository itself stays in `Tandem\`; it is not copied per version (git history and tags cover the source).
@@ -104,6 +104,7 @@ There are five tabs: **Today**, **Echoes** (moods, diary, heatmap), **Calendar**
 **Play** (minigames for two)
 - 21 games in `data/Catalog.kt` `MiniGame`. Keys: heart, memory, math, draw, mole, path, stack, flap, orbit, drift, pulse, odd, target, seq, echo, stroop, word, code, firefly, twins, bj. Pulse, Firefly Count and Twin Stars were added in 2.3.0 (`ui/screens/MiniGames4.kt`).
 - **No score ceilings (2.3.0):** every game is either timed or ends at three lives, and no client code clamps a score.
+- **Taps in games:** use `Modifier.tapAnywhere { }` from `GameKit.kt`, never `pointerInput(Unit) { detectTapGestures(...) }` with a game callback. `pointerInput(Unit)` keeps the first closure forever, so every tap after the first used stale state (the 2.3.1 Pulse bug). `tapAnywhere` goes through `rememberUpdatedState`.
   - Heart Catch, Quick Draw, Pulse and Orbit end at 3 lives.
   - Memory Match deals board after board.
   - Code Breaker and Word Duel go code after code and word after word for 3 minutes.
@@ -118,17 +119,18 @@ There are five tabs: **Today**, **Echoes** (moods, diary, heatmap), **Calendar**
 - Up to 3 pets: cats, dogs, hamsters, rabbits and parrots, 23 breeds with 3 coats each. They are drawn in code in a kawaii style (`PetArt.kt`) and animated with idle loops, micro-actions and reactions (`PetStage.kt`).
 - **Needs:** hunger, thirst and love fall over time and faster with more pets. Each partner feeds, waters and cuddles from their own storage, plus a free pat every 30 minutes. Each pet keeps a bond with each partner.
 - A neglected pet sulks; pets never die. Adoption costs 0, 200 or 500 stardust for the first, second and third pet.
-- **Growing up (2.3.0):** baby, then young, then adult (names per species in `stageName`: Kitten, Young cat, Cat and so on). Each stage needs growth points (`xp`: feed +6, water +5, cuddle +8, pat +3, +10 the first time in a day both partners cared) and age: young needs 80 xp and 2 days, adult 300 xp and 7 days.
+- **Growing up (2.3.0):** baby, then young, then adult (names per species in `stageName`: Kitten, Young cat, Cat and so on). Each stage needs growth points (`xp`: feed +6, water +5, cuddle +8, pat +3, +10 the first time in a day both partners cared) and age. Since 2.3.1 the times are realistic, per species in `SPECIES_STAGES` (backend/src/cosmos.ts), as [stage, xp, days]: cat young 300/60, adult 2000/365; dog 300/60, 2600/540; hamster 120/21, 500/90; rabbit 300/60, 1300/240; parrot 180/30, 1500/270.
+  - The server also sends `next` per pet ({xp, days} totals for the next stage, null when grown); the growth card shows the age with `ageText()` (days, weeks, months, years) and what is left.
   - The server sends `stage` and a smooth `growth` from 0 to 1.
   - The art reads `PetLook.grow`: a baby is smaller overall, with a bigger head and eyes on a shorter body (`bodyS`, `headS`, `eyeS`, `headDrop` in `PetPose`).
-  - Pets adopted before 2.3.0 were given xp for their age on their first tick.
+  - Pets with no xp get 30 xp per day of age on their first tick. Stage is computed, not stored, so pets that grew fast in 2.3.0 became young again in 2.3.1.
 - **Bonds in depth (2.3.0):** 0–100 per partner, in six levels: Stranger 0, Acquaintance 15, Friend 30, Close friend 50, Best friend 70, Soulmate 90 (`BOND_LEVELS` on the server, `Bond` in `data/Cosmos.kt`).
   - **Gains** depend on the kind of care (cuddle 5, feed 3, water 2, pat 1), the person's daily care streak (up to +48%), variety (doing the same thing three times running gives less) and the current level (each level is harder).
   - **Fading:** bonds fade more slowly the deeper they are; a sulking pet still costs bond fast.
   - **Perks:** Friend waits 20 minutes between free pats instead of 30; Close friend's care goes 20% further; Best friend's pet sometimes does a trick when tapped; a Soulmate's first pat of the day brings a gift of 2 food, 2 drink and 2 love.
   - New pets start at 15.
 - **Per pet the server keeps** `care` per person (counts, streak, last kinds), `gifts`, `together` (the day both cared) and `moments`, a short history: adopt, grow, bond level reached, gift, together. The pet page shows a growth card, a bond card for each partner and the moments (`ui/pets/PetBond.kt`).
-- **Voices** come from a formant synth in `PetSynth.kt` (meow, trill, purr, boof, pant, squeak, grunt, chirp, nom, lap), with a mute switch.
+- **Voices (2.3.1):** recorded-style clips in `res/raw/pet_<kind>.mp3`, made with ElevenLabs sound effects (model eleven_text_to_sound_v2), played by `PetVoice.kt` with SoundPool at a per-pet rate (0.92–1.08). Kinds: meow, trill, purr, boof (bark), pant, squeak (hamster), grunt (rabbit sniff), chirp (parrot), nom, lap. A kind with no file is silent. Shipped so far: `pet_meow`, `pet_lap`. Drop a new file in with the right name and it plays, no code change. The old formant synth (`PetSynth.kt`) was removed because it sounded artificial.
 - **Personality and lines:** two traits per pet, derived from its id, shape what it says (`PetLines.kt`). Easter eggs:
   - pet names with their own lines;
   - 11:11 and 3:33;
@@ -253,7 +255,7 @@ The GitHub "Release Android APK" workflow **always fails** because the signing s
 ## 11. Planned and possible future work
 
 - **In-app currency:** stardust and comets were designed to become a real in-app currency later (owner's request at 2.0.0); comets are the re-roll item today.
-- **Pet voices:** confirm by ear on a real phone that the 2.2.0 synth voices sound cute and low enough; tune `PetSynth.kt` (pitches, formants, breath) based on that.
+- **Pet voices:** make the eight missing clips (purr, trill, boof, pant, squeak, grunt, chirp, nom) as soft, realistic, close-up recordings and add them to `res/raw`. The ElevenLabs free queue only let about one through at a time.
 - **Occasions:** notification reminders, a setting to hide holidays the couple doesn't celebrate, more occasions (birthdays already exist as special days), and checking Iran's Girls' Day against the official calendar each year (Umm al-Qura can differ by a day).
 - **Push:** real-time push (for example FCM) instead of 15-minute polling.
 - **Release CI:** add the signing secrets to GitHub or remove the failing workflow.
@@ -272,4 +274,5 @@ The GitHub "Release Android APK" workflow **always fails** because the signing s
 | 2.0.0 | 2026-11-07 | Pets and the procedural galaxy replace the planet |
 | 2.1.0 / 2.1.1 | 2026-11-08 | Galaxy on every phone and on the dusk sky; new achievements, stats and goals; "Our little world" scene |
 | 2.2.0 | 2026-11-08 | Occasions with effects, 26 more achievements, pet personalities and new voices, tug-of-war head to head, cycle and diary changes, verified badge |
+| 2.3.1 | 2026-11-12 | Pulse tap fix (and other tap games); realistic growing-up times per species with ages on the growth card; recorded pet sounds replace the synth (meow, lapping) |
 | 2.3.0 | 2026-11-11 | Pets grow from baby to adult; bonds with six levels, perks, streaks and moments; galaxy zoom much closer and double-tap; Pulse, Firefly Count, Twin Stars; no score ceilings in any game |

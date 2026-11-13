@@ -273,7 +273,7 @@ internal fun StackGame(seed: Long, onDone: (Int) -> Unit) {
         RoundHud(score, "Floors", "$floors", detail = if (perfects > 0) "$perfects perfect" else "points")
         Box(
             Modifier.weight(1f).fillMaxWidth().onSizeChanged { box = it }.onGloballyPositioned { origin = it.positionInParent() }
-                .pointerInput(Unit) { detectTapGestures(onPress = { drop() }) },
+                .tapAnywhere { drop() },
         ) {
             Canvas(Modifier.fillMaxSize()) {
                 frame // redraw every frame
@@ -380,7 +380,7 @@ internal fun FlappyGame(seed: Long, onDone: (Int) -> Unit) {
         RoundHud((passed * 10), "Gaps", "$passed", detail = "points")
         Box(
             Modifier.weight(1f).fillMaxWidth().onSizeChanged { box = it }.onGloballyPositioned { origin = it.positionInParent() }
-                .pointerInput(Unit) { detectTapGestures(onPress = { flap() }) },
+                .tapAnywhere { flap() },
         ) {
             Canvas(Modifier.fillMaxSize()) {
                 val h = size.height

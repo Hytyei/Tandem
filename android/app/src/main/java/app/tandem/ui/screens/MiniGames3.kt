@@ -182,7 +182,7 @@ internal fun OrbitGame(seed: Long, onDone: (Int) -> Unit) {
         RoundHud(points, "Lives", "●".repeat(lives.coerceAtLeast(0)).ifEmpty { "–" }, detail = "$hits gates")
         Box(
             Modifier.weight(1f).fillMaxWidth().onSizeChanged { box = it }.onGloballyPositioned { origin = it.positionInParent() }
-                .pointerInput(Unit) { detectTapGestures(onPress = { tap() }) },
+                .tapAnywhere { tap() },
         ) {
             Canvas(Modifier.fillMaxSize()) {
                 val ctr = Offset(size.width / 2, size.height / 2)

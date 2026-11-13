@@ -5,6 +5,15 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "2.3.1", title = "v2.3.1 · Real pet sounds and real growing up", date = "2026-11-12",
+        items = listOf(
+            "Pulse counts every tap now, not only the first. Quick Draw, Stack, Flappy and Orbit got the same fix.",
+            "Pets grow up on a real clock: a kitten is a young cat at about 2 months and grown at a year, a puppy a dog at about 18 months, a bunny a rabbit at about 8 months, a chick a parrot at about 9 months, a hamster pup grown at about 3 months. Pets that grew up fast in 2.3.0 are young again for a while.",
+            "The growing up card shows your pet's age the way people say it and roughly how long until the next stage.",
+            "New pet sounds, recorded-style instead of synthesised: a real kitten meow and water lapping to start, more on the way.",
+        ),
+    ),
+    ReleaseNotes(
         version = "2.3.0", title = "v2.3.0 · Growing pets, deeper bonds and no more score limits", date = "2026-11-11",
         items = listOf(
             "Pets grow up: from kitten, puppy, bunny, chick or hamster pup to young and then grown, with care and time. Babies have big heads and eyes on small bodies, and grow into their looks.",
