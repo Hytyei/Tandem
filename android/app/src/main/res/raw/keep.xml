@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PetVoice looks the clips up by name, so the resource shrinker must keep them. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@raw/pet_*" />
