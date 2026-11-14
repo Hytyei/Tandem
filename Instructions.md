@@ -2,7 +2,7 @@
 
 Everything a developer or another AI agent needs to keep working on Tandem without any earlier context. Keep this file current: update it in the same commit as any change to features, structure, tooling or plans.
 
-Last updated: 2026-11-12, at version **2.3.1** (versionCode 22).
+Last updated: 2026-11-14, at version **2.3.2** (versionCode 23).
 
 ---
 
@@ -30,7 +30,7 @@ D:\RandD\Android Apps\Tandem App\
 │   ├── docs\               ← icon, old update notes, design specs (docs/superpowers/specs)
 │   ├── tools\              ← Python illustration painter for the mood/activity art
 │   └── .github\workflows\  ← CI (see section 9)
-├── v2.2.0\, v2.3.0\, v2.3.1\ …     ← one folder per version: the signed APK + install.bat
+├── v2.2.0\, v2.3.0\, v2.3.1\, v2.3.2\ …     ← one folder per version: the signed APK + install.bat
 ```
 
 **Version folders (standing rule):** every new version gets a new folder `Tandem App\v<version>\` holding that version's signed APK and an `install.bat` that installs it on a USB-connected phone with adb. Older version folders are never edited. The repository itself stays in `Tandem\`; it is not copied per version (git history and tags cover the source).
@@ -130,7 +130,7 @@ There are five tabs: **Today**, **Echoes** (moods, diary, heatmap), **Calendar**
   - **Perks:** Friend waits 20 minutes between free pats instead of 30; Close friend's care goes 20% further; Best friend's pet sometimes does a trick when tapped; a Soulmate's first pat of the day brings a gift of 2 food, 2 drink and 2 love.
   - New pets start at 15.
 - **Per pet the server keeps** `care` per person (counts, streak, last kinds), `gifts`, `together` (the day both cared) and `moments`, a short history: adopt, grow, bond level reached, gift, together. The pet page shows a growth card, a bond card for each partner and the moments (`ui/pets/PetBond.kt`).
-- **Voices (2.3.1):** recorded-style clips in `res/raw/pet_<kind>.mp3`, made with ElevenLabs sound effects (model eleven_text_to_sound_v2), played by `PetVoice.kt` with SoundPool at a per-pet rate (0.92–1.08). Kinds: meow, trill, purr, boof (bark), pant, squeak (hamster), grunt (rabbit sniff), chirp (parrot), nom, lap. A kind with no file is silent. Shipped so far: `pet_meow`, `pet_lap` (2.3.1); `pet_purr` added after 2.3.1, not yet released. Drop a new file in with the right name and it plays, no code change. The old formant synth (`PetSynth.kt`) was removed because it sounded artificial.
+- **Voices (2.3.1):** recorded-style clips in `res/raw/pet_<kind>.mp3`, made with ElevenLabs sound effects (model eleven_text_to_sound_v2), played by `PetVoice.kt` with SoundPool at a per-pet rate (0.92–1.08). Kinds: meow, trill, purr, boof (bark), pant, squeak (hamster), grunt (rabbit sniff), chirp (parrot), nom, lap. A kind with no file is silent. Shipped so far: `pet_meow`, `pet_lap` (2.3.1); `pet_purr`, `pet_trill`, `pet_boof`, `pet_pant` (2.3.2). Clips are trimmed to 1 to 3 s with ffmpeg and short fades. Drop a new file in with the right name and it plays, no code change. The old formant synth (`PetSynth.kt`) was removed because it sounded artificial.
 - **Personality and lines:** two traits per pet, derived from its id, shape what it says (`PetLines.kt`). Easter eggs:
   - pet names with their own lines;
   - 11:11 and 3:33;
@@ -255,7 +255,7 @@ The GitHub "Release Android APK" workflow **always fails** because the signing s
 ## 11. Planned and possible future work
 
 - **In-app currency:** stardust and comets were designed to become a real in-app currency later (owner's request at 2.0.0); comets are the re-roll item today.
-- **Pet voices:** make the seven missing clips (trill, boof, pant, squeak, grunt, chirp, nom) as soft, realistic, close-up recordings and add them to `res/raw`. The ElevenLabs free queue only let about one through at a time.
+- **Pet voices:** make the four missing clips (squeak, grunt, chirp, nom) as soft, realistic, close-up recordings and add them to `res/raw`. The ElevenLabs free queue only let about one through at a time.
 - **Occasions:** notification reminders, a setting to hide holidays the couple doesn't celebrate, more occasions (birthdays already exist as special days), and checking Iran's Girls' Day against the official calendar each year (Umm al-Qura can differ by a day).
 - **Push:** real-time push (for example FCM) instead of 15-minute polling.
 - **Release CI:** add the signing secrets to GitHub or remove the failing workflow.
@@ -275,4 +275,5 @@ The GitHub "Release Android APK" workflow **always fails** because the signing s
 | 2.1.0 / 2.1.1 | 2026-11-08 | Galaxy on every phone and on the dusk sky; new achievements, stats and goals; "Our little world" scene |
 | 2.2.0 | 2026-11-08 | Occasions with effects, 26 more achievements, pet personalities and new voices, tug-of-war head to head, cycle and diary changes, verified badge |
 | 2.3.1 | 2026-11-12 | Pulse tap fix (and other tap games); realistic growing-up times per species with ages on the growth card; recorded pet sounds replace the synth (meow, lapping) |
+| 2.3.2 | 2026-11-14 | More recorded pet sounds: purr, trill, puppy bark, panting |
 | 2.3.0 | 2026-11-11 | Pets grow from baby to adult; bonds with six levels, perks, streaks and moments; galaxy zoom much closer and double-tap; Pulse, Firefly Count, Twin Stars; no score ceilings in any game |

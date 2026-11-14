@@ -5,6 +5,14 @@ class ReleaseNotes(val version: String, val title: String, val date: String, val
 
 val CHANGELOG: List<ReleaseNotes> = listOf(
     ReleaseNotes(
+        version = "2.3.2", title = "v2.3.2 · More real pet sounds", date = "2026-11-14",
+        items = listOf(
+            "Cats purr and give a happy little trill now, alongside their meow and lapping.",
+            "Dogs give a soft puppy bark and pant happily.",
+            "Hamsters, rabbits and parrots stay quiet for now. Their sounds come in a later update.",
+        ),
+    ),
+    ReleaseNotes(
         version = "2.3.1", title = "v2.3.1 · Real pet sounds and real growing up", date = "2026-11-12",
         items = listOf(
             "Pulse counts every tap now, not only the first. Quick Draw, Stack, Flappy and Orbit got the same fix.",
